@@ -1,0 +1,14 @@
+[ignore]
+self_inter = True
+intra_chain = True
+inter_chain = True
+res_res = True
+res_nucl = True
+res_hetatm = False
+nucl_nucl = True
+nucl_hetatm = True
+hetatm_hetatm = False
+h2o_h2o = True
+any_h2o = True
+multi_comps = False
+mixed_class = False

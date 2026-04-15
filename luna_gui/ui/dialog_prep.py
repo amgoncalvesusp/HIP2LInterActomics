@@ -1,0 +1,262 @@
+"""Wizard dialog — split docking MOL2 files into protein PDB + ligand MOL2."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton,
+    QSpinBox, QFileDialog, QLabel, QPlainTextEdit, QMessageBox, QCheckBox,
+    QGroupBox, QRadioButton, QButtonGroup, QWidget,
+)
+from PyQt6.QtCore import Qt
+
+from ..core.mol2_prep import split_docking_folder, detect_last_protein_atom
+
+
+class DockingPrepDialog(QDialog):
+    """Wizard to split combined docking MOL2 (protein+ligand) into separate files."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Preparar arquivos de docking")
+        self.resize(760, 560)
+
+        self.result_protein_dir: str | None = None
+        self.result_ligand_dir: str | None = None
+        self._detected_last_pa: int | None = None
+
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel(
+            "Selecione uma pasta com arquivos .mol2 vindos de docking "
+            "(proteína + ligante no mesmo arquivo).\n"
+            "Serão geradas duas subpastas: proteinas_pdb/ e ligantes_mol2/."
+        ))
+
+        form = QFormLayout()
+
+        # --- Pasta de origem ---
+        self.src_edit = QLineEdit()
+        btn_src = QPushButton("...")
+        btn_src.setFixedWidth(30)
+        btn_src.clicked.connect(self._pick_src)
+        row = QHBoxLayout()
+        row.addWidget(self.src_edit)
+        row.addWidget(btn_src)
+        form.addRow("Pasta de origem:", self._wrap(row))
+
+        # --- Pasta de saída ---
+        self.out_edit = QLineEdit()
+        self.out_edit.setPlaceholderText("(padrão: mesma pasta da origem)")
+        btn_out = QPushButton("...")
+        btn_out.setFixedWidth(30)
+        btn_out.clicked.connect(self._pick_out)
+        row = QHBoxLayout()
+        row.addWidget(self.out_edit)
+        row.addWidget(btn_out)
+        form.addRow("Pasta de saída:", self._wrap(row))
+
+        layout.addLayout(form)
+
+        # --- Seção: último átomo da proteína ---
+        last_box = QGroupBox("Último átomo da proteína")
+        last_layout = QVBoxLayout(last_box)
+
+        # Radio buttons
+        self.rb_auto = QRadioButton("Detectar automaticamente")
+        self.rb_manual = QRadioButton("Informar manualmente")
+        self.rb_auto.setChecked(True)
+        btn_grp = QButtonGroup(self)
+        btn_grp.addButton(self.rb_auto)
+        btn_grp.addButton(self.rb_manual)
+        self.rb_auto.toggled.connect(self._on_mode_changed)
+
+        radio_row = QHBoxLayout()
+        radio_row.addWidget(self.rb_auto)
+        radio_row.addWidget(self.rb_manual)
+        radio_row.addStretch()
+        last_layout.addLayout(radio_row)
+
+        # Auto-detect panel
+        self.auto_panel = QWidget()
+        auto_layout = QHBoxLayout(self.auto_panel)
+        auto_layout.setContentsMargins(0, 0, 0, 0)
+        self.btn_detect = QPushButton("Detectar agora")
+        self.btn_detect.clicked.connect(self._detect)
+        self.detect_result_label = QLabel("(selecione a pasta de origem primeiro)")
+        self.detect_result_label.setStyleSheet("color: #555;")
+        auto_layout.addWidget(self.btn_detect)
+        auto_layout.addWidget(self.detect_result_label, 1)
+        last_layout.addWidget(self.auto_panel)
+
+        # Manual panel
+        self.manual_panel = QWidget()
+        manual_layout = QHBoxLayout(self.manual_panel)
+        manual_layout.setContentsMargins(0, 0, 0, 0)
+        self.sp_last = QSpinBox()
+        self.sp_last.setRange(1, 1_000_000)
+        self.sp_last.setValue(4068)
+        self.sp_last.setToolTip(
+            "Número do último átomo da proteína no MOL2.\n"
+            "Átomos com índice > este valor são tratados como ligante."
+        )
+        manual_layout.addWidget(QLabel("Último átomo da proteína:"))
+        manual_layout.addWidget(self.sp_last)
+        manual_layout.addStretch()
+        last_layout.addWidget(self.manual_panel)
+        self.manual_panel.setVisible(False)
+
+        layout.addWidget(last_box)
+
+        # --- Opções extras ---
+        self.cb_open_after = QCheckBox(
+            "Usar as pastas geradas como entradas do projeto ao fechar"
+        )
+        self.cb_open_after.setChecked(True)
+        layout.addWidget(self.cb_open_after)
+
+        # --- Botões de ação ---
+        btn_row = QHBoxLayout()
+        self.btn_run = QPushButton("Executar preparação")
+        self.btn_run.setStyleSheet("padding: 6px 14px;")
+        self.btn_run.clicked.connect(self._run)
+        self.btn_close = QPushButton("Fechar")
+        self.btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_run)
+        btn_row.addStretch()
+        btn_row.addWidget(self.btn_close)
+        layout.addLayout(btn_row)
+
+        # --- Log ---
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        layout.addWidget(self.log, 1)
+
+    # ---- helpers ----
+
+    def _wrap(self, sub_layout) -> QWidget:
+        w = QWidget(); w.setLayout(sub_layout); return w
+
+    def _on_mode_changed(self) -> None:
+        auto = self.rb_auto.isChecked()
+        self.auto_panel.setVisible(auto)
+        self.manual_panel.setVisible(not auto)
+
+    # ---- pickers ----
+
+    def _pick_src(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Pasta com arquivos MOL2 de docking")
+        if d:
+            self.src_edit.setText(d)
+            # Trigger auto-detect whenever a new folder is chosen
+            if self.rb_auto.isChecked():
+                self._detect()
+
+    def _pick_out(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Pasta de saída")
+        if d:
+            self.out_edit.setText(d)
+
+    # ---- auto-detect ----
+
+    def _detect(self) -> None:
+        src = self.src_edit.text().strip()
+        if not src or not Path(src).is_dir():
+            self.detect_result_label.setText("Selecione a pasta de origem primeiro.")
+            return
+
+        # Pick the first .mol2 in the folder as representative sample
+        mol2_files = sorted(Path(src).glob("*.mol2"))
+        if not mol2_files:
+            self.detect_result_label.setText("Nenhum arquivo .mol2 encontrado.")
+            return
+
+        sample = mol2_files[0]
+        self.detect_result_label.setText(f"Analisando {sample.name}…")
+        self.detect_result_label.repaint()
+
+        try:
+            r = detect_last_protein_atom(sample)
+        except Exception as e:
+            self.detect_result_label.setText(f"Erro: {e}")
+            self._detected_last_pa = None
+            return
+
+        self._detected_last_pa = r.last_pa
+        lig_str = ", ".join(r.ligand_names[:4])
+        if len(r.ligand_names) > 4:
+            lig_str += f" … (+{len(r.ligand_names)-4})"
+
+        msg = (
+            f"Último átomo da proteína: {r.last_pa}  "
+            f"(método: {r.method})  |  "
+            f"Proteína: {r.n_protein_atoms} átomos  |  "
+            f"Ligante: {r.n_ligand_atoms} átomos"
+        )
+        if lig_str:
+            msg += f"\nLigantes detectados: {lig_str}"
+        self.detect_result_label.setText(msg)
+        self.detect_result_label.setStyleSheet("color: #1a7a1a;")
+
+        self.log.appendPlainText(f"[auto-detect] {sample.name}")
+        self.log.appendPlainText(f"  last_pa={r.last_pa}  método={r.method}")
+        self.log.appendPlainText(f"  proteína: {r.n_protein_atoms} átomos")
+        self.log.appendPlainText(f"  ligante(s): {r.n_ligand_atoms} átomos — {lig_str or 'nenhum'}")
+
+    # ---- main action ----
+
+    def _run(self) -> None:
+        src = self.src_edit.text().strip()
+        if not src or not Path(src).is_dir():
+            QMessageBox.warning(self, "Pasta inválida", "Selecione uma pasta de origem válida.")
+            return
+
+        # Resolve last_pa
+        if self.rb_auto.isChecked():
+            if self._detected_last_pa is None:
+                # Try to detect right now if user forgot to click "Detectar"
+                self._detect()
+            if self._detected_last_pa is None:
+                QMessageBox.warning(
+                    self, "Detecção falhou",
+                    "Não foi possível detectar o último átomo automaticamente.\n"
+                    "Troque para 'Informar manualmente' e insira o valor."
+                )
+                return
+            last_pa = self._detected_last_pa
+        else:
+            last_pa = self.sp_last.value()
+
+        out = self.out_edit.text().strip() or None
+
+        self.log.appendPlainText(
+            f"\nIniciando preparação — last_pa={last_pa}, src={src}"
+        )
+        try:
+            r = split_docking_folder(src, last_pa, out)
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", str(e))
+            return
+
+        self.log.appendPlainText(
+            f"Arquivos lidos: {r.files_processed} | "
+            f"Proteínas: {r.proteins_written} | Ligantes: {r.ligands_written}"
+        )
+        self.log.appendPlainText(f"Proteínas → {r.protein_dir}")
+        self.log.appendPlainText(f"Ligantes  → {r.ligand_dir}")
+        for err in r.errors:
+            self.log.appendPlainText(f"[erro] {err}")
+
+        if r.ligands_written == 0:
+            QMessageBox.warning(
+                self, "Nenhum ligante gerado",
+                f"Nenhum ligante foi extraído com last_pa={last_pa}.\n\n"
+                "Se o valor foi detectado automaticamente, tente trocar para "
+                "'Informar manualmente' e ajustar o número."
+            )
+            return
+
+        self.result_protein_dir = r.protein_dir
+        self.result_ligand_dir = r.ligand_dir
+        self.log.appendPlainText("\nConcluido com sucesso.")
