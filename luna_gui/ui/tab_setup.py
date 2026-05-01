@@ -4,10 +4,10 @@ from __future__ import annotations
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtCore import QProcess, pyqtSignal
+from PyQt6.QtCore import QProcess, QProcessEnvironment, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit,
-    QMessageBox,
+    QMessageBox, QGroupBox,
 )
 
 from ..core import env_manager as em
@@ -29,14 +29,21 @@ class SetupTab(QWidget):
         self.status_label.setStyleSheet("font-size: 14px; padding: 8px;")
         layout.addWidget(self.status_label)
 
+        about_box = QGroupBox("O que é o LUNA GUI")
+        about_layout = QVBoxLayout(about_box)
         help_label = QLabel(
-            "Use esta aba para preparar o ambiente da GUI. Primeiro confira se o Conda foi "
-            "encontrado; se não existir, baixe o Miniconda. Depois instale o LUNA no ambiente "
-            "separado 'luna-env'."
+            "O LUNA GUI é uma interface gráfica para preparar, executar e interpretar análises "
+            "baseadas no LUNA. Ele ajuda a avaliar resultados de virtual screening, comparar "
+            "poses ou trajetórias de dinâmica molecular, construir modelos de machine learning "
+            "com fingerprints de interação e extrair pharmacophoric features de um alvo "
+            "específico. Nesta aba você prepara o ambiente: verifica o Conda, instala ou atualiza "
+            "o ambiente separado 'luna-env' e garante que as dependências analíticas, como "
+            "scikit-learn, estejam disponíveis."
         )
         help_label.setWordWrap(True)
         help_label.setProperty("muted", True)
-        layout.addWidget(help_label)
+        about_layout.addWidget(help_label)
+        layout.addWidget(about_box)
 
         btn_row = QHBoxLayout()
         self.btn_refresh = QPushButton("Verificar novamente")
@@ -77,6 +84,15 @@ class SetupTab(QWidget):
             return
         self.log.appendPlainText(f"Conda: {conda}")
         self.conda = conda
+        prefix = em.env_prefix(conda)
+        self.log.appendPlainText(f"Prefixo do env: {prefix}")
+
+        if em.env_is_partial(conda):
+            self.status_label.setText(
+                "⚠️  Conda OK. Ambiente 'luna-env' está incompleto e será recriado ao clicar em 'Instalar LUNA'."
+            )
+            self.btn_install_luna.setEnabled(True)
+            return
 
         if not em.env_exists(conda):
             self.status_label.setText("⚠️  Conda OK. Ambiente 'luna-env' não existe — clique em 'Instalar LUNA'.")
@@ -99,6 +115,22 @@ class SetupTab(QWidget):
             self.status_label.setText("⚠️  LUNA importado mas run.py não foi localizado.")
             return
 
+        missing = em.missing_runtime_packages(py)
+        if missing:
+            self.status_label.setText(
+                "⚠️  LUNA pronto, mas faltam dependências para análises avançadas: "
+                + ", ".join(missing)
+                + ". Clique em 'Instalar LUNA' para atualizar o luna-env."
+            )
+            self.log.appendPlainText(
+                "Dependências ausentes no luna-env: "
+                + ", ".join(missing)
+                + "\nUse 'Instalar LUNA' para executar conda install/update com scikit-learn."
+            )
+            self.btn_install_luna.setEnabled(True)
+            self.luna_ready.emit(str(py), str(run_py))
+            return
+
         self.status_label.setText(f"✅ LUNA pronto. run.py: {run_py}")
         self.log.appendPlainText(f"run.py: {run_py}")
         self.luna_ready.emit(str(py), str(run_py))
@@ -109,10 +141,23 @@ class SetupTab(QWidget):
         if not conda:
             QMessageBox.warning(self, "Conda ausente", "Instale o Miniconda primeiro.")
             return
+        prefix = em.env_prefix(conda)
+        try:
+            removed = em.cleanup_partial_env(conda)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Erro ao preparar ambiente",
+                f"Não foi possível limpar o ambiente parcial em:\n{prefix}\n\n{exc}",
+            )
+            return
         self._cmd_queue = em.install_commands(conda)
         self.btn_install_luna.setEnabled(False)
         self.log.appendPlainText("\n=== Iniciando instalação do LUNA ===")
         self.log.appendPlainText("Isso pode levar vários minutos.\n")
+        self.log.appendPlainText(f"Prefixo alvo do ambiente: {prefix}")
+        if removed:
+            self.log.appendPlainText(f"Ambiente parcial removido: {removed}")
         self._run_next()
 
     def _run_next(self) -> None:
@@ -125,6 +170,10 @@ class SetupTab(QWidget):
         self.log.appendPlainText(f"\n$ {' '.join(cmd)}\n")
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        proc_env = QProcessEnvironment()
+        for key, value in em.conda_process_env(cmd[0]).items():
+            proc_env.insert(key, value)
+        self.proc.setProcessEnvironment(proc_env)
         self.proc.readyReadStandardOutput.connect(self._on_stdout)
         self.proc.finished.connect(self._on_finished)
         self.proc.start(cmd[0], cmd[1:])

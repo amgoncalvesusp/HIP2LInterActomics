@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import html
+import textwrap
 from datetime import datetime
 from pathlib import Path
 
@@ -126,4 +127,252 @@ th{{background:#efe7db;text-align:left}}
 def save_report(path: str | Path, **kwargs) -> Path:
     path = Path(path)
     path.write_text(build_report(**kwargs), encoding="utf-8")
+    return path
+
+
+def _cfg_rows_for_pdf(cfg: ProjectConfig) -> list[tuple[str, str]]:
+    rows = [
+        ("Proteína", cfg.protein_file or "-"),
+        ("Ligantes", cfg.ligand_file or "-"),
+        ("Workdir", cfg.workdir or "-"),
+        ("Ligantes selecionados", str(len(cfg.selected_ligands))),
+        ("Incluir águas", "Sim" if cfg.include_waters else "Não"),
+        ("Adicionar H", f"Sim, pH {cfg.ph:g}" if cfg.add_h else "Não"),
+        ("IFP", f"{cfg.ifp_type}; níveis={cfg.ifp_levels}; raio={cfg.ifp_radius:g}; tamanho={cfg.ifp_length}"),
+        ("Fingerprint de contagem", "Não" if cfg.ifp_bit else "Sim"),
+        ("Matriz de similaridade", "Sim" if cfg.sim_matrix else "Não"),
+        ("Sessões PyMOL", "Sim" if cfg.out_pse else "Não"),
+        ("Filtro binding modes", cfg.binding_modes_cfg or "-"),
+        ("Config. interações", cfg.interaction_config_file or "Padrão LUNA"),
+        ("Distância máxima global", f"{cfg.inter_max_distance_cap:g} A" if cfg.inter_max_distance_cap else "-"),
+        ("Rótulos FP", cfg.fp_labels_csv or "-"),
+        ("Tarefa FP", cfg.fp_label_task),
+        ("Otsu fallback", "Sim" if getattr(cfg, "fp_use_otsu_threshold", False) else "Não"),
+        ("Núcleos", str(cfg.nproc)),
+    ]
+    return rows
+
+
+def _add_text_page(pdf, title: str, paragraphs: list[str], rows: list[tuple[str, str]] | None = None) -> None:
+    from matplotlib.figure import Figure
+    from matplotlib.patches import Rectangle
+
+    fig = Figure(figsize=(8.27, 11.69), dpi=140)
+    fig.patch.set_facecolor("#fbf7ef")
+    ax = fig.add_subplot(111)
+    ax.axis("off")
+    ax.add_patch(
+        Rectangle(
+            (0.0, 0.925),
+            1.0,
+            0.075,
+            transform=ax.transAxes,
+            facecolor="#145c58",
+            edgecolor="none",
+        )
+    )
+    ax.text(0.06, 0.965, title, fontsize=17, weight="bold", va="top", color="white")
+    y = 0.89
+    for paragraph in paragraphs:
+        for line in textwrap.wrap(str(paragraph), width=92):
+            ax.text(0.06, y, line, fontsize=9.7, va="top", color="#2d251e")
+            y -= 0.019
+        y -= 0.014
+        if y < 0.12:
+            pdf.savefig(fig, bbox_inches="tight", dpi=220)
+            fig = Figure(figsize=(8.27, 11.69), dpi=140)
+            fig.patch.set_facecolor("#fbf7ef")
+            ax = fig.add_subplot(111)
+            ax.axis("off")
+            ax.add_patch(
+                Rectangle(
+                    (0.0, 0.925), 1.0, 0.075, transform=ax.transAxes,
+                    facecolor="#145c58", edgecolor="none",
+                )
+            )
+            ax.text(0.06, 0.965, title, fontsize=17, weight="bold", va="top", color="white")
+            y = 0.89
+    if rows:
+        y -= 0.01
+        ax.add_patch(
+            Rectangle(
+                (0.055, max(0.05, y - 0.006)),
+                0.89,
+                0.018,
+                transform=ax.transAxes,
+                facecolor="#e7d9c5",
+                edgecolor="none",
+            )
+        )
+        for row_index, (key, value) in enumerate(rows):
+            wrapped = textwrap.wrap(str(value), width=70) or [""]
+            if row_index % 2 == 0:
+                ax.add_patch(
+                    Rectangle(
+                        (0.055, max(0.03, y - 0.004)),
+                        0.89,
+                        0.022 * max(1, len(wrapped)),
+                        transform=ax.transAxes,
+                        facecolor="#fffdf8",
+                        edgecolor="#eadfce",
+                        linewidth=0.25,
+                    )
+                )
+            ax.text(0.06, y, str(key), fontsize=8.8, weight="bold", va="top", color="#145c58")
+            ax.text(0.32, y, wrapped[0], fontsize=8.8, va="top", color="#2d251e")
+            y -= 0.018
+            for extra in wrapped[1:]:
+                ax.text(0.32, y, extra, fontsize=8.8, va="top", color="#2d251e")
+                y -= 0.018
+            y -= 0.006
+            if y < 0.08:
+                pdf.savefig(fig, bbox_inches="tight", dpi=220)
+                fig = Figure(figsize=(8.27, 11.69), dpi=140)
+                fig.patch.set_facecolor("#fbf7ef")
+                ax = fig.add_subplot(111)
+                ax.axis("off")
+                ax.add_patch(
+                    Rectangle(
+                        (0.0, 0.925), 1.0, 0.075, transform=ax.transAxes,
+                        facecolor="#145c58", edgecolor="none",
+                    )
+                )
+                ax.text(0.06, 0.965, title, fontsize=17, weight="bold", va="top", color="white")
+                y = 0.89
+    pdf.savefig(fig, bbox_inches="tight", dpi=220)
+
+
+def _add_image_page(pdf, title: str, image_path: Path, caption: str) -> None:
+    from matplotlib.figure import Figure
+    import matplotlib.image as mpimg
+
+    if not image_path.exists():
+        return
+    fig = Figure(figsize=(13.2, 9.3), dpi=140)
+    fig.patch.set_facecolor("#fbf7ef")
+    ax = fig.add_subplot(111)
+    ax.axis("off")
+    fig.text(0.045, 0.955, title, fontsize=17, weight="bold", color="#145c58", va="top")
+    img = mpimg.imread(str(image_path))
+    ax.imshow(img, interpolation="nearest")
+    ax.set_position([0.045, 0.15, 0.91, 0.75])
+    fig.text(
+        0.045,
+        0.055,
+        caption,
+        fontsize=9.5,
+        color="#2d251e",
+        bbox={"boxstyle": "round,pad=0.45", "facecolor": "#fffdf8", "edgecolor": "#e7d9c5"},
+        wrap=True,
+    )
+    pdf.savefig(fig, bbox_inches="tight", dpi=260)
+
+
+def save_pdf_report(
+    path: str | Path,
+    cfg: ProjectConfig,
+    analysis: dict,
+    heatmap_png: Path | None = None,
+    interactions_png: Path | None = None,
+    cluster_png: Path | None = None,
+    clusters: list[tuple[str, int]] | None = None,
+    fp_dashboards: dict | None = None,
+    extra_images: list[tuple[str, str | Path, str]] | None = None,
+) -> Path:
+    """Generate a compact PDF report with parameters and interpretation notes."""
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    inter_counts = analysis.get("interaction_counts", {}) or {}
+    top_inter = sorted(inter_counts.items(), key=lambda item: -item[1])[:12]
+    residue_counts = analysis.get("residue_counts", {}) or {}
+    top_res = sorted(residue_counts.items(), key=lambda item: -item[1])[:12]
+    top_inter_text = ", ".join(f"{k}: {v}" for k, v in top_inter) or "Sem interações contabilizadas."
+    top_res_text = ", ".join(f"{k}: {v}" for k, v in top_res) or "Sem resíduos contabilizados."
+
+    with PdfPages(path) as pdf:
+        _add_text_page(
+            pdf,
+            "Relatório LUNA GUI",
+            [
+                f"Gerado em {datetime.now().strftime('%Y-%m-%d %H:%M')}.",
+                "Este relatório resume os resultados carregados na aba 5.Resultados, os parâmetros usados no projeto e uma leitura guiada dos gráficos. Use-o como material de triagem: padrões fortes indicam hipóteses para inspeção estrutural, não uma conclusão automática de afinidade.",
+                f"Entradas processadas: {analysis.get('entries', 'não informado')}.",
+            ],
+            _cfg_rows_for_pdf(cfg),
+        )
+        _add_text_page(
+            pdf,
+            "Como interpretar as análises",
+            [
+                "Estatísticas de interação: contam quantas vezes cada tipo de contato foi observado. Barras altas indicam mecanismos recorrentes, como ligações de hidrogênio, contatos hidrofóbicos ou interações iônicas. Compare tipos dominantes com resíduos frequentes para separar padrões químicos reais de ruído de pose.",
+                "Heatmap por tipo: cruza ligantes e resíduos para uma interação escolhida. Células mais intensas indicam mais ocorrências daquele contato. Colunas densas sugerem resíduos-chave; linhas densas sugerem ligantes com muitos contatos daquele tipo.",
+                "Heatmap completo ligantes x resíduos: usa faixas coloridas para mostrar múltiplos tipos de interação no mesmo par ligante-resíduo. Ele é útil para enxergar complementaridade química: o mesmo resíduo pode estabilizar ligantes por mecanismos diferentes.",
+                "Matriz de similaridade: compara ligantes pelos fingerprints de interação. Valores próximos de 1 indicam perfis de interação semelhantes; valores baixos indicam modos de interação distintos, mesmo quando as moléculas parecem estruturalmente parecidas.",
+                "Clusters: reorganizam a matriz de similaridade para revelar famílias de ligantes por comportamento no sítio. Use os grupos como hipótese para priorização e para escolher representantes para inspeção no PyMOL.",
+                "Fingerprints e FP análises: cada feature resume uma vizinhança de interação. A classe atribuída descreve a natureza dominante da feature; a importância do modelo estima quanto ela ajuda a separar classes/rótulos ou valores de atividade.",
+                "Importância e p-value: o z-score de importância compara uma feature contra a distribuição de importâncias do conjunto. O p-value é um filtro exploratório; features abaixo do corte merecem inspeção visual, especialmente quando aparecem em vários ligantes.",
+                "Otsu's Thresholding: quando nenhuma feature passa pelo critério z-score > 1, Otsu define um limiar alternativo baseado na separação da distribuição de percentuais. Isso evita aceitar apenas casos 100% prevalentes quando a base tem padrões intermediários.",
+                "Sessões PyMOL: permitem validar visualmente se as features ou filtros representam contatos plausíveis no complexo. A filtragem dinâmica pode gerar sessões novas ou, se o projeto salvo não reabrir, copiar sessões existentes compatíveis com a matriz cacheada.",
+            ],
+            [
+                ("Interações mais frequentes", top_inter_text),
+                ("Resíduos mais frequentes", top_res_text),
+            ],
+        )
+        if interactions_png:
+            _add_image_page(
+                pdf,
+                "Distribuição de interações",
+                Path(interactions_png),
+                "Cada barra representa a contagem de uma classe de interação. Use barras dominantes para identificar forças químicas recorrentes e barras raras para procurar contatos específicos que podem diferenciar poucos ligantes.",
+            )
+        if heatmap_png:
+            _add_image_page(
+                pdf,
+                "Matriz de similaridade",
+                Path(heatmap_png),
+                "Cada célula compara dois ligantes pelo fingerprint de interação. Tons mais intensos indicam maior similaridade; blocos ao longo da diagonal sugerem famílias com modos de interação semelhantes.",
+            )
+        if cluster_png:
+            _add_image_page(
+                pdf,
+                "Clusters",
+                Path(cluster_png),
+                "O dendrograma mostra a distância entre perfis de interação e a matriz reordenada evidencia grupos. Clusters compactos sugerem ligantes que compartilham padrões de contato e podem ser priorizados em conjunto.",
+            )
+        for title, image_path, caption in extra_images or []:
+            _add_image_page(pdf, str(title), Path(image_path), str(caption))
+        fp_rows: list[tuple[str, str]] = []
+        for key, dashboard in (fp_dashboards or {}).items():
+            if not isinstance(dashboard, dict):
+                continue
+            fp_rows.append(
+                (
+                    str(key),
+                    (
+                        f"features={len(dashboard.get('features', []) or [])}; "
+                        f"importantes={len(dashboard.get('important_features', []) or [])}; "
+                        f"modelo={dashboard.get('model_name', '-')}; "
+                        f"limiar={float(dashboard.get('threshold_pct', 0.0) or 0.0):.2f}%"
+                    ),
+                )
+            )
+        if fp_rows:
+            _add_text_page(
+                pdf,
+                "Resumo das FP análises",
+                [
+                    "Cada linha resume uma base de fingerprints carregada. Se o modelo aparecer como fallback ou indisponível, a interpretação deve ser tratada como exploratória e a interface mostra a causa no campo de método.",
+                ],
+                fp_rows[:30],
+            )
+        if clusters:
+            _add_text_page(
+                pdf,
+                "Atribuição de clusters",
+                ["Tabela com os primeiros ligantes e seus clusters hierárquicos."],
+                [(label, str(cluster_id)) for label, cluster_id in clusters[:80]],
+            )
     return path

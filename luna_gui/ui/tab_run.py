@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -9,10 +10,11 @@ from PyQt6.QtCore import QProcess, QProcessEnvironment, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QSpinBox, QCheckBox, QPlainTextEdit, QMessageBox, QGroupBox,
+    QProgressBar,
 )
 
 from ..core.project import ProjectConfig
-from ..core import luna_runner, ligand_io, luna_api_runner
+from ..core import env_manager as em, luna_runner, ligand_io, luna_api_runner
 
 
 class RunTab(QWidget):
@@ -25,6 +27,7 @@ class RunTab(QWidget):
         self.run_py: str = ""
         self.proc: QProcess | None = None
         self.collect_callback = None  # set by MainWindow
+        self._last_progress_pct = 0
 
         layout = QVBoxLayout(self)
 
@@ -71,6 +74,14 @@ class RunTab(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
+        self.progress.setFormat("Aguardando execução")
+        self.progress.setToolTip("Mostra o progresso informado pelo LUNA durante a etapa atual.")
+        layout.addWidget(self.progress)
+
         self.cmd_label = QLabel("")
         self.cmd_label.setWordWrap(True)
         self.cmd_label.setToolTip("Mostra o comando efetivo usado para executar o LUNA nesta rodada.")
@@ -105,17 +116,33 @@ class RunTab(QWidget):
             QMessageBox.warning(self, "Configuração inválida", "\n".join(errs))
             return
 
+        add_h_errs = luna_api_runner.validate_hydrogen_inputs(self.cfg)
+        if add_h_errs:
+            QMessageBox.warning(self, "Alerta de hidrogênios (Add_H)", "\n".join(add_h_errs))
+            return
+
         # Write entries.txt to workdir
         wd = Path(self.cfg.workdir)
         wd.mkdir(parents=True, exist_ok=True)
         entries_file = wd / "entries.txt"
         ligand_io.write_entries_file(entries_file, self.cfg.selected_ligands)
+        self.cfg.force_python_api = True
 
-        # Pick CLI or Python-API runner based on advanced-option flags
-        if self.cfg.uses_python_api():
-            cmd = luna_api_runner.build_api_command(
-                self.py_exe, self.cfg, self.cfg.selected_ligands
+        # Pick CLI or Python-API runner based on advanced options and receptor handling.
+        if luna_api_runner.should_use_api_runner(self.cfg):
+            extra_errs = luna_api_runner.validate_entry_specs(
+                self.cfg, self.cfg.selected_ligands
             )
+            if extra_errs:
+                QMessageBox.warning(self, "Configuração inválida", "\n".join(extra_errs))
+                return
+            try:
+                cmd = luna_api_runner.build_api_command(
+                    self.py_exe, self.cfg, self.cfg.selected_ligands
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "Configuração inválida", str(e))
+                return
             runner_label = "Python API"
         else:
             cmd = luna_runner.build_command(
@@ -125,14 +152,19 @@ class RunTab(QWidget):
         self.cmd_label.setText("$ " + " ".join(cmd))
         self.log.clear()
         self.log.appendPlainText(f"=== Iniciando LUNA ({runner_label}) ===\n")
+        self.progress.setValue(0)
+        self.progress.setFormat("0% - iniciando")
+        self._last_progress_pct = 0
 
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         # Force UTF-8 so LUNA's unicode status characters don't crash on cp1252 (Windows)
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PYTHONIOENCODING", "utf-8")
-        env.insert("PYTHONUTF8", "1")
-        self.proc.setProcessEnvironment(env)
+        proc_env = QProcessEnvironment()
+        for key, value in em.python_process_env(self.py_exe).items():
+            proc_env.insert(key, value)
+        proc_env.insert("PYTHONIOENCODING", "utf-8")
+        proc_env.insert("PYTHONUTF8", "1")
+        self.proc.setProcessEnvironment(proc_env)
         self.proc.readyReadStandardOutput.connect(self._on_stdout)
         self.proc.finished.connect(self._on_finished)
         self.btn_run.setEnabled(False)
@@ -147,14 +179,62 @@ class RunTab(QWidget):
     def _on_stdout(self) -> None:
         data = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
         self.log.insertPlainText(data)
+        self._update_progress_from_text(data)
         sb = self.log.verticalScrollBar()
         sb.setValue(sb.maximum())
+
+    def _update_progress_from_text(self, text: str) -> None:
+        clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+        api_progress = list(re.finditer(r"\[luna-api-progress\]\s*(\d{1,3})%\s*-\s*([^\r\n]+)", clean))
+        if api_progress:
+            match = api_progress[-1]
+            pct = max(0, min(100, int(match.group(1))))
+            stage = match.group(2).strip()
+            self._set_progress(pct, stage)
+            return
+
+        pattern = re.compile(r"(\d{1,3})%\s+\[[^\]]*\]\s+(\d+)/(\d+).*?-\s*([^\r\n.]+)")
+        matches = list(pattern.finditer(clean))
+        if matches:
+            match = matches[-1]
+            pct = max(0, min(100, int(match.group(1))))
+            done = match.group(2)
+            total = match.group(3)
+            stage = match.group(4).strip()
+            self._set_progress(pct, f"{stage} ({done}/{total})")
+            return
+
+        stage_markers = [
+            (r"novas entries carregadas|total de entries", 10, "entradas carregadas"),
+            (r"iniciando proj\.run", 20, "calculando interacoes"),
+            (r"resumo salvo|matriz de res", 72, "consolidando resultados"),
+            (r"gerando fingerprints", 78, "gerando fingerprints"),
+            (r"IFP .* salvo", 86, "fingerprints salvos"),
+            (r"Similaridade", 91, "calculando similaridade"),
+            (r"PSE salvos", 96, "gerando sessoes PyMOL"),
+            (r"conclu", 100, "concluido"),
+        ]
+        for pattern_text, pct, stage in stage_markers:
+            if re.search(pattern_text, clean, re.IGNORECASE):
+                self._set_progress(pct, stage)
+
+    def _set_progress(self, pct: int, stage: str) -> None:
+        pct = max(0, min(100, int(pct)))
+        if pct < self._last_progress_pct and pct != 0:
+            pct = self._last_progress_pct
+        self._last_progress_pct = pct
+        self.progress.setValue(pct)
+        self.progress.setFormat(f"{pct}% - {stage}")
 
     def _on_finished(self, code: int, _status) -> None:
         self.log.appendPlainText(f"\n=== LUNA finalizou (exit code {code}) ===")
         self.btn_run.setEnabled(True)
         self.btn_cancel.setEnabled(False)
         if code == 0:
+            self.progress.setValue(100)
+            self.progress.setFormat("100% - concluído")
             self.finished_ok.emit()
             QMessageBox.information(self, "Concluído",
                                     f"Análise concluída.\nResultados em: {self.cfg.workdir}")
+        else:
+            self.progress.setFormat(f"Falhou (exit code {code})")

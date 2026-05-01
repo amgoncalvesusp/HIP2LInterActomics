@@ -75,8 +75,13 @@ def build_command(
 def validate(cfg: ProjectConfig) -> list[str]:
     """Return a list of human-readable errors. Empty list = OK."""
     errs: list[str] = []
-    if not cfg.protein_file or not Path(cfg.protein_file).exists():
+    protein_path = Path(cfg.protein_file) if cfg.protein_file else None
+    if not cfg.protein_file or protein_path is None or not protein_path.exists():
         errs.append("Arquivo de proteína não encontrado.")
+    elif protein_path.is_dir() and not cfg.include_waters:
+        errs.append("Selecione um arquivo PDB de proteína ou marque análise hidratada para usar uma pasta.")
+    elif protein_path.is_dir() and cfg.include_waters and not any(protein_path.glob("*.pdb")):
+        errs.append("A pasta de proteínas não contém arquivos .pdb.")
     if not cfg.ligand_file or not Path(cfg.ligand_file).exists():
         errs.append("Arquivo de ligantes não encontrado.")
     if not cfg.selected_ligands:

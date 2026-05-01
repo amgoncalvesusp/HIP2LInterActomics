@@ -4,9 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton,
     QSpinBox, QFileDialog, QLabel, QPlainTextEdit, QMessageBox, QCheckBox,
-    QGroupBox, QRadioButton, QButtonGroup, QWidget,
+    QGroupBox, QRadioButton, QButtonGroup, QWidget, QProgressBar,
 )
 from PyQt6.QtCore import Qt
 
@@ -23,6 +24,7 @@ class DockingPrepDialog(QDialog):
 
         self.result_protein_dir: str | None = None
         self.result_ligand_dir: str | None = None
+        self.water_molecules_detected: int = 0
         self._detected_last_pa: int | None = None
 
         layout = QVBoxLayout(self)
@@ -126,6 +128,17 @@ class DockingPrepDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(self.btn_close)
         layout.addLayout(btn_row)
+
+        progress_row = QHBoxLayout()
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+        self.progress.setFormat("%v / %m")
+        progress_row.addWidget(self.progress, 1)
+        self.progress_status = QLabel("Aguardando execução.")
+        self.progress_status.setProperty("muted", True)
+        progress_row.addWidget(self.progress_status, 1)
+        layout.addLayout(progress_row)
 
         # --- Log ---
         self.log = QPlainTextEdit()
@@ -233,15 +246,38 @@ class DockingPrepDialog(QDialog):
         self.log.appendPlainText(
             f"\nIniciando preparação — last_pa={last_pa}, src={src}"
         )
+        total_files = len(sorted(Path(src).glob("*.mol2")))
+        self.progress.setRange(0, max(1, total_files))
+        self.progress.setValue(0)
+        self.progress_status.setText(f"0 / {total_files} arquivos processados")
+        self.btn_run.setEnabled(False)
+        self.btn_close.setEnabled(False)
+
+        def _on_progress(processed: int, total: int, filename: str, ok: bool, error_message: str) -> None:
+            self.progress.setRange(0, max(1, total))
+            self.progress.setValue(min(processed, max(1, total)))
+            if filename:
+                status = "ok" if ok else f"erro: {error_message}"
+                self.progress_status.setText(f"{processed} / {total} — {filename} ({status})")
+            else:
+                self.progress_status.setText(f"{processed} / {total} arquivos processados")
+            QApplication.processEvents()
+
         try:
-            r = split_docking_folder(src, last_pa, out)
+            r = split_docking_folder(src, last_pa, out, progress_cb=_on_progress)
         except Exception as e:
+            self.btn_run.setEnabled(True)
+            self.btn_close.setEnabled(True)
             QMessageBox.critical(self, "Erro", str(e))
             return
+        finally:
+            self.btn_run.setEnabled(True)
+            self.btn_close.setEnabled(True)
 
         self.log.appendPlainText(
             f"Arquivos lidos: {r.files_processed} | "
-            f"Proteínas: {r.proteins_written} | Ligantes: {r.ligands_written}"
+            f"Proteínas: {r.proteins_written} | Ligantes: {r.ligands_written} | "
+            f"Águas detectadas: {r.water_molecules_detected}"
         )
         self.log.appendPlainText(f"Proteínas → {r.protein_dir}")
         self.log.appendPlainText(f"Ligantes  → {r.ligand_dir}")
@@ -259,4 +295,10 @@ class DockingPrepDialog(QDialog):
 
         self.result_protein_dir = r.protein_dir
         self.result_ligand_dir = r.ligand_dir
+        self.water_molecules_detected = r.water_molecules_detected
+        self.progress.setValue(self.progress.maximum())
+        self.progress_status.setText(
+            f"Concluído — {r.files_processed} arquivos processados | "
+            f"{r.water_molecules_detected} águas detectadas"
+        )
         self.log.appendPlainText("\nConcluido com sucesso.")

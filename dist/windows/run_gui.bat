@@ -17,27 +17,50 @@ REM Resolve repo root (two levels above this script)
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
 
 REM Preferred explicit Python path for the GUI env
-set "PYTHON_EXE=C:\Users\adria\AppData\Local\Schrodinger\PyMOL3\envs\luna-gui\python.exe"
 
 REM Allow user override
+set "PYTHON_EXE="
 if not "%LUNA_GUI_PYTHON%"=="" set "PYTHON_EXE=%LUNA_GUI_PYTHON%"
 
-if not exist "%PYTHON_EXE%" (
+REM If already running from an activated luna-gui env, reuse it.
+if not defined PYTHON_EXE (
+    if /I "%CONDA_DEFAULT_ENV%"=="luna-gui" (
+        if exist "%CONDA_PREFIX%\python.exe" set "PYTHON_EXE=%CONDA_PREFIX%\python.exe"
+    )
+)
+
+if not defined PYTHON_EXE (
     for %%P in (
-        "C:\Users\adria\AppData\Local\Schrodinger\PyMOL3\envs\luna-gui\python.exe"
+        "%USERPROFILE%\.conda\envs\luna-gui\python.exe"
         "%USERPROFILE%\miniconda3\envs\luna-gui\python.exe"
         "%USERPROFILE%\anaconda3\envs\luna-gui\python.exe"
+        "%USERPROFILE%\miniforge3\envs\luna-gui\python.exe"
+        "%LOCALAPPDATA%\Schrodinger\PyMOL3\envs\luna-gui\python.exe"
+        "%LOCALAPPDATA%\miniconda3\envs\luna-gui\python.exe"
+        "%LOCALAPPDATA%\anaconda3\envs\luna-gui\python.exe"
+        "%LOCALAPPDATA%\miniforge3\envs\luna-gui\python.exe"
         "C:\ProgramData\miniconda3\envs\luna-gui\python.exe"
         "C:\ProgramData\anaconda3\envs\luna-gui\python.exe"
+        "C:\ProgramData\miniforge3\envs\luna-gui\python.exe"
     ) do (
         if exist "%%~P" (
             set "PYTHON_EXE=%%~P"
             goto :python_found
         )
     )
+)
+
+if not defined PYTHON_EXE (
     echo [ERRO] python do env luna-gui nao encontrado.
-    echo Esperado em: %PYTHON_EXE%
-    echo Defina LUNA_GUI_PYTHON ou ajuste este launcher para o caminho correto.
+    echo Defina LUNA_GUI_PYTHON ou ative o env luna-gui antes de chamar este launcher.
+    pause
+    exit /b 1
+)
+
+if not exist "%PYTHON_EXE%" (
+    echo [ERRO] python informado para o env luna-gui nao existe:
+    echo %PYTHON_EXE%
+    echo Defina LUNA_GUI_PYTHON para o python.exe correto do env luna-gui.
     pause
     exit /b 1
 )

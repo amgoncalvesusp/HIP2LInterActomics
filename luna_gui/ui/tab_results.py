@@ -171,13 +171,35 @@ class ResultsTab(QWidget):
                 return c
         return None
 
-    def _load_fingerprints(self, wd: Path) -> None:
-        candidates = [
-            Path(self.cfg.ifp_output) if self.cfg.ifp_output else None,
-            wd / "results" / "fingerprints" / "ifp.csv",
+    def _fingerprint_candidates(self, wd: Path) -> list[Path]:
+        custom = Path(self.cfg.ifp_output) if self.cfg.ifp_output else None
+        fp_dir = custom.parent if custom else wd / "results" / "fingerprints"
+        return [
+            c for c in [
+                custom,
+                wd / "results" / "fingerprints" / "ifp.csv",
+                fp_dir / "ifp_E.csv",
+                fp_dir / "ifp_H.csv",
+                fp_dir / "ifp_F.csv",
+            ] if c
         ]
-        candidates = [c for c in candidates if c]
-        f = self._find_first(wd, candidates)
+
+    def _sim_matrix_candidates(self, wd: Path) -> list[Path]:
+        custom = Path(self.cfg.sim_matrix_output) if self.cfg.sim_matrix_output else None
+        sim_dir = custom.parent if custom else wd
+        return [
+            c for c in [
+                custom,
+                wd / "sim_matrix.csv",
+                wd / "results" / "sim_matrix.csv",
+                sim_dir / "sim_matrix_E.csv",
+                sim_dir / "sim_matrix_H.csv",
+                sim_dir / "sim_matrix_F.csv",
+            ] if c
+        ]
+
+    def _load_fingerprints(self, wd: Path) -> None:
+        f = self._find_first(wd, self._fingerprint_candidates(wd))
         if not f:
             self.fp_path_label.setText("ifp.csv não encontrado")
             self.fp_table.clear(); self.fp_table.setRowCount(0); self.fp_table.setColumnCount(0)
@@ -210,13 +232,7 @@ class ResultsTab(QWidget):
     def _load_sim_matrix(self, wd: Path) -> None:
         if not HAS_MPL:
             return
-        candidates = [
-            Path(self.cfg.sim_matrix_output) if self.cfg.sim_matrix_output else None,
-            wd / "sim_matrix.csv",
-            wd / "results" / "sim_matrix.csv",
-        ]
-        candidates = [c for c in candidates if c]
-        f = self._find_first(wd, candidates)
+        f = self._find_first(wd, self._sim_matrix_candidates(wd))
         if not f:
             self.sm_path_label.setText("sim_matrix.csv não encontrado")
             self.fig.clear(); self.canvas.draw()
