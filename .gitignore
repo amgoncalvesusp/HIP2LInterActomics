@@ -8,3 +8,9 @@ _tmp_verify_run/
 test_anhydrated/
 test_hydrated/
 test_trajectory/
+test_anhydrated_linux/
+test_anhydrated_windows/
+test_hydrated_linux/
+test_hydrated_windows/
+test_trajectory_linux/
+test_trajectory_windows/

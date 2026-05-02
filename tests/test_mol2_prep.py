@@ -128,6 +128,9 @@ class Mol2PrepTests(unittest.TestCase):
             self.assertIn("HOH", pdb_text)
             self.assertIn(" OW ", pdb_text)
             self.assertIn("HW1", pdb_text)
+            water_lines = [line for line in pdb_text.splitlines() if " HOH " in line]
+            self.assertTrue(water_lines)
+            self.assertTrue(all(line.startswith("HETATM") for line in water_lines))
             self.assertNotIn(" LP ", pdb_text)
             self.assertNotIn("HOH", ligand_text)
             self.assertIn("2 1 1 0 0", ligand_text)

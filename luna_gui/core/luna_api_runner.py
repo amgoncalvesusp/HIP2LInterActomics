@@ -103,11 +103,32 @@ def _safe_name(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "entry"
 
 
+def _group_has_water_residue(atm_grp):
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        residue = getattr(atom, "parent", None)
+        if residue is None:
+            continue
+        resname = getattr(residue, "resname", None)
+        if resname is None:
+            try:
+                resname = residue.get_resname()
+            except Exception:
+                resname = ""
+        if str(resname or "").strip().upper() in WATER_RESIDUES:
+            return True
+    return False
+
+
 def _group_role(atm_grp):
     if atm_grp is None:
         return "unknown"
     try:
         if atm_grp.has_water():
+            return "water"
+    except Exception:
+        pass
+    try:
+        if _group_has_water_residue(atm_grp):
             return "water"
     except Exception:
         pass
@@ -143,6 +164,8 @@ def _classify_shell_natures(shell):
             natures.add("Upper level with protein atomic information only")
 
     has_ligand_protein = False
+    has_ligand_water = False
+    has_protein_water = False
     has_intraligand = False
     has_intraprotein = False
     for interaction in interactions:
@@ -151,16 +174,22 @@ def _classify_shell_natures(shell):
         pair = {src_role, trgt_role}
         if pair == {"ligand", "protein"}:
             has_ligand_protein = True
+        elif pair == {"ligand", "water"}:
+            has_ligand_water = True
+        elif pair == {"protein", "water"}:
+            has_protein_water = True
         elif src_role == "ligand" and trgt_role == "ligand":
             has_intraligand = True
         elif src_role == "protein" and trgt_role == "protein":
             has_intraprotein = True
 
-    if has_intraligand and not has_ligand_protein and not has_intraprotein:
+    has_water_mediated_protein_context = has_ligand_water and has_protein_water
+    has_protein_context = has_ligand_protein or has_water_mediated_protein_context
+    if has_intraligand and not has_protein_context and not has_intraprotein:
         natures.add("Intraligand interactions only")
-    if has_intraprotein and not has_ligand_protein and not has_intraligand:
+    if has_intraprotein and not has_protein_context and not has_intraligand:
         natures.add("Intraprotein interactions only")
-    if has_ligand_protein:
+    if has_protein_context:
         natures.add("Has noncovalent interactions with the protein")
 
     if not natures:
@@ -613,6 +642,8 @@ AA_RESIDUES = {
     "PRO", "SER", "THR", "TRP", "TYR", "VAL",
 }
 
+WATER_RESIDUES = {"HOH", "WAT", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+
 
 def _interaction_type_name(interaction):
     value = getattr(interaction, "type", None)
@@ -622,18 +653,43 @@ def _interaction_type_name(interaction):
     return str(value or interaction.__class__.__name__)
 
 
-def _residue_label(atom):
+def _residue_label(atom, include_water=False):
     residue = getattr(atom, "parent", None)
     if residue is None:
         return None
     resname = str(getattr(residue, "resname", "") or "").upper()
-    if resname not in AA_RESIDUES:
+    if resname not in AA_RESIDUES and not (include_water and resname in WATER_RESIDUES):
         return None
     chain = getattr(getattr(residue, "parent", None), "id", "?")
     resid = getattr(residue, "id", None)
     if isinstance(resid, (tuple, list)) and len(resid) > 1:
         resid = resid[1]
     return f"{chain}/{resname}/{resid}"
+
+
+def _labels_from_group(group, include_water=False):
+    labels = set()
+    for atom in getattr(group, "atoms", []) or []:
+        label = _residue_label(atom, include_water=include_water)
+        if label:
+            labels.add(label)
+    return labels
+
+
+def _interaction_residue_labels(interaction):
+    src_grp = getattr(interaction, "src_grp", None)
+    trgt_grp = getattr(interaction, "trgt_grp", None)
+    src_role = _group_role(src_grp)
+    trgt_role = _group_role(trgt_grp)
+    pair = {src_role, trgt_role}
+    labels = set()
+    if pair == {"ligand", "protein"}:
+        labels.update(_labels_from_group(src_grp if src_role == "protein" else trgt_grp))
+    elif pair == {"protein", "water"}:
+        labels.update(_labels_from_group(src_grp if src_role == "protein" else trgt_grp))
+    elif pair == {"ligand", "water"}:
+        labels.update(_labels_from_group(src_grp if src_role == "water" else trgt_grp, include_water=True))
+    return labels
 
 
 def _save_json(path, data):
@@ -671,12 +727,7 @@ def _export_summary_artifacts(proj, workdir):
             per_entry_counts[itype] = per_entry_counts.get(itype, 0) + 1
             summary["interaction_counts"][itype] = summary["interaction_counts"].get(itype, 0) + 1
 
-            touched_residues = set()
-            for group in (getattr(interaction, "src_grp", None), getattr(interaction, "trgt_grp", None)):
-                for atom in getattr(group, "atoms", []) or []:
-                    label = _residue_label(atom)
-                    if label:
-                        touched_residues.add(label)
+            touched_residues = _interaction_residue_labels(interaction)
             for label in touched_residues:
                 residues.add(label)
                 by_type = residue_counts.setdefault(itype, {})

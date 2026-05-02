@@ -115,12 +115,35 @@ import gzip, json, pickle, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+WATER_RESIDUES = {"HOH", "WAT", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+
+
+def _group_has_water_residue(atm_grp):
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        residue = getattr(atom, "parent", None)
+        if residue is None:
+            continue
+        resname = getattr(residue, "resname", None)
+        if resname is None:
+            try:
+                resname = residue.get_resname()
+            except Exception:
+                resname = ""
+        if str(resname or "").strip().upper() in WATER_RESIDUES:
+            return True
+    return False
+
 
 def _group_role(atm_grp):
     if atm_grp is None:
         return "unknown"
     try:
         if atm_grp.has_water():
+            return "water"
+    except Exception:
+        pass
+    try:
+        if _group_has_water_residue(atm_grp):
             return "water"
     except Exception:
         pass
@@ -168,6 +191,17 @@ def _interaction_name(interaction):
     if value is None:
         return type(interaction).__name__
     return str(value).strip() or type(interaction).__name__
+
+
+def _interaction_residue_group(src_grp, trgt_grp, src_role, trgt_role):
+    pair = {src_role, trgt_role}
+    if pair == {"ligand", "protein"}:
+        return src_grp if src_role == "protein" else trgt_grp
+    if pair == {"protein", "water"}:
+        return src_grp if src_role == "protein" else trgt_grp
+    if pair == {"ligand", "water"}:
+        return src_grp if src_role == "water" else trgt_grp
+    return None
 
 
 workdir = Path(sys.argv[1])
@@ -219,11 +253,11 @@ for payload_path in files:
                 trgt_grp = getattr(interaction, "trgt_grp", None)
                 src_role = _group_role(src_grp)
                 trgt_role = _group_role(trgt_grp)
-                if {src_role, trgt_role} != {"ligand", "protein"}:
+                residue_group = _interaction_residue_group(src_grp, trgt_grp, src_role, trgt_role)
+                if residue_group is None:
                     continue
-                protein_group = src_grp if src_role == "protein" else trgt_grp
                 interaction_name = _interaction_name(interaction)
-                residue_label = _residue_label_from_group(protein_group)
+                residue_label = _residue_label_from_group(residue_group)
                 pair_key = interaction_name if not residue_label else f"{interaction_name}||{residue_label}"
 
                 detail["interaction_counts"][interaction_name] = detail["interaction_counts"].get(interaction_name, 0) + 1

@@ -1373,7 +1373,7 @@ class ResultsTab(EnhancedResultsTab):
                         fontsize=label_fontsize,
                         fontweight="bold",
                         color=label_color,
-                        rotation=90,
+                        rotation=0,
                     )
             bottoms += values
 

@@ -5,7 +5,7 @@ import unittest
 import json
 from pathlib import Path
 
-from luna_gui.core.analysis_runtime import _FP_SESSION_SCRIPT
+from luna_gui.core.analysis_runtime import _FP_DETAIL_SCRIPT, _FP_SESSION_SCRIPT
 from luna_gui.core.luna_api_runner import (
     API_RUNNER_SCRIPT,
     build_entry_specs,
@@ -413,6 +413,15 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertIn("Has noncovalent interactions with the protein", API_RUNNER_SCRIPT)
         self.assertIn("Features with collision in the same complex", API_RUNNER_SCRIPT)
         self.assertIn("Unreliable feature", API_RUNNER_SCRIPT)
+
+    def test_api_runner_keeps_water_mediated_protein_context(self) -> None:
+        self.assertIn("_group_has_water_residue", API_RUNNER_SCRIPT)
+        self.assertIn("_group_has_water_residue", _FP_DETAIL_SCRIPT)
+        self.assertIn("has_ligand_water", API_RUNNER_SCRIPT)
+        self.assertIn("has_protein_water", API_RUNNER_SCRIPT)
+        self.assertIn("has_water_mediated_protein_context", API_RUNNER_SCRIPT)
+        self.assertIn('{"ligand", "water"}', _FP_DETAIL_SCRIPT)
+        self.assertIn('{"protein", "water"}', _FP_DETAIL_SCRIPT)
 
     def test_api_runner_marks_collision_only_for_mixed_class_signatures(self) -> None:
         self.assertIn("def _has_mixed_class_collision", API_RUNNER_SCRIPT)

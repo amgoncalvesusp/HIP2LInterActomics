@@ -344,12 +344,16 @@ def _split_one(
                 # Protein/solvent atom -> PDB format.
                 try:
                     resname, resseq, icode = _parse_subst_name(subst_name)
-                    chain_id = chain_by_subst.get(subst_id, "A")
+                    chain_id = _clean_pdb_chain_id(
+                        chain_by_subst.get(subst_id, "A"),
+                        fallback="W" if is_water else "A",
+                    )
                     x, y, z = float(parts[2]), float(parts[3]), float(parts[4])
                     element = _infer_element(atom_name, atom_type)
                     if element is None:
                         continue
                     pdb_line = _format_pdb_atom_line(
+                        record_name="HETATM" if is_water else "ATOM",
                         idx=idx,
                         atom_name=atom_name,
                         resname=resname,
@@ -521,6 +525,13 @@ def _parse_substructure_chains(lines: list[str]) -> dict[int, str]:
     return chain_by_subst
 
 
+def _clean_pdb_chain_id(chain_id: str, fallback: str = "A") -> str:
+    value = str(chain_id or "").strip()[:1]
+    if value and re.match(r"[A-Za-z0-9]", value):
+        return value
+    return fallback
+
+
 def _parse_subst_name(subst_name: str) -> tuple[str, int, str]:
     """Parse a MOL2 subst_name into (resname, resseq, icode) for PDB output.
 
@@ -598,6 +609,7 @@ def _write_mol2(
 
 
 def _format_pdb_atom_line(
+    record_name: str,
     idx: int,
     atom_name: str,
     resname: str,
@@ -610,8 +622,9 @@ def _format_pdb_atom_line(
     element: str,
 ) -> str:
     atom_field = _format_pdb_atom_name(atom_name, element)
+    record = str(record_name or "ATOM").strip().upper()[:6] or "ATOM"
     return (
-        f"ATOM  {idx:5d} {atom_field} {resname:>3} {chain_id}{resseq:4d}{icode}   "
+        f"{record:<6}{idx:5d} {atom_field} {resname:>3} {chain_id}{resseq:4d}{icode}   "
         f"{x:8.3f}{y:8.3f}{z:8.3f}{1.00:6.2f}{0.00:6.2f}          {element:>2}\n"
     )
 
