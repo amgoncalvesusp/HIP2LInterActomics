@@ -1,4 +1,4 @@
-"""Small runtime translation layer for the LUNA GUI.
+"""Small runtime translation layer for HIP2LInterActomics_GUI.
 
 The GUI was originally written with direct Portuguese strings.  This module
 keeps those strings as the source language and translates widgets and
@@ -30,7 +30,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Salvar projeto": {"en": "Save project", "es": "Guardar proyecto"},
     "Sair": {"en": "Exit", "es": "Salir"},
     "Sobre": {"en": "About", "es": "Acerca de"},
-    "Sobre o LUNA GUI": {"en": "About LUNA GUI", "es": "Acerca de LUNA GUI"},
+    "Sobre o HIP2LInterActomics_GUI": {"en": "About HIP2LInterActomics_GUI", "es": "Acerca de HIP2LInterActomics_GUI"},
     "Documentação LUNA": {"en": "LUNA documentation", "es": "Documentación de LUNA"},
     "Pronto": {"en": "Ready", "es": "Listo"},
     "Defina um workdir antes de salvar.": {"en": "Set a workdir before saving.", "es": "Define un workdir antes de guardar."},
@@ -66,9 +66,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
     # Setup tab.
     "Verificando ambiente...": {"en": "Checking environment...", "es": "Verificando entorno..."},
-    "O que é o LUNA GUI": {"en": "What is LUNA GUI", "es": "Qué es LUNA GUI"},
+    "O que é o HIP2LInterActomics_GUI": {"en": "What is HIP2LInterActomics_GUI", "es": "Qué es HIP2LInterActomics_GUI"},
     (
-        "O LUNA GUI é uma interface gráfica para preparar, executar e interpretar análises "
+        "O HIP2LInterActomics_GUI é uma interface gráfica para preparar, executar e interpretar análises "
         "baseadas no LUNA. Ele ajuda a avaliar resultados de virtual screening, comparar "
         "poses ou trajetórias de dinâmica molecular, construir modelos de machine learning "
         "com fingerprints de interação e extrair pharmacophoric features de um alvo "
@@ -77,7 +77,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "scikit-learn, estejam disponíveis."
     ): {
         "en": (
-            "LUNA GUI is a graphical interface for preparing, running and interpreting analyses "
+            "HIP2LInterActomics_GUI is a graphical interface for preparing, running and interpreting analyses "
             "based on LUNA. It helps evaluate virtual screening results, compare poses or "
             "molecular dynamics trajectories, build machine-learning models from interaction "
             "fingerprints and extract pharmacophoric features from a specific target. In this "
@@ -86,7 +86,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "are available."
         ),
         "es": (
-            "LUNA GUI es una interfaz gráfica para preparar, ejecutar e interpretar análisis "
+            "HIP2LInterActomics_GUI es una interfaz gráfica para preparar, ejecutar e interpretar análisis "
             "basados en LUNA. Ayuda a evaluar resultados de virtual screening, comparar poses "
             "o trayectorias de dinámica molecular, construir modelos de machine learning con "
             "fingerprints de interacción y extraer pharmacophoric features de un blanco "
@@ -460,7 +460,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Matriz reordenada por cluster": {"en": "Matrix reordered by cluster", "es": "Matriz reordenada por cluster"},
 
     # Report text.
-    "Relatório LUNA GUI": {"en": "LUNA GUI report", "es": "Reporte LUNA GUI"},
+    "Relatório HIP2LInterActomics_GUI": {"en": "HIP2LInterActomics_GUI report", "es": "Reporte HIP2LInterActomics_GUI"},
     "Como interpretar as análises": {"en": "How to interpret the analyses", "es": "Cómo interpretar los análisis"},
     "Distribuição de interações": {"en": "Interaction distribution", "es": "Distribución de interacciones"},
     "Resumo das FP análises": {"en": "FP analyses summary", "es": "Resumen de análisis FP"},

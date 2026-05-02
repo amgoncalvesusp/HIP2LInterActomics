@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QFileDialog, QMessageBox
-from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication
+from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon
 
 from ..core.project import ProjectConfig, save_to_workdir
 from ..i18n import LANGUAGES, install_translation_hooks, language, retranslate_ui, set_language, t
@@ -20,7 +20,10 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         install_translation_hooks()
-        self.setWindowTitle("LUNA GUI")
+        self.setWindowTitle("HIP2LInterActomics_GUI")
+        icon_path = Path(__file__).resolve().parents[1] / "assets" / "hip2l_interactomics_icon.svg"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self._fit_to_screen()
 
         self.cfg = ProjectConfig()
@@ -114,7 +117,7 @@ class MainWindow(QMainWindow):
 
     def _open_project(self) -> None:
         f, _ = QFileDialog.getOpenFileName(
-            self, "Abrir projeto", "", "LUNA GUI project (*.json);;Todos (*)"
+            self, "Abrir projeto", "", "HIP2LInterActomics_GUI project (*.json);;Todos (*)"
         )
         if not f:
             return
@@ -135,7 +138,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{t('Projeto salvo em')} {self.cfg.workdir}", 5000)
 
     def _about(self) -> None:
-        QMessageBox.about(self, t("Sobre o LUNA GUI"), self._about_html())
+        QMessageBox.about(self, t("Sobre o HIP2LInterActomics_GUI"), self._about_html())
 
     def _about_html(self) -> str:
         lang = language()
@@ -167,7 +170,7 @@ class MainWindow(QMainWindow):
             authors_label = "Authores"
             citations_label = "Citações"
         return (
-            "<h3>LUNA GUI</h3>"
+            "<h3>HIP2LInterActomics_GUI</h3>"
             f"<p>{description}</p>"
             f"<p><b>{authors_label}:</b> Daniel Andrés Grajales Ruiz e Adriano Marques Gonçalves</p>"
             "<p>LUNA: <a href='https://luna-toolkit.readthedocs.io'>luna-toolkit.readthedocs.io</a></p>"

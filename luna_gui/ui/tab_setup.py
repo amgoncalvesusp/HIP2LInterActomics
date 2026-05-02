@@ -29,10 +29,10 @@ class SetupTab(QWidget):
         self.status_label.setStyleSheet("font-size: 14px; padding: 8px;")
         layout.addWidget(self.status_label)
 
-        about_box = QGroupBox("O que é o LUNA GUI")
+        about_box = QGroupBox("O que é o HIP2LInterActomics_GUI")
         about_layout = QVBoxLayout(about_box)
         help_label = QLabel(
-            "O LUNA GUI é uma interface gráfica para preparar, executar e interpretar análises "
+            "O HIP2LInterActomics_GUI é uma interface gráfica para preparar, executar e interpretar análises "
             "baseadas no LUNA. Ele ajuda a avaliar resultados de virtual screening, comparar "
             "poses ou trajetórias de dinâmica molecular, construir modelos de machine learning "
             "com fingerprints de interação e extrair pharmacophoric features de um alvo "

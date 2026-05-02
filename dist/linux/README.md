@@ -1,4 +1,4 @@
-# LUNA GUI — Distribuição Linux
+# HIP2LInterActomics_GUI — Distribuição Linux
 
 ## Conteúdo
 - `run_gui.sh` — launcher principal no Linux; ativa o env `luna-gui`, valida dependências da GUI e inicia a aplicação
@@ -63,11 +63,11 @@ sudo dnf install xcb-util-cursor libxkbcommon-x11 mesa-libGL mesa-libEGL
 Se você usa um nome diferente para o env:
 
 ```bash
-LUNA_GUI_ENV=meu-env ./run_gui.sh
+HIP2LINTERACTOMICS_GUI_ENV=meu-env ./run_gui.sh
 ```
 
 Se preferir apontar diretamente para um Python específico:
 
 ```bash
-LUNA_GUI_PYTHON=/caminho/para/python ./run_gui.sh
+HIP2LINTERACTOMICS_GUI_PYTHON=/caminho/para/python ./run_gui.sh
 ```

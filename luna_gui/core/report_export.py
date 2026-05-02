@@ -300,7 +300,7 @@ def save_pdf_report(
     with PdfPages(path) as pdf:
         _add_text_page(
             pdf,
-            "Relatório LUNA GUI",
+            "Relatório HIP2LInterActomics_GUI",
             [
                 f"Gerado em {datetime.now().strftime('%Y-%m-%d %H:%M')}.",
                 "Este relatório resume os resultados carregados na aba 5.Resultados, os parâmetros usados no projeto e uma leitura guiada dos gráficos. Use-o como material de triagem: padrões fortes indicam hipóteses para inspeção estrutural, não uma conclusão automática de afinidade.",

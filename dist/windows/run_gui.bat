@@ -1,7 +1,7 @@
 @echo off
 setlocal
 REM ============================================================
-REM  LUNA GUI launcher - Windows
+REM  HIP2LInterActomics_GUI launcher - Windows
 REM ============================================================
 REM  Sets a clean PATH so the luna-gui env's DLLs are picked up
 REM  instead of any other conda/Qt install on the system (avoids
@@ -20,7 +20,8 @@ REM Preferred explicit Python path for the GUI env
 
 REM Allow user override
 set "PYTHON_EXE="
-if not "%LUNA_GUI_PYTHON%"=="" set "PYTHON_EXE=%LUNA_GUI_PYTHON%"
+if not "%HIP2LINTERACTOMICS_GUI_PYTHON%"=="" set "PYTHON_EXE=%HIP2LINTERACTOMICS_GUI_PYTHON%"
+if not defined PYTHON_EXE if not "%LUNA_GUI_PYTHON%"=="" set "PYTHON_EXE=%LUNA_GUI_PYTHON%"
 
 REM If already running from an activated luna-gui env, reuse it.
 if not defined PYTHON_EXE (
@@ -52,7 +53,7 @@ if not defined PYTHON_EXE (
 
 if not defined PYTHON_EXE (
     echo [ERRO] python do env luna-gui nao encontrado.
-    echo Defina LUNA_GUI_PYTHON ou ative o env luna-gui antes de chamar este launcher.
+    echo Defina HIP2LINTERACTOMICS_GUI_PYTHON ou ative o env luna-gui antes de chamar este launcher.
     pause
     exit /b 1
 )
@@ -60,7 +61,7 @@ if not defined PYTHON_EXE (
 if not exist "%PYTHON_EXE%" (
     echo [ERRO] python informado para o env luna-gui nao existe:
     echo %PYTHON_EXE%
-    echo Defina LUNA_GUI_PYTHON para o python.exe correto do env luna-gui.
+    echo Defina HIP2LINTERACTOMICS_GUI_PYTHON para o python.exe correto do env luna-gui.
     pause
     exit /b 1
 )

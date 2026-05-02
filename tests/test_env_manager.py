@@ -33,7 +33,7 @@ class EnvManagerTests(unittest.TestCase):
             with mock.patch.dict(
                 env_manager.os.environ,
                 {
-                    "LUNA_GUI_CONDA": str(override_exe),
+                    "HIP2LINTERACTOMICS_GUI_CONDA": str(override_exe),
                     "USERPROFILE": str(root),
                 },
                 clear=True,

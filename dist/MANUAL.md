@@ -1,4 +1,4 @@
-# Manual de Instalação e Uso — LUNA GUI
+# Manual de Instalação e Uso — HIP2LInterActomics_GUI
 
 > Versão da interface: 1.0  
 > Sistema operacional: Windows 10/11 ou Linux (Ubuntu 20.04+, Fedora 36+)  
@@ -116,7 +116,7 @@ O arquivo `windows\run_gui.bat` agora tenta localizar automaticamente o
 
 Se for necessário forçar manualmente outro executável, abra um Prompt e rode:
 ```
-set LUNA_GUI_PYTHON=C:\Users\SeuNome\miniconda3\envs\luna-gui\python.exe
+set HIP2LINTERACTOMICS_GUI_PYTHON=C:\Users\SeuNome\miniconda3\envs\luna-gui\python.exe
 windows\run_gui.bat
 ```
 
@@ -517,7 +517,7 @@ python -c "import sys; print(sys.executable); import PyQt6.QtWidgets; print('PyQ
 
 Se necessário, force o launcher a usar esse executável:
 ```
-set LUNA_GUI_PYTHON=C:\Users\SeuNome\miniconda3\envs\luna-gui\python.exe
+set HIP2LINTERACTOMICS_GUI_PYTHON=C:\Users\SeuNome\miniconda3\envs\luna-gui\python.exe
 windows\run_gui.bat
 ```
 

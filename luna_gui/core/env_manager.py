@@ -66,7 +66,7 @@ def _iter_conda_candidates() -> list[Path]:
     """Yield candidate conda executables in priority order."""
     candidates: list[Path] = []
 
-    override = os.environ.get("LUNA_GUI_CONDA")
+    override = os.environ.get("HIP2LINTERACTOMICS_GUI_CONDA") or os.environ.get("LUNA_GUI_CONDA")
     if override:
         candidates.extend(_conda_candidates_from_path(Path(override)))
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  LUNA GUI launcher — Linux
+#  HIP2LInterActomics_GUI launcher — Linux
 # ============================================================
 #  Main distribution path for Linux:
 #    - locates conda robustly
@@ -14,15 +14,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-ENV_NAME="${LUNA_GUI_ENV:-luna-gui}"
+ENV_NAME="${HIP2LINTERACTOMICS_GUI_ENV:-${LUNA_GUI_ENV:-luna-gui}}"
+GUI_PYTHON="${HIP2LINTERACTOMICS_GUI_PYTHON:-${LUNA_GUI_PYTHON:-}}"
 
-if [[ -n "${LUNA_GUI_PYTHON:-}" ]]; then
-    if [[ ! -x "${LUNA_GUI_PYTHON}" ]]; then
-        echo "[ERRO] LUNA_GUI_PYTHON aponta para um executável inexistente:"
-        echo "       ${LUNA_GUI_PYTHON}"
+if [[ -n "${GUI_PYTHON}" ]]; then
+    if [[ ! -x "${GUI_PYTHON}" ]]; then
+        echo "[ERRO] HIP2LINTERACTOMICS_GUI_PYTHON aponta para um executável inexistente:"
+        echo "       ${GUI_PYTHON}"
         exit 1
     fi
-    exec "${LUNA_GUI_PYTHON}" "${REPO_ROOT}/run.py" "$@"
+    exec "${GUI_PYTHON}" "${REPO_ROOT}/run.py" "$@"
 fi
 
 if command -v conda >/dev/null 2>&1; then

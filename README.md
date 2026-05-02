@@ -26,4 +26,4 @@ The software is designed as a practical hub for virtual screening analysis, traj
 
 The repository contains the GUI source code, runtime helpers, tests, and distribution launchers. Generated analysis folders such as `test_hydrated_linux/`, `test_hydrated_windows/`, and trajectory output directories are ignored because they can be large and are reproducible from the input projects.
 
-The historical repository name may still appear as `LUNA_GUI`, but the technical software/repository name is `HIP2LInterActomics_GUI`.
+The public software and repository name is `HIP2LInterActomics_GUI`. The internal Python package remains `luna_gui` for compatibility with existing imports and saved projects.
