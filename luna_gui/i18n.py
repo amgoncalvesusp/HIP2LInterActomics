@@ -887,6 +887,7 @@ def translate_figure(fig) -> None:
 def retranslate_ui(root) -> None:
     """Retranslate a Qt widget tree and any embedded matplotlib figures."""
     try:
+        from PyQt6.QtCore import QObject
         from PyQt6.QtGui import QAction
         from PyQt6.QtWidgets import (
             QAbstractButton,
