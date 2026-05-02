@@ -85,6 +85,9 @@ class ResultsTab(EnhancedResultsTab):
         self._stats_hidden_interactions: set[str] = set()
         self._stats_legend_pick_cid: int | None = None
         self._stats_legend_artist_labels: dict[object, str] = {}
+        self._fp_interaction_hidden_types: set[str] = set()
+        self._fp_interaction_legend_pick_cid: int | None = None
+        self._fp_interaction_legend_artist_labels: dict[object, str] = {}
         self._install_stats_scope_control()
         self._install_stats_scroll_area()
         self._install_residue_heatmap_scroll_area()
@@ -491,7 +494,9 @@ class ResultsTab(EnhancedResultsTab):
 
         if not values:
             return empty
-        if task not in {"regression", "classification"}:
+        if task == "regression" and len(numeric) != len(values):
+            task = "classification"
+        elif task not in {"regression", "classification"}:
             task = "regression" if len(numeric) == len(values) else "classification"
         return {
             "task": task,
@@ -1162,6 +1167,47 @@ class ResultsTab(EnhancedResultsTab):
         else:
             self._stats_hidden_interactions.add(label)
         self._render_cached_stats_chart()
+
+    def _install_fp_interaction_legend_toggle(self, legend, labels: list[str]) -> None:
+        if not HAS_MPL or legend is None or not hasattr(self, "fp_interaction_canvas"):
+            return
+        if self._fp_interaction_legend_pick_cid is not None:
+            try:
+                self.fp_interaction_canvas.mpl_disconnect(self._fp_interaction_legend_pick_cid)
+            except Exception:
+                pass
+        self._fp_interaction_legend_artist_labels = {}
+        handles = list(getattr(legend, "legend_handles", []) or [])
+        if not handles and hasattr(legend, "legendHandles"):
+            handles = list(getattr(legend, "legendHandles", []) or [])
+        texts = list(legend.get_texts())
+        for idx, label in enumerate(labels):
+            artists = []
+            if idx < len(handles):
+                artists.append(handles[idx])
+            if idx < len(texts):
+                artists.append(texts[idx])
+            for artist in artists:
+                artist.set_picker(True)
+                artist.set_alpha(0.28 if label in self._fp_interaction_hidden_types else 1.0)
+                self._fp_interaction_legend_artist_labels[artist] = label
+        self._fp_interaction_legend_pick_cid = self.fp_interaction_canvas.mpl_connect(
+            "pick_event",
+            self._on_fp_interaction_legend_pick,
+        )
+
+    def _on_fp_interaction_legend_pick(self, event) -> None:
+        label = self._fp_interaction_legend_artist_labels.get(event.artist)
+        if not label:
+            return
+        if label in self._fp_interaction_hidden_types:
+            self._fp_interaction_hidden_types.remove(label)
+        else:
+            self._fp_interaction_hidden_types.add(label)
+        if hasattr(self, "cb_fp_analysis_type") and self.cb_fp_analysis_type.count():
+            dashboard = self._ensure_fp_dashboard(self.cb_fp_analysis_type.currentData())
+            if dashboard:
+                self._render_fp_interaction_summary_plot(self._dashboard_with_selected_cutoff(dashboard))
 
     @staticmethod
     def _stats_bar_label_color(fill_color: str) -> str:
@@ -2178,10 +2224,21 @@ class ResultsTab(EnhancedResultsTab):
         self.fp_interaction_assign_canvas.draw()
 
     def _render_fp_interaction_summary_plot(self, dashboard: dict) -> None:
-        features = [
+        all_features = [
             feature
             for feature in (dashboard.get("important_features", []) or [])
             if str(feature.get("prevalent_pair", "")) not in {"", CLASS_UNRELIABLE}
+        ]
+        legend_types = []
+        for feature in all_features:
+            interaction_name = str(feature.get("prevalent_interaction", "")).strip()
+            if interaction_name and interaction_name not in legend_types:
+                legend_types.append(interaction_name)
+        legend_types = sorted(legend_types, key=interaction_priority_key)
+        features = [
+            feature
+            for feature in all_features
+            if str(feature.get("prevalent_interaction", "")).strip() not in self._fp_interaction_hidden_types
         ]
         self._resize_canvas(
             self.fp_interaction_fig,
@@ -2192,11 +2249,13 @@ class ResultsTab(EnhancedResultsTab):
         self.fp_interaction_fig.clear()
         ax = self.fp_interaction_fig.add_subplot(111)
 
-        if not features:
+        if not all_features:
             ax.text(0.5, 0.5, "Sem interacoes prevalentes confiaveis nas features importantes.", ha="center", va="center")
             self.fp_interaction_fig.tight_layout()
             self.fp_interaction_canvas.draw()
             return
+        if not features:
+            ax.text(0.5, 0.5, "Todas as interacoes estao ocultas pela legenda.", ha="center", va="center")
 
         x = list(range(len(features)))
         heights = [len(feature.get("prevalent_pair_entries", []) or []) for feature in features]
@@ -2204,7 +2263,7 @@ class ResultsTab(EnhancedResultsTab):
             get_interaction_color(str(feature.get("prevalent_interaction", "")))
             for feature in features
         ]
-        bars = ax.bar(x, heights, color=colors)
+        bars = ax.bar(x, heights, color=colors) if features else []
         ax.set_xticks(x)
         ax.set_xticklabels([str(feature.get("feature_id", "")) for feature in features], rotation=45, ha="right")
         ax.set_ylabel("Numero de ligantes")
@@ -2227,18 +2286,18 @@ class ResultsTab(EnhancedResultsTab):
                 fontsize=8,
             )
 
-        legend_types = []
-        for feature in features:
-            interaction_name = str(feature.get("prevalent_interaction", ""))
-            if interaction_name and interaction_name not in legend_types:
-                legend_types.append(interaction_name)
         if legend_types:
             handles = [
-                Patch(facecolor=get_interaction_color(name), edgecolor="none", label=name)
+                Patch(
+                    facecolor=get_interaction_color(name),
+                    edgecolor="none",
+                    label=name,
+                    alpha=0.28 if name in self._fp_interaction_hidden_types else 1.0,
+                )
                 for name in legend_types
             ]
             legend_cols = min(3, max(1, len(handles)))
-            ax.legend(
+            legend = ax.legend(
                 handles=handles,
                 labels=legend_types,
                 loc="upper center",
@@ -2246,7 +2305,9 @@ class ResultsTab(EnhancedResultsTab):
                 fontsize=8,
                 ncol=legend_cols,
                 frameon=False,
+                title="Clique para ocultar/mostrar",
             )
+            self._install_fp_interaction_legend_toggle(legend, legend_types)
             self.fp_interaction_fig.subplots_adjust(
                 bottom=min(0.44, 0.16 + (0.06 * math.ceil(len(handles) / legend_cols)))
             )

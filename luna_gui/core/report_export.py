@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .project import ProjectConfig
+from ..i18n import t
 
 
 def _esc(value) -> str:
@@ -157,6 +158,9 @@ def _add_text_page(pdf, title: str, paragraphs: list[str], rows: list[tuple[str,
     from matplotlib.figure import Figure
     from matplotlib.patches import Rectangle
 
+    title = t(title)
+    paragraphs = [t(paragraph) for paragraph in paragraphs]
+    rows = [(t(key), t(value)) for key, value in (rows or [])] or None
     fig = Figure(figsize=(8.27, 11.69), dpi=140)
     fig.patch.set_facecolor("#fbf7ef")
     ax = fig.add_subplot(111)
@@ -248,6 +252,8 @@ def _add_image_page(pdf, title: str, image_path: Path, caption: str) -> None:
 
     if not image_path.exists():
         return
+    title = t(title)
+    caption = t(caption)
     fig = Figure(figsize=(13.2, 9.3), dpi=140)
     fig.patch.set_facecolor("#fbf7ef")
     ax = fig.add_subplot(111)

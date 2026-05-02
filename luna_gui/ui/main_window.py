@@ -4,9 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QFileDialog, QMessageBox
-from PyQt6.QtGui import QAction, QGuiApplication
+from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication
 
 from ..core.project import ProjectConfig, save_to_workdir
+from ..i18n import LANGUAGES, install_translation_hooks, language, retranslate_ui, set_language, t
 from .tab_setup import SetupTab
 from .tab_project import ProjectTab
 from .tab_analyses import AnalysesTab
@@ -18,10 +19,12 @@ from .tab_history import HistoryTab
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        install_translation_hooks()
         self.setWindowTitle("LUNA GUI")
         self._fit_to_screen()
 
         self.cfg = ProjectConfig()
+        set_language(getattr(self.cfg, "language", "pt"))
 
         self.tabs = QTabWidget()
         self.tabs.setUsesScrollButtons(True)
@@ -49,7 +52,7 @@ class MainWindow(QMainWindow):
         )
 
         self._build_menu()
-        self.statusBar().showMessage("Pronto")
+        self.statusBar().showMessage(t("Pronto"))
 
         # Wire: before running, collect state and save project
         self.tab_run.collect_callback = self._collect_and_save
@@ -77,6 +80,20 @@ class MainWindow(QMainWindow):
         act_quit.triggered.connect(self.close)
         m_file.addAction(act_quit)
 
+        m_lang = bar.addMenu("&Idioma")
+        self._language_actions: dict[str, QAction] = {}
+        lang_group = QActionGroup(self)
+        lang_group.setExclusive(True)
+        for code, label in LANGUAGES.items():
+            act_lang = QAction(label, self)
+            act_lang.setCheckable(True)
+            act_lang.setData(code)
+            act_lang.setChecked(code == language())
+            act_lang.triggered.connect(lambda _checked=False, c=code: self._set_language(c))
+            lang_group.addAction(act_lang)
+            m_lang.addAction(act_lang)
+            self._language_actions[code] = act_lang
+
         m_help = bar.addMenu("Aj&uda")
         act_about = QAction("Sobre", self)
         act_about.triggered.connect(self._about)
@@ -86,6 +103,14 @@ class MainWindow(QMainWindow):
             lambda: __import__("webbrowser").open("https://luna-toolkit.readthedocs.io")
         )
         m_help.addAction(act_docs)
+
+    def _set_language(self, code: str) -> None:
+        code = set_language(code)
+        self.cfg.language = code
+        for lang_code, action in getattr(self, "_language_actions", {}).items():
+            action.setChecked(lang_code == code)
+        retranslate_ui(self)
+        self.statusBar().showMessage(t(f"Idioma alterado para {LANGUAGES[code]}"), 4000)
 
     def _open_project(self) -> None:
         f, _ = QFileDialog.getOpenFileName(
@@ -102,21 +127,51 @@ class MainWindow(QMainWindow):
     def _save_project(self) -> None:
         self.tab_project.collect()
         self.tab_analyses.collect()
+        self.cfg.language = language()
         if not self.cfg.workdir:
-            QMessageBox.warning(self, "Workdir", "Defina um workdir antes de salvar.")
+            QMessageBox.warning(self, "Workdir", t("Defina um workdir antes de salvar."))
             return
         save_to_workdir(self.cfg)
-        self.statusBar().showMessage(f"Projeto salvo em {self.cfg.workdir}", 5000)
+        self.statusBar().showMessage(f"{t('Projeto salvo em')} {self.cfg.workdir}", 5000)
 
     def _about(self) -> None:
-        QMessageBox.about(
-            self, "Sobre o LUNA GUI",
+        QMessageBox.about(self, t("Sobre o LUNA GUI"), self._about_html())
+
+    def _about_html(self) -> str:
+        lang = language()
+        if lang == "en":
+            description = (
+                "Graphical interface for LUNA focused on protein-ligand and protein-protein "
+                "intermolecular interactomics, virtual screening evaluation, molecular dynamics "
+                "trajectory analysis, machine-learning data construction and pharmacophoric "
+                "feature extraction."
+            )
+            authors_label = "Authors"
+            citations_label = "Citations"
+        elif lang == "es":
+            description = (
+                "Interfaz gráfica para LUNA enfocada en interactómica intermolecular "
+                "proteína-ligando y proteína-proteína, evaluación de virtual screening, "
+                "análisis de trayectorias de dinámica molecular, construcción de datos para "
+                "machine learning y extracción de pharmacophoric features."
+            )
+            authors_label = "Autores"
+            citations_label = "Citas"
+        else:
+            description = (
+                "Interface gráfica para o LUNA focada em interactômica intermolecular "
+                "proteína-ligante e proteína-proteína, avaliação de virtual screening, "
+                "trajetórias de dinâmica molecular, construção de dados para machine learning "
+                "e extração de pharmacophoric features."
+            )
+            authors_label = "Authores"
+            citations_label = "Citações"
+        return (
             "<h3>LUNA GUI</h3>"
-            "<p>Interface gráfica para o toolkit LUNA: análise de interações "
-            "proteína-ligante em larga escala.</p>"
-            "<p><b>Authores:</b> Daniel Andrés Grajales Ruiz e Adriano Marques Gonçalves</p>"
+            f"<p>{description}</p>"
+            f"<p><b>{authors_label}:</b> Daniel Andrés Grajales Ruiz e Adriano Marques Gonçalves</p>"
             "<p>LUNA: <a href='https://luna-toolkit.readthedocs.io'>luna-toolkit.readthedocs.io</a></p>"
-            "<p><b>Citações</b></p>"
+            f"<p><b>{citations_label}</b></p>"
             "<ol>"
             "<li><i>Prioritizing Virtual Screening with Interpretable Interaction Fingerprints</i><br>"
             "Alexandre V. Fassio, Laura Shub, Luca Ponzoni, Jessica McKinley, Matthew J. O’Meara, "
@@ -143,6 +198,7 @@ class MainWindow(QMainWindow):
     def _collect_and_save(self) -> None:
         self.tab_project.collect()
         self.tab_analyses.collect()
+        self.cfg.language = language()
         save_to_workdir(self.cfg)
 
     def _sync_cfg_if_idle(self) -> None:
@@ -151,6 +207,7 @@ class MainWindow(QMainWindow):
             return
         self.tab_project.collect()
         self.tab_analyses.collect()
+        self.cfg.language = language()
 
     def _on_run_finished(self) -> None:
         self.tabs.setCurrentWidget(self.tab_results)
@@ -162,6 +219,7 @@ class MainWindow(QMainWindow):
         # Replace shared cfg fields and reflect in UI
         for k, v in vars(cfg).items():
             setattr(self.cfg, k, v)
+        self._set_language(getattr(self.cfg, "language", "pt"))
         # Push values back into widgets
         self.tab_project.protein_edit.setText(self.cfg.protein_file)
         self.tab_project.ligand_edit.setText(self.cfg.ligand_file)
