@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from ..core.project import ProjectConfig
 from ..core.analysis_helper import run_analysis, run_residue_matrix
 from ..core.report import save_report
+from ..i18n import translate_figure
 
 # matplotlib is optional — heatmap is disabled gracefully if missing.
 try:
@@ -434,8 +435,10 @@ class ResultsTab(QWidget):
         inter_png = wd / "_report_interactions.png"
         try:
             if HAS_MPL and self.fig.axes:
+                translate_figure(self.fig)
                 self.fig.savefig(heatmap_png, dpi=120, bbox_inches="tight")
             if HAS_MPL and self.st_fig.axes:
+                translate_figure(self.st_fig)
                 self.st_fig.savefig(inter_png, dpi=120, bbox_inches="tight")
         except Exception:
             pass

@@ -161,117 +161,140 @@ def _add_text_page(pdf, title: str, paragraphs: list[str], rows: list[tuple[str,
     title = t(title)
     paragraphs = [t(paragraph) for paragraph in paragraphs]
     rows = [(t(key), t(value)) for key, value in (rows or [])] or None
-    fig = Figure(figsize=(8.27, 11.69), dpi=140)
-    fig.patch.set_facecolor("#fbf7ef")
-    ax = fig.add_subplot(111)
-    ax.axis("off")
-    ax.add_patch(
-        Rectangle(
-            (0.0, 0.925),
-            1.0,
-            0.075,
-            transform=ax.transAxes,
-            facecolor="#145c58",
-            edgecolor="none",
-        )
-    )
-    ax.text(0.06, 0.965, title, fontsize=17, weight="bold", va="top", color="white")
-    y = 0.89
-    for paragraph in paragraphs:
-        for line in textwrap.wrap(str(paragraph), width=92):
-            ax.text(0.06, y, line, fontsize=9.7, va="top", color="#2d251e")
-            y -= 0.019
-        y -= 0.014
-        if y < 0.12:
-            pdf.savefig(fig, bbox_inches="tight", dpi=220)
-            fig = Figure(figsize=(8.27, 11.69), dpi=140)
-            fig.patch.set_facecolor("#fbf7ef")
-            ax = fig.add_subplot(111)
-            ax.axis("off")
-            ax.add_patch(
-                Rectangle(
-                    (0.0, 0.925), 1.0, 0.075, transform=ax.transAxes,
-                    facecolor="#145c58", edgecolor="none",
-                )
-            )
-            ax.text(0.06, 0.965, title, fontsize=17, weight="bold", va="top", color="white")
-            y = 0.89
-    if rows:
-        y -= 0.01
+    content_top = 0.885
+    content_bottom = 0.075
+
+    def new_page():
+        fig = Figure(figsize=(8.27, 11.69), dpi=150)
+        fig.patch.set_facecolor("#fbf7ef")
+        ax = fig.add_subplot(111)
+        ax.axis("off")
         ax.add_patch(
             Rectangle(
-                (0.055, max(0.05, y - 0.006)),
-                0.89,
-                0.018,
+                (0.0, 0.925),
+                1.0,
+                0.075,
                 transform=ax.transAxes,
-                facecolor="#e7d9c5",
+                facecolor="#145c58",
                 edgecolor="none",
             )
         )
-        for row_index, (key, value) in enumerate(rows):
-            wrapped = textwrap.wrap(str(value), width=70) or [""]
-            if row_index % 2 == 0:
-                ax.add_patch(
-                    Rectangle(
-                        (0.055, max(0.03, y - 0.004)),
-                        0.89,
-                        0.022 * max(1, len(wrapped)),
-                        transform=ax.transAxes,
-                        facecolor="#fffdf8",
-                        edgecolor="#eadfce",
-                        linewidth=0.25,
-                    )
+        ax.text(0.06, 0.965, title, fontsize=16.5, weight="bold", va="top", color="white")
+        return fig, ax, content_top
+
+    fig, ax, y = new_page()
+
+    def save_and_new_page():
+        nonlocal fig, ax, y
+        pdf.savefig(fig, dpi=220)
+        fig, ax, y = new_page()
+
+    def ensure_space(required_height: float) -> None:
+        if y - required_height < content_bottom:
+            save_and_new_page()
+
+    def draw_paragraph(paragraph: str) -> None:
+        nonlocal y
+        lines = textwrap.wrap(str(paragraph), width=84, break_long_words=False, break_on_hyphens=False) or [""]
+        line_height = 0.023
+        block_height = (line_height * len(lines)) + 0.021
+        ensure_space(block_height)
+        for line in lines:
+            ax.text(0.06, y, line, fontsize=9.3, va="top", color="#2d251e")
+            y -= line_height
+        y -= 0.021
+
+    def draw_table(rows_to_draw: list[tuple[str, str]]) -> None:
+        nonlocal y
+        if not rows_to_draw:
+            return
+        ensure_space(0.055)
+        ax.add_patch(
+            Rectangle(
+                (0.055, y - 0.032),
+                0.89,
+                0.036,
+                transform=ax.transAxes,
+                facecolor="#e7d9c5",
+                edgecolor="#d7c7b2",
+                linewidth=0.35,
+            )
+        )
+        ax.text(0.065, y - 0.006, t("Parâmetro"), fontsize=8.9, weight="bold", va="top", color="#145c58")
+        ax.text(0.325, y - 0.006, t("Valor"), fontsize=8.9, weight="bold", va="top", color="#145c58")
+        y -= 0.046
+
+        for row_index, (key, value) in enumerate(rows_to_draw):
+            key_lines = textwrap.wrap(str(key), width=24, break_long_words=True, break_on_hyphens=False) or [""]
+            value_lines = textwrap.wrap(str(value), width=61, break_long_words=True, break_on_hyphens=False) or [""]
+            line_count = max(len(key_lines), len(value_lines))
+            line_height = 0.0215
+            row_height = (line_height * line_count) + 0.020
+            ensure_space(row_height + 0.006)
+            face = "#fffdf8" if row_index % 2 == 0 else "#f7efe4"
+            ax.add_patch(
+                Rectangle(
+                    (0.055, y - row_height + 0.004),
+                    0.89,
+                    row_height,
+                    transform=ax.transAxes,
+                    facecolor=face,
+                    edgecolor="#eadfce",
+                    linewidth=0.35,
                 )
-            ax.text(0.06, y, str(key), fontsize=8.8, weight="bold", va="top", color="#145c58")
-            ax.text(0.32, y, wrapped[0], fontsize=8.8, va="top", color="#2d251e")
-            y -= 0.018
-            for extra in wrapped[1:]:
-                ax.text(0.32, y, extra, fontsize=8.8, va="top", color="#2d251e")
-                y -= 0.018
-            y -= 0.006
-            if y < 0.08:
-                pdf.savefig(fig, bbox_inches="tight", dpi=220)
-                fig = Figure(figsize=(8.27, 11.69), dpi=140)
-                fig.patch.set_facecolor("#fbf7ef")
-                ax = fig.add_subplot(111)
-                ax.axis("off")
-                ax.add_patch(
-                    Rectangle(
-                        (0.0, 0.925), 1.0, 0.075, transform=ax.transAxes,
-                        facecolor="#145c58", edgecolor="none",
-                    )
-                )
-                ax.text(0.06, 0.965, title, fontsize=17, weight="bold", va="top", color="white")
-                y = 0.89
-    pdf.savefig(fig, bbox_inches="tight", dpi=220)
+            )
+            text_y = y - 0.008
+            for line_idx, line in enumerate(key_lines):
+                ax.text(0.065, text_y - (line_idx * line_height), line, fontsize=8.4, weight="bold", va="top", color="#145c58")
+            for line_idx, line in enumerate(value_lines):
+                ax.text(0.325, text_y - (line_idx * line_height), line, fontsize=8.4, va="top", color="#2d251e")
+            y -= row_height + 0.006
+
+    for paragraph in paragraphs:
+        draw_paragraph(paragraph)
+    if rows:
+        y -= 0.004
+        draw_table(rows)
+    pdf.savefig(fig, dpi=220)
 
 
 def _add_image_page(pdf, title: str, image_path: Path, caption: str) -> None:
     from matplotlib.figure import Figure
+    from matplotlib.patches import Rectangle
     import matplotlib.image as mpimg
 
     if not image_path.exists():
         return
     title = t(title)
     caption = t(caption)
-    fig = Figure(figsize=(13.2, 9.3), dpi=140)
+    fig = Figure(figsize=(13.2, 9.3), dpi=150)
     fig.patch.set_facecolor("#fbf7ef")
-    ax = fig.add_subplot(111)
+    title_ax = fig.add_axes([0.045, 0.905, 0.91, 0.06])
+    title_ax.axis("off")
+    title_ax.text(0.0, 0.9, title, fontsize=16.5, weight="bold", color="#145c58", va="top")
+    ax = fig.add_axes([0.045, 0.20, 0.91, 0.67])
     ax.axis("off")
-    fig.text(0.045, 0.955, title, fontsize=17, weight="bold", color="#145c58", va="top")
     img = mpimg.imread(str(image_path))
     ax.imshow(img, interpolation="nearest")
-    ax.set_position([0.045, 0.15, 0.91, 0.75])
-    fig.text(
-        0.045,
-        0.055,
-        caption,
-        fontsize=9.5,
-        color="#2d251e",
-        bbox={"boxstyle": "round,pad=0.45", "facecolor": "#fffdf8", "edgecolor": "#e7d9c5"},
-        wrap=True,
+    caption_ax = fig.add_axes([0.045, 0.045, 0.91, 0.12])
+    caption_ax.axis("off")
+    caption_ax.add_patch(
+        Rectangle(
+            (0.0, 0.0),
+            1.0,
+            1.0,
+            transform=caption_ax.transAxes,
+            facecolor="#fffdf8",
+            edgecolor="#e7d9c5",
+            linewidth=0.7,
+        )
     )
-    pdf.savefig(fig, bbox_inches="tight", dpi=260)
+    caption_lines = textwrap.wrap(str(caption), width=150, break_long_words=False, break_on_hyphens=False)
+    caption_y = 0.82
+    for line in caption_lines[:5]:
+        caption_ax.text(0.018, caption_y, line, fontsize=9.0, color="#2d251e", va="top")
+        caption_y -= 0.18
+    pdf.savefig(fig, dpi=260)
 
 
 def save_pdf_report(

@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from ..core.project import ProjectConfig
 from ..core.analysis_runtime import run_analysis, run_residue_matrix
 from ..core.report_export import save_pdf_report, save_report
+from ..i18n import translate_figure
 from ..core.results_analysis import (
     count_tanimoto_similarity,
     load_analysis_summary,
@@ -807,6 +808,7 @@ class ResultsTab(QWidget):
         if not out:
             return
         try:
+            translate_figure(figure)
             figure.savefig(out, dpi=180, bbox_inches="tight")
         except Exception as exc:
             QMessageBox.critical(self, "Erro ao exportar gráfico", str(exc))
@@ -866,10 +868,13 @@ class ResultsTab(QWidget):
         cluster_png = wd / "_report_clusters.png"
         try:
             if HAS_MPL and self.fig.axes:
+                translate_figure(self.fig)
                 self.fig.savefig(heatmap_png, dpi=140, bbox_inches="tight")
             if HAS_MPL and self.st_fig.axes:
+                translate_figure(self.st_fig)
                 self.st_fig.savefig(inter_png, dpi=140, bbox_inches="tight")
             if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
+                translate_figure(self.cluster_fig)
                 self.cluster_fig.savefig(cluster_png, dpi=140, bbox_inches="tight")
         except Exception:
             pass
@@ -919,10 +924,13 @@ class ResultsTab(QWidget):
         cluster_png = wd / "_report_pdf_clusters.png"
         try:
             if HAS_MPL and hasattr(self, "fig") and self.fig.axes:
+                translate_figure(self.fig)
                 self.fig.savefig(heatmap_png, dpi=260, bbox_inches="tight")
             if HAS_MPL and hasattr(self, "st_fig") and self.st_fig.axes:
+                translate_figure(self.st_fig)
                 self.st_fig.savefig(inter_png, dpi=260, bbox_inches="tight")
             if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
+                translate_figure(self.cluster_fig)
                 self.cluster_fig.savefig(cluster_png, dpi=260, bbox_inches="tight")
         except Exception:
             pass

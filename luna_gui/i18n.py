@@ -289,7 +289,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "Vista previa del archivo `ifp.csv`. Cada fila representa un ligando y cada columna describe partes del fingerprint generado.",
     },
     "Linhas a exibir:": {"en": "Rows to show:", "es": "Filas a mostrar:"},
-    "Matriz de similaridade": {"en": "Similarity matrix", "es": "Matriz de similaridad"},
     "Mapa de calor da similaridade entre ligantes. Valores mais altos indicam fingerprints mais parecidos.": {
         "en": "Heatmap of ligand similarity. Higher values indicate more similar fingerprints.",
         "es": "Mapa de calor de la similaridad entre ligandos. Valores más altos indican fingerprints más parecidos.",
@@ -425,6 +424,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Resíduos": {"en": "Residues", "es": "Residuos"},
     "Ligantes": {"en": "Ligands", "es": "Ligandos"},
     "Frames": {"en": "Frames", "es": "Frames"},
+    "Ausente": {"en": "Absent", "es": "Ausente"},
     "% de ligantes": {"en": "% of ligands", "es": "% de ligandos"},
     "% de frames": {"en": "% of frames", "es": "% de frames"},
     "Total (todas as entradas)": {"en": "Total (all entries)", "es": "Total (todas las entradas)"},
@@ -458,6 +458,187 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Clustering hierárquico": {"en": "Hierarchical clustering", "es": "Clustering jerárquico"},
     "Distância": {"en": "Distance", "es": "Distancia"},
     "Matriz reordenada por cluster": {"en": "Matrix reordered by cluster", "es": "Matriz reordenada por cluster"},
+    "Parâmetro": {"en": "Parameter", "es": "Parámetro"},
+    "Valor": {"en": "Value", "es": "Valor"},
+    "Interações por aminoácido no conjunto de ligantes": {"en": "Interactions by amino acid across all ligands", "es": "Interacciones por aminoácido en el conjunto de ligandos"},
+    "Interações por aminoácido ao longo da trajetória": {"en": "Interactions by amino acid across the trajectory", "es": "Interacciones por aminoácido a lo largo de la trayectoria"},
+    "% de frames (entradas)": {"en": "% of frames (entries)", "es": "% de frames (entradas)"},
+    "Número de interações no ligante": {"en": "Number of interactions in the ligand", "es": "Número de interacciones en el ligando"},
+    "Número de interações no frame": {"en": "Number of interactions in the frame", "es": "Número de interacciones en el frame"},
+    "Sem matriz resíduo x interação.\nCalcule o heatmap por tipo ou reexecute a análise.": {"en": "No residue x interaction matrix.\nCalculate the heatmap by type or rerun the analysis.", "es": "Sin matriz residuo x interacción.\nCalcula el heatmap por tipo o reejecuta el análisis."},
+    "Sem matriz resíduo x interação para trajetória.\nCalcule o heatmap por tipo ou reexecute a análise.": {"en": "No residue x interaction matrix for trajectory.\nCalculate the heatmap by type or rerun the analysis.", "es": "Sin matriz residuo x interacción para trayectoria.\nCalcula el heatmap por tipo o reejecuta el análisis."},
+    "Heatmap completo ligantes x resíduos": {"en": "Complete ligand x residue heatmap", "es": "Heatmap completo ligandos x residuos"},
+    "FP - classes importantes": {"en": "FP - important classes", "es": "FP - clases importantes"},
+    "FP - frequência por classe": {"en": "FP - frequency by class", "es": "FP - frecuencia por clase"},
+    "FP - cobertura e importância": {"en": "FP - coverage and importance", "es": "FP - cobertura e importancia"},
+    "FP - heatmap de importância": {"en": "FP - importance heatmap", "es": "FP - heatmap de importancia"},
+    "FP - frequência de interações": {"en": "FP - interaction frequency", "es": "FP - frecuencia de interacciones"},
+    "FP - interações prevalentes": {"en": "FP - prevalent interactions", "es": "FP - interacciones prevalentes"},
+    "FP - heatmap de interações": {"en": "FP - interaction heatmap", "es": "FP - heatmap de interacciones"},
+    "Has noncovalent interactions with the protein": {
+        "pt": "Possui interações não covalentes com a proteína",
+        "en": "Has noncovalent interactions with the protein",
+        "es": "Tiene interacciones no covalentes con la proteína",
+    },
+    "Ligand's level 0 features only": {
+        "pt": "Apenas features de nível 0 do ligante",
+        "en": "Ligand's level 0 features only",
+        "es": "Solo features de nivel 0 del ligando",
+    },
+    "Protein's level 0 features only": {
+        "pt": "Apenas features de nível 0 da proteína",
+        "en": "Protein's level 0 features only",
+        "es": "Solo features de nivel 0 de la proteína",
+    },
+    "Upper level with ligand atomic information only": {
+        "pt": "Nível superior apenas com informação atômica do ligante",
+        "en": "Upper level with ligand atomic information only",
+        "es": "Nivel superior solo con información atómica del ligando",
+    },
+    "Upper level with protein atomic information only": {
+        "pt": "Nível superior apenas com informação atômica da proteína",
+        "en": "Upper level with protein atomic information only",
+        "es": "Nivel superior solo con información atómica de la proteína",
+    },
+    "Intraligand interactions only": {
+        "pt": "Apenas interações intraligante",
+        "en": "Intraligand interactions only",
+        "es": "Solo interacciones intraligando",
+    },
+    "Intraprotein interactions only": {
+        "pt": "Apenas interações intraproteína",
+        "en": "Intraprotein interactions only",
+        "es": "Solo interacciones intraproteína",
+    },
+    "Features with collision in the same complex": {
+        "pt": "Features com colisão no mesmo complexo",
+        "en": "Features with collision in the same complex",
+        "es": "Features con colisión en el mismo complejo",
+    },
+    "Unreliable feature": {
+        "pt": "Feature não confiável",
+        "en": "Unreliable feature",
+        "es": "Feature no confiable",
+    },
+    "Ligantes selecionados": {"en": "Selected ligands", "es": "Ligandos seleccionados"},
+    "Matriz de similaridade": {"en": "Similarity matrix", "es": "Matriz de similaridad"},
+    "Otsu fallback": {"en": "Otsu fallback", "es": "Fallback Otsu"},
+    "Clusters": {"en": "Clusters", "es": "Clusters"},
+    "Tipo": {"en": "Type", "es": "Tipo"},
+    "Total": {"en": "Total", "es": "Total"},
+    "Cadeia/Resíduo/Num": {"en": "Chain/Residue/Num", "es": "Cadena/Residuo/Núm"},
+    "Top 30 resíduos com mais interações": {"en": "Top 30 residues with most interactions", "es": "Top 30 residuos con más interacciones"},
+    "Dendrograma e matriz clusterizada": {"en": "Dendrogram and clustered matrix", "es": "Dendrograma y matriz clusterizada"},
+    "Relatório LUNA": {"en": "LUNA report", "es": "Reporte LUNA"},
+    (
+        "Cada célula pode conter várias faixas de cor, uma por classe de interação. Esse gráfico mostra quando um mesmo resíduo participa de mecanismos químicos diferentes entre ligantes."
+    ): {
+        "en": "Each cell can contain several color bands, one for each interaction class. This chart shows when the same residue participates in different chemical mechanisms across ligands.",
+        "es": "Cada celda puede contener varias franjas de color, una por clase de interacción. Este gráfico muestra cuándo un mismo residuo participa en mecanismos químicos diferentes entre ligandos.",
+    },
+    (
+        "Resume as classes atribuídas às features que passaram pelo corte de p-value. Classes dominantes indicam a natureza estrutural das features que mais influenciam o modelo."
+    ): {
+        "en": "Summarizes the classes assigned to features that passed the p-value cutoff. Dominant classes indicate the structural nature of the features that most influence the model.",
+        "es": "Resume las clases asignadas a las features que pasaron el corte de p-value. Las clases dominantes indican la naturaleza estructural de las features que más influyen en el modelo.",
+    },
+    (
+        "Mostra a composição de classe das features importantes. Barras mistas sugerem features com colisões ou natureza ambígua; barras concentradas sugerem assinatura mais interpretável."
+    ): {
+        "en": "Shows the class composition of important features. Mixed bars suggest features with collisions or ambiguous nature; concentrated bars suggest a more interpretable signature.",
+        "es": "Muestra la composición de clase de las features importantes. Barras mixtas sugieren features con colisiones o naturaleza ambigua; barras concentradas sugieren una firma más interpretable.",
+    },
+    (
+        "Compara quantos ligantes possuem cada feature com a importância estimada pelo modelo. Features com alta importância e cobertura moderada costumam ser boas candidatas para inspeção."
+    ): {
+        "en": "Compares how many ligands contain each feature with the importance estimated by the model. Features with high importance and moderate coverage are usually good candidates for inspection.",
+        "es": "Compara cuántos ligandos poseen cada feature con la importancia estimada por el modelo. Features con alta importancia y cobertura moderada suelen ser buenas candidatas para inspección.",
+    },
+    (
+        "Relaciona features importantes e classes de fingerprint. Tons mais intensos indicam maior peso relativo; use os IDs das features para gerar sessão PyMOL correspondente."
+    ): {
+        "en": "Relates important features and fingerprint classes. More intense tones indicate higher relative weight; use feature IDs to generate the corresponding PyMOL session.",
+        "es": "Relaciona features importantes y clases de fingerprint. Tonos más intensos indican mayor peso relativo; usa los IDs de las features para generar la sesión PyMOL correspondiente.",
+    },
+    (
+        "Mostra a distribuição das interações prevalentes nos shells das features importantes. Ajuda a ligar uma feature abstrata a contatos químicos observáveis."
+    ): {
+        "en": "Shows the distribution of prevalent interactions in the shells of important features. It helps connect an abstract feature to observable chemical contacts.",
+        "es": "Muestra la distribución de las interacciones prevalentes en los shells de las features importantes. Ayuda a conectar una feature abstracta con contactos químicos observables.",
+    },
+    (
+        "Resume quais tipos de interação aparecem como dominantes nas features importantes, após aplicar o limiar configurado por z-score ou Otsu."
+    ): {
+        "en": "Summarizes which interaction types appear as dominant in the important features after applying the configured z-score or Otsu threshold.",
+        "es": "Resume qué tipos de interacción aparecen como dominantes en las features importantes, después de aplicar el umbral configurado por z-score u Otsu.",
+    },
+    (
+        "Cruza features importantes com interações prevalentes dos shells reais do LUNA. Ele revela se diferentes features importantes apontam para a mesma família de contatos."
+    ): {
+        "en": "Crosses important features with prevalent interactions from the real LUNA shells. It reveals whether different important features point to the same contact family.",
+        "es": "Cruza features importantes con interacciones prevalentes de los shells reales de LUNA. Revela si diferentes features importantes apuntan a la misma familia de contactos.",
+    },
+    "Sem matriz de resíduos disponível": {"en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
+    "Sem matriz completa disponível": {"en": "No complete matrix available", "es": "Sin matriz completa disponible"},
+    "Sem dados de interação para o heatmap completo": {"en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el heatmap completo"},
+    (
+        "Linhas representam ligantes e colunas representam resíduos. A intensidade da célula indica quantas vezes o tipo de interação selecionado aparece naquele par; colunas densas destacam resíduos recorrentes."
+    ): {
+        "en": "Rows represent ligands and columns represent residues. Cell intensity indicates how often the selected interaction type appears in that pair; dense columns highlight recurrent residues.",
+        "es": "Las filas representan ligandos y las columnas residuos. La intensidad de la celda indica cuántas veces el tipo de interacción seleccionado aparece en ese par; columnas densas destacan residuos recurrentes.",
+    },
+    (
+        "Heatmap completo ligantes x resíduos: usa faixas coloridas para mostrar múltiplos tipos de interação no mesmo par ligante-resíduo. Ele é útil para enxergar complementaridade química: o mesmo resíduo pode estabilizar ligantes por mecanismos diferentes."
+    ): {
+        "en": "Complete ligand x residue heatmap: uses colored bands to show multiple interaction types in the same ligand-residue pair. It helps visualize chemical complementarity: the same residue can stabilize ligands through different mechanisms.",
+        "es": "Heatmap completo ligandos x residuos: usa franjas de color para mostrar múltiples tipos de interacción en el mismo par ligando-residuo. Es útil para ver complementariedad química: el mismo residuo puede estabilizar ligandos por mecanismos diferentes.",
+    },
+    (
+        "Clusters: reorganizam a matriz de similaridade para revelar famílias de ligantes por comportamento no sítio. Use os grupos como hipótese para priorização e para escolher representantes para inspeção no PyMOL."
+    ): {
+        "en": "Clusters: reorganize the similarity matrix to reveal ligand families by site behavior. Use the groups as prioritization hypotheses and to choose representatives for PyMOL inspection.",
+        "es": "Clusters: reorganizan la matriz de similaridad para revelar familias de ligandos por comportamiento en el sitio. Usa los grupos como hipótesis de priorización y para elegir representantes para inspección en PyMOL.",
+    },
+    (
+        "Fingerprints e FP análises: cada feature resume uma vizinhança de interação. A classe atribuída descreve a natureza dominante da feature; a importância do modelo estima quanto ela ajuda a separar classes/rótulos ou valores de atividade."
+    ): {
+        "en": "Fingerprints and FP analyses: each feature summarizes an interaction neighborhood. The assigned class describes the feature's dominant nature; model importance estimates how much it helps separate classes/labels or activity values.",
+        "es": "Fingerprints y análisis FP: cada feature resume una vecindad de interacción. La clase asignada describe la naturaleza dominante de la feature; la importancia del modelo estima cuánto ayuda a separar clases/rótulos o valores de actividad.",
+    },
+    (
+        "Importância e p-value: o z-score de importância compara uma feature contra a distribuição de importâncias do conjunto. O p-value é um filtro exploratório; features abaixo do corte merecem inspeção visual, especialmente quando aparecem em vários ligantes."
+    ): {
+        "en": "Importance and p-value: the importance z-score compares a feature against the importance distribution of the set. The p-value is an exploratory filter; features below the cutoff deserve visual inspection, especially when they appear in several ligands.",
+        "es": "Importancia y p-value: el z-score de importancia compara una feature contra la distribución de importancias del conjunto. El p-value es un filtro exploratorio; features por debajo del corte merecen inspección visual, especialmente cuando aparecen en varios ligandos.",
+    },
+    (
+        "Otsu's Thresholding: quando nenhuma feature passa pelo critério z-score > 1, Otsu define um limiar alternativo baseado na separação da distribuição de percentuais. Isso evita aceitar apenas casos 100% prevalentes quando a base tem padrões intermediários."
+    ): {
+        "en": "Otsu's Thresholding: when no feature passes the z-score > 1 criterion, Otsu defines an alternative threshold based on the separation of the percentage distribution. This avoids accepting only 100% prevalent cases when the dataset has intermediate patterns.",
+        "es": "Otsu's Thresholding: cuando ninguna feature pasa el criterio z-score > 1, Otsu define un umbral alternativo basado en la separación de la distribución de porcentajes. Esto evita aceptar solo casos 100% prevalentes cuando la base tiene patrones intermedios.",
+    },
+    (
+        "Sessões PyMOL: permitem validar visualmente se as features ou filtros representam contatos plausíveis no complexo. A filtragem dinâmica pode gerar sessões novas ou, se o projeto salvo não reabrir, copiar sessões existentes compatíveis com a matriz cacheada."
+    ): {
+        "en": "PyMOL sessions: visually validate whether features or filters represent plausible contacts in the complex. Dynamic filtering can generate new sessions or, if the saved project cannot be reopened, copy existing sessions compatible with the cached matrix.",
+        "es": "Sesiones PyMOL: permiten validar visualmente si las features o filtros representan contactos plausibles en el complejo. El filtrado dinámico puede generar sesiones nuevas o, si el proyecto guardado no se reabre, copiar sesiones existentes compatibles con la matriz cacheada.",
+    },
+    (
+        "O dendrograma mostra a distância entre perfis de interação e a matriz reordenada evidencia grupos. Clusters compactos sugerem ligantes que compartilham padrões de contato e podem ser priorizados em conjunto."
+    ): {
+        "en": "The dendrogram shows distances between interaction profiles and the reordered matrix highlights groups. Compact clusters suggest ligands that share contact patterns and can be prioritized together.",
+        "es": "El dendrograma muestra la distancia entre perfiles de interacción y la matriz reordenada evidencia grupos. Clusters compactos sugieren ligandos que comparten patrones de contacto y pueden priorizarse en conjunto.",
+    },
+    (
+        "Cada linha resume uma base de fingerprints carregada. Se o modelo aparecer como fallback ou indisponível, a interpretação deve ser tratada como exploratória e a interface mostra a causa no campo de método."
+    ): {
+        "en": "Each row summarizes a loaded fingerprint dataset. If the model appears as fallback or unavailable, treat the interpretation as exploratory; the interface shows the cause in the method field.",
+        "es": "Cada línea resume una base de fingerprints cargada. Si el modelo aparece como fallback o indisponible, la interpretación debe tratarse como exploratoria; la interfaz muestra la causa en el campo de método.",
+    },
+    "Tabela com os primeiros ligantes e seus clusters hierárquicos.": {
+        "en": "Table with the first ligands and their hierarchical clusters.",
+        "es": "Tabla con los primeros ligandos y sus clusters jerárquicos.",
+    },
 
     # Report text.
     "Relatório HIP2LInterActomics_GUI": {"en": "HIP2LInterActomics_GUI report", "es": "Reporte HIP2LInterActomics_GUI"},
@@ -522,18 +703,48 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Weak hydrogen bond": {"pt": "Ligação de hidrogênio fraca", "en": "Weak hydrogen bond", "es": "Puente de hidrógeno débil"},
     "Hydrophobic": {"pt": "Hidrofóbica", "en": "Hydrophobic", "es": "Hidrofóbica"},
     "Halogen bond": {"pt": "Ligação de halogênio", "en": "Halogen bond", "es": "Enlace de halógeno"},
+    "Halogen-pi": {"pt": "Halogênio-pi", "en": "Halogen-pi", "es": "Halógeno-pi"},
     "Chalcogen bond": {"pt": "Ligação de calcogênio", "en": "Chalcogen bond", "es": "Enlace de calcógeno"},
+    "Chalcogen-pi": {"pt": "Calcogênio-pi", "en": "Chalcogen-pi", "es": "Calcógeno-pi"},
     "Ionic": {"pt": "Iônica", "en": "Ionic", "es": "Iónica"},
     "Salt bridge": {"pt": "Ponte salina", "en": "Salt bridge", "es": "Puente salino"},
     "Cation-pi": {"pt": "Cátion-pi", "en": "Cation-pi", "es": "Catión-pi"},
+    "Cation-nucleophile": {"pt": "Cátion-nucleófilo", "en": "Cation-nucleophile", "es": "Catión-nucleófilo"},
+    "Anion-electrophile": {"pt": "Ânion-eletrófilo", "en": "Anion-electrophile", "es": "Anión-electrófilo"},
+    "Anion-pi": {"pt": "Ânion-pi", "en": "Anion-pi", "es": "Anión-pi"},
     "Pi-stacking": {"pt": "Empilhamento pi", "en": "Pi-stacking", "es": "Apilamiento pi"},
+    "Aromatic stacking": {"pt": "Empilhamento aromático", "en": "Aromatic stacking", "es": "Apilamiento aromático"},
     "Face-to-face": {"pt": "Face-a-face", "en": "Face-to-face", "es": "Cara a cara"},
     "Edge-to-face": {"pt": "Borda-a-face", "en": "Edge-to-face", "es": "Borde a cara"},
+    "Face-to-edge pi-stacking": {"pt": "Empilhamento pi face-borda", "en": "Face-to-edge pi-stacking", "es": "Apilamiento pi cara-borde"},
+    "Face-to-face pi-stacking": {"pt": "Empilhamento pi face-face", "en": "Face-to-face pi-stacking", "es": "Apilamiento pi cara-cara"},
+    "Face-to-slope pi-stacking": {"pt": "Empilhamento pi face-inclinado", "en": "Face-to-slope pi-stacking", "es": "Apilamiento pi cara-inclinado"},
+    "Displaced face-to-edge pi-stacking": {"pt": "Empilhamento pi deslocado face-borda", "en": "Displaced face-to-edge pi-stacking", "es": "Apilamiento pi desplazado cara-borde"},
+    "Displaced face-to-face pi-stacking": {"pt": "Empilhamento pi deslocado face-face", "en": "Displaced face-to-face pi-stacking", "es": "Apilamiento pi desplazado cara-cara"},
+    "Displaced face-to-slope pi-stacking": {"pt": "Empilhamento pi deslocado face-inclinado", "en": "Displaced face-to-slope pi-stacking", "es": "Apilamiento pi desplazado cara-inclinado"},
+    "Parallel": {"pt": "Paralelo", "en": "Parallel", "es": "Paralelo"},
+    "Parallel multipolar": {"pt": "Multipolar paralelo", "en": "Parallel multipolar", "es": "Multipolar paralelo"},
+    "Antiparallel multipolar": {"pt": "Multipolar antiparalelo", "en": "Antiparallel multipolar", "es": "Multipolar antiparalelo"},
+    "Orthogonal multipolar": {"pt": "Multipolar ortogonal", "en": "Orthogonal multipolar", "es": "Multipolar ortogonal"},
+    "Tilted multipolar": {"pt": "Multipolar inclinado", "en": "Tilted multipolar", "es": "Multipolar inclinado"},
+    "T-shaped": {"pt": "Forma de T", "en": "T-shaped", "es": "Forma de T"},
+    "Amide-aromatic stacking": {"pt": "Empilhamento amida-aromático", "en": "Amide-aromatic stacking", "es": "Apilamiento amida-aromático"},
+    "Charge-dipole interaction": {"pt": "Interação carga-dipolo", "en": "Charge-dipole interaction", "es": "Interacción carga-dipolo"},
+    "Unfavorable charge-dipole interaction": {"pt": "Interação carga-dipolo desfavorável", "en": "Unfavorable charge-dipole interaction", "es": "Interacción carga-dipolo desfavorable"},
+    "Unfavorable dipole interaction": {"pt": "Interação dipolar desfavorável", "en": "Unfavorable dipole interaction", "es": "Interacción dipolar desfavorable"},
     "Water-bridged hydrogen bond": {"pt": "Ponte de hidrogênio mediada por água", "en": "Water-bridged hydrogen bond", "es": "Puente de hidrógeno mediado por agua"},
     "Disulfide bond": {"pt": "Ponte dissulfeto", "en": "Disulfide bond", "es": "Puente disulfuro"},
     "Metal coordination": {"pt": "Coordenação metálica", "en": "Metal coordination", "es": "Coordinación metálica"},
     "Van der Waals": {"pt": "Van der Waals", "en": "Van der Waals", "es": "Van der Waals"},
     "Proximal": {"pt": "Proximal", "en": "Proximal", "es": "Proximal"},
+    "Multipolar interaction": {"pt": "Interação multipolar", "en": "Multipolar interaction", "es": "Interacción multipolar"},
+    "Multiple interactions": {"pt": "Interações múltiplas", "en": "Multiple interactions", "es": "Interacciones múltiples"},
+    "Repulsive": {"pt": "Repulsiva", "en": "Repulsive", "es": "Repulsiva"},
+    "Unfavorable": {"pt": "Desfavorável", "en": "Unfavorable", "es": "Desfavorable"},
+    "Unfavorable anion-nucleophile": {"pt": "Ânion-nucleófilo desfavorável", "en": "Unfavorable anion-nucleophile", "es": "Anión-nucleófilo desfavorable"},
+    "Unfavorable cation-electrophile": {"pt": "Cátion-eletrófilo desfavorável", "en": "Unfavorable cation-electrophile", "es": "Catión-electrófilo desfavorable"},
+    "Unfavorable electrophile-electrophile": {"pt": "Eletrófilo-eletrófilo desfavorável", "en": "Unfavorable electrophile-electrophile", "es": "Electrófilo-electrófilo desfavorable"},
+    "Unfavorable nucleophile-nucleophile": {"pt": "Nucleófilo-nucleófilo desfavorável", "en": "Unfavorable nucleophile-nucleophile", "es": "Nucleófilo-nucleófilo desfavorable"},
 }
 
 _REVERSE_TRANSLATIONS: dict[str, str] = {}
@@ -608,6 +819,14 @@ def _translate_patterns(text: str, lang: str) -> str:
             ),
         ),
         (
+            re.compile(r"^Sim, pH (.+)$"),
+            lambda m: (
+                f"Yes, pH {m.group(1)}"
+                if lang == "en"
+                else f"Sí, pH {m.group(1)}"
+            ),
+        ),
+        (
             re.compile(r"^Entradas processadas: (.+)\.$"),
             lambda m: (
                 f"Processed entries: {m.group(1)}."
@@ -642,6 +861,14 @@ def _translate_patterns(text: str, lang: str) -> str:
             ),
         ),
         (
+            re.compile(r"^Interações por tipo - (.+)$"),
+            lambda m: (
+                f"Interactions by type - {m.group(1)}"
+                if lang == "en"
+                else f"Interacciones por tipo - {m.group(1)}"
+            ),
+        ),
+        (
             re.compile(r"^Resíduos × ligantes — (.+)$"),
             lambda m: (
                 f"Residues x ligands - {m.group(1)}"
@@ -650,7 +877,31 @@ def _translate_patterns(text: str, lang: str) -> str:
             ),
         ),
         (
+            re.compile(r"^Interações por aminoácido - ligante (.+)$"),
+            lambda m: (
+                f"Interactions by amino acid - ligand {m.group(1)}"
+                if lang == "en"
+                else f"Interacciones por aminoácido - ligando {m.group(1)}"
+            ),
+        ),
+        (
+            re.compile(r"^Interações por aminoácido - frame (.+)$"),
+            lambda m: (
+                f"Interactions by amino acid - frame {m.group(1)}"
+                if lang == "en"
+                else f"Interacciones por aminoácido - frame {m.group(1)}"
+            ),
+        ),
+        (
             re.compile(r"^Sem ocorrencias de '(.+)'$"),
+            lambda m: (
+                f"No occurrences of '{m.group(1)}'"
+                if lang == "en"
+                else f"Sin ocurrencias de '{m.group(1)}'"
+            ),
+        ),
+        (
+            re.compile(r"^Sem ocorrências de '(.+)'$"),
             lambda m: (
                 f"No occurrences of '{m.group(1)}'"
                 if lang == "en"
@@ -814,10 +1065,14 @@ def install_matplotlib_hooks() -> None:
 
     original_set_text = Text.set_text
     if not getattr(original_set_text, "_luna_i18n_wrapped", False):
+        setattr(Text, "_luna_i18n_original_set_text", original_set_text)
 
         def set_text(self, value):
             if isinstance(value, str):
+                previous_source = getattr(self, "_luna_i18n_source_text", None)
                 source = source_text(value)
+                if previous_source and value == t(previous_source):
+                    source = previous_source
                 setattr(self, "_luna_i18n_source_text", source)
                 value = t(source)
             return original_set_text(self, value)
@@ -852,7 +1107,11 @@ def _translate_text_artist(artist) -> None:
     new_text = t(source)
     if new_text != text:
         try:
-            artist.set_text(new_text)
+            original_set_text = getattr(type(artist), "_luna_i18n_original_set_text", None)
+            if original_set_text is not None:
+                original_set_text(artist, new_text)
+            else:
+                artist.set_text(new_text)
         except Exception:
             pass
 

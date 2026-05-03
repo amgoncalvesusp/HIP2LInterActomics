@@ -40,6 +40,7 @@ from ..core.analysis_runtime import (
     run_residue_matrix,
 )
 from ..core.report_export import save_pdf_report
+from ..i18n import translate_figure
 from ..core.results_analysis import (
     CLASS_UNRELIABLE,
     FP_CLASS_ORDER,
@@ -2585,10 +2586,39 @@ class ResultsTab(EnhancedResultsTab):
         if not HAS_MPL or fig is None or not getattr(fig, "axes", None):
             return None
         try:
+            translate_figure(fig)
             fig.savefig(path, dpi=260, bbox_inches="tight")
         except Exception:
             return None
         return path if path.exists() else None
+
+    def _save_report_stats_overview(self, path: Path) -> Path | None:
+        """Save the statistics chart in the project-wide scope for PDF reports."""
+        if not HAS_MPL or not self._last_analysis:
+            return None
+        old_index = None
+        old_hidden = set(getattr(self, "_stats_hidden_interactions", set()))
+        combo = getattr(self, "cb_stats_scope", None)
+        if combo is not None:
+            old_index = combo.currentIndex()
+        try:
+            self._stats_hidden_interactions.clear()
+            if combo is not None:
+                idx = combo.findData("__all__")
+                if idx >= 0:
+                    combo.blockSignals(True)
+                    combo.setCurrentIndex(idx)
+                    combo.blockSignals(False)
+            self._render_stats_chart(self._last_analysis)
+            return self._save_report_figure(getattr(self, "st_fig", None), path)
+        finally:
+            self._stats_hidden_interactions = old_hidden
+            if combo is not None and old_index is not None and 0 <= old_index < combo.count():
+                combo.blockSignals(True)
+                combo.setCurrentIndex(old_index)
+                combo.blockSignals(False)
+            if self._last_analysis:
+                self._render_stats_chart(self._last_analysis)
 
     def export_pdf_report(self) -> None:
         wd = self._current_wd()
@@ -2609,7 +2639,7 @@ class ResultsTab(EnhancedResultsTab):
             return
 
         similarity_png = self._save_report_figure(getattr(self, "fig", None), wd / "_report_pdf_similarity.png")
-        interactions_png = self._save_report_figure(getattr(self, "st_fig", None), wd / "_report_pdf_interactions.png")
+        interactions_png = self._save_report_stats_overview(wd / "_report_pdf_interactions_all.png")
         cluster_png = None
         if getattr(self, "_cluster_result", None):
             cluster_png = self._save_report_figure(getattr(self, "cluster_fig", None), wd / "_report_pdf_clusters.png")
