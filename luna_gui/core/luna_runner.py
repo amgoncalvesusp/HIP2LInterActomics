@@ -78,12 +78,16 @@ def validate(cfg: ProjectConfig) -> list[str]:
     protein_path = Path(cfg.protein_file) if cfg.protein_file else None
     if not cfg.protein_file or protein_path is None or not protein_path.exists():
         errs.append("Arquivo de proteína não encontrado.")
-    elif protein_path.is_dir() and not cfg.include_waters:
-        errs.append("Selecione um arquivo PDB de proteína ou marque análise hidratada para usar uma pasta.")
-    elif protein_path.is_dir() and cfg.include_waters and not any(protein_path.glob("*.pdb")):
+    elif protein_path.is_dir() and not any(protein_path.glob("*.pdb")):
         errs.append("A pasta de proteínas não contém arquivos .pdb.")
-    if not cfg.ligand_file or not Path(cfg.ligand_file).exists():
+    ligand_path = Path(cfg.ligand_file) if cfg.ligand_file else None
+    if not cfg.ligand_file or ligand_path is None or not ligand_path.exists():
         errs.append("Arquivo de ligantes não encontrado.")
+    elif ligand_path.is_dir() and not any(
+        item.is_file() and item.suffix.lower() in {".mol2", ".sdf", ".sd", ".mol", ".pdb", ".ent"}
+        for item in ligand_path.iterdir()
+    ):
+        errs.append("A pasta de ligantes não contém arquivos .mol2, .sdf, .mol, .pdb ou .ent.")
     if not cfg.selected_ligands:
         errs.append("Nenhum ligante selecionado.")
     if not cfg.workdir:

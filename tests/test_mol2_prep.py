@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,8 +9,15 @@ from luna_gui.core.mol2_prep import (
     count_water_molecules,
     count_water_molecules_in_inputs,
     detect_last_protein_atom,
+    split_complex_folder,
     split_docking_folder,
 )
+from luna_gui.core.ligand_io import parse_ligand_file
+
+try:
+    from rdkit import Chem
+except Exception:  # pragma: no cover - depends on optional chemistry runtime
+    Chem = None
 
 
 MOL2_COMPLEX = """@<TRIPOS>MOLECULE
@@ -56,6 +64,44 @@ USER_CHARGES
      3 LIG1 3 RESIDUE 0 L LIG 0
      4 HOH10 5 RESIDUE 0 W HOH 0
 """
+
+
+PDB_COMPLEX_WITH_WATER_AND_LP = """HEADER    TEST COMPLEX
+ATOM      1  N   GLY A   1       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  GLY A   1       1.000   0.000   0.000  1.00  0.00           C
+HETATM    3  O   HOH W  10       2.000   0.000   0.000  1.00  0.00           O
+HETATM    4  LP  HOH W  10       2.100   0.000   0.000  1.00  0.00          LP
+HETATM    5  C1  LIG L   1       3.000   0.000   0.000  1.00  0.00           C
+HETATM    6  O1  LIG L   1       4.000   0.000   0.000  1.00  0.00           O
+END
+"""
+
+PDB_COMPLEX_WITH_LIGAND_AS_ATOM = """HEADER    TEST COMPLEX
+ATOM      1  N   GLY A   1       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  GLY A   1       1.000   0.000   0.000  1.00  0.00           C
+ATOM      3  C1  LIG L   1       3.000   0.000   0.000  1.00  0.00           C
+ATOM      4  O1  LIG L   1       4.000   0.000   0.000  1.00  0.00           O
+END
+"""
+
+
+def _pdb_atom(
+    serial: int,
+    atom_name: str,
+    resname: str,
+    chain: str,
+    resseq: int,
+    x: float,
+    y: float,
+    z: float,
+    element: str,
+    record: str = "HETATM",
+    charge: str = "",
+) -> str:
+    return (
+        f"{record:<6}{serial:5d} {atom_name:>4s} {resname:>3s} {chain:1s}{resseq:4d}    "
+        f"{x:8.3f}{y:8.3f}{z:8.3f}{1.00:6.2f}{0.00:6.2f}          {element:>2s}{charge:>2s}\n"
+    )
 
 
 class Mol2PrepTests(unittest.TestCase):
@@ -154,6 +200,128 @@ class Mol2PrepTests(unittest.TestCase):
             self.assertEqual(count_water_molecules(pdb_dir), 2)
             self.assertEqual(count_water_molecules(mol2), 1)
             self.assertEqual(count_water_molecules_in_inputs(pdb_dir, mol2), 3)
+
+    def test_split_complex_folder_accepts_pdb_and_drops_water_lp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            (src / "frame_100.pdb").write_text(PDB_COMPLEX_WITH_WATER_AND_LP, encoding="utf-8")
+
+            result = split_complex_folder(src)
+
+            self.assertEqual(result.files_processed, 1)
+            self.assertEqual(result.proteins_written, 1)
+            self.assertEqual(result.ligands_written, 1)
+            self.assertEqual(result.water_molecules_detected, 1)
+            protein_pdb = Path(result.protein_dir) / "frame_100.pdb"
+            ligand_sdf = Path(result.ligand_dir) / "frame_100_ligand.sdf"
+            self.assertTrue(protein_pdb.exists())
+            self.assertTrue(ligand_sdf.exists())
+            self.assertFalse((Path(result.ligand_dir) / "frame_100_ligand.pdb").exists())
+
+            protein_text = protein_pdb.read_text(encoding="utf-8")
+            ligand_text = ligand_sdf.read_text(encoding="utf-8")
+            self.assertIn("HOH", protein_text)
+            self.assertNotIn(" LP ", protein_text)
+            self.assertNotIn("LIG", protein_text)
+            self.assertEqual(parse_ligand_file(ligand_sdf), ["frame_100_LIG"])
+            self.assertIn("M  END", ligand_text)
+            self.assertIn("$$$$", ligand_text)
+            self.assertNotIn("HOH", ligand_text)
+
+    def test_split_complex_folder_detects_pdb_ligand_even_when_written_as_atom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            (src / "pose_19.pdb").write_text(PDB_COMPLEX_WITH_LIGAND_AS_ATOM, encoding="utf-8")
+
+            result = split_complex_folder(src)
+
+            self.assertEqual(result.proteins_written, 1)
+            self.assertEqual(result.ligands_written, 1)
+            protein_text = (Path(result.protein_dir) / "pose_19.pdb").read_text(encoding="utf-8")
+            ligand_sdf = Path(result.ligand_dir) / "pose_19_ligand.sdf"
+            ligand_text = ligand_sdf.read_text(encoding="utf-8")
+            self.assertIn(" GLY ", protein_text)
+            self.assertNotIn(" LIG ", protein_text)
+            self.assertEqual(parse_ligand_file(ligand_sdf), ["pose_19_LIG"])
+            self.assertIn("M  END", ligand_text)
+
+    @unittest.skipIf(Chem is None, "RDKit is required to inspect SDF chemistry")
+    def test_split_complex_folder_preserves_pdb_formal_charge_in_sdf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            lines = [
+                "HEADER    TEST COMPLEX\n",
+                _pdb_atom(1, "CA", "GLY", "A", 1, 0.0, 0.0, 0.0, "C", record="ATOM"),
+                _pdb_atom(10, "N1", "AMM", "L", 1, 5.0, 0.0, 0.0, "N", charge="1+"),
+                _pdb_atom(11, "H1", "AMM", "L", 1, 6.0, 0.0, 0.0, "H"),
+                _pdb_atom(12, "H2", "AMM", "L", 1, 4.0, 0.0, 0.0, "H"),
+                _pdb_atom(13, "H3", "AMM", "L", 1, 5.0, 1.0, 0.0, "H"),
+                _pdb_atom(14, "H4", "AMM", "L", 1, 5.0, 0.0, 1.0, "H"),
+                "END\n",
+            ]
+            (src / "ammonium.pdb").write_text("".join(lines), encoding="utf-8")
+
+            result = split_complex_folder(src)
+
+            ligand_sdf = Path(result.ligand_dir) / "ammonium_ligand.sdf"
+            mol = Chem.SDMolSupplier(str(ligand_sdf), removeHs=False)[0]
+            self.assertIsNotNone(mol)
+            self.assertEqual(sum(atom.GetFormalCharge() for atom in mol.GetAtoms()), 1)
+            self.assertEqual(mol.GetProp("HIP2L_TotalFormalCharge"), "1")
+            self.assertTrue(mol.HasProp("HIP2L_GasteigerCharges"))
+
+    @unittest.skipIf(Chem is None, "RDKit is required to inspect SDF chemistry")
+    def test_split_complex_folder_perceives_aromaticity_in_pdb_ligand(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            lines = [
+                "HEADER    TEST COMPLEX\n",
+                _pdb_atom(1, "CA", "GLY", "A", 1, 0.0, 0.0, 0.0, "C", record="ATOM"),
+            ]
+            for idx in range(6):
+                angle = 2.0 * math.pi * idx / 6.0
+                lines.append(
+                    _pdb_atom(
+                        10 + idx,
+                        f"C{idx + 1}",
+                        "BEN",
+                        "L",
+                        1,
+                        5.0 + 1.397 * math.cos(angle),
+                        1.397 * math.sin(angle),
+                        0.0,
+                        "C",
+                    )
+                )
+            for idx in range(6):
+                angle = 2.0 * math.pi * idx / 6.0
+                lines.append(
+                    _pdb_atom(
+                        20 + idx,
+                        f"H{idx + 1}",
+                        "BEN",
+                        "L",
+                        1,
+                        5.0 + 2.48 * math.cos(angle),
+                        2.48 * math.sin(angle),
+                        0.0,
+                        "H",
+                    )
+                )
+            lines.append("END\n")
+            (src / "benzene.pdb").write_text("".join(lines), encoding="utf-8")
+
+            result = split_complex_folder(src)
+
+            ligand_sdf = Path(result.ligand_dir) / "benzene_ligand.sdf"
+            mol = Chem.SDMolSupplier(str(ligand_sdf), removeHs=False)[0]
+            self.assertIsNotNone(mol)
+            self.assertEqual(sum(1 for bond in mol.GetBonds() if bond.GetIsAromatic()), 6)
+            self.assertTrue(mol.HasProp("HIP2L_GasteigerCharges"))
 
 
 if __name__ == "__main__":

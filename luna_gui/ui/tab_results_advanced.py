@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 import math
-import os
 import shutil
-import subprocess
-import sys
+import textwrap
 from pathlib import Path
 
 import numpy as np
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -39,6 +39,7 @@ from ..core.analysis_runtime import (
     run_fp_detail_analysis,
     run_residue_matrix,
 )
+from ..core.pymol_launcher import launch_pse_session
 from ..core.report_export import save_pdf_report
 from ..i18n import translate_figure
 from ..core.results_analysis import (
@@ -53,6 +54,8 @@ from ..core.results_analysis import (
     format_residue_label,
     get_interaction_color,
     interaction_priority_key,
+    is_pi_stacking_interaction,
+    is_unfavorable_or_repulsive_interaction,
     load_external_fp_labels,
     load_fp_detail_artifact,
     load_analysis_summary,
@@ -70,6 +73,7 @@ from .tab_results_enhanced import (
     _apply_tick_labels,
     _sortable_item,
 )
+from .info import InfoButton
 
 if HAS_MPL:
     from matplotlib import colormaps
@@ -78,17 +82,25 @@ if HAS_MPL:
 
 
 class ResultsTab(EnhancedResultsTab):
+    _REPORT_FIGURE_WIDTH_IN = 12.0
+    _REPORT_FIGURE_HEIGHT_IN = 6.6
+    _REPORT_FIGURE_DPI = 600
+
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
         self._fp_artifacts: dict[str, dict] = {}
         self._fp_dashboards: dict[tuple[str, str], dict] = {}
         self._generated_fp_session: str = ""
         self._stats_hidden_interactions: set[str] = set()
+        self._complete_hidden_interactions: set[str] = set()
         self._stats_legend_pick_cid: int | None = None
         self._stats_legend_artist_labels: dict[object, str] = {}
         self._fp_interaction_hidden_types: set[str] = set()
         self._fp_interaction_legend_pick_cid: int | None = None
         self._fp_interaction_legend_artist_labels: dict[object, str] = {}
+        self._fp_manual_feature_ids: dict[str, list[int]] = {}
+        self._fullscreen_dialog: QDialog | None = None
+        self._install_fullscreen_button()
         self._install_stats_scope_control()
         self._install_stats_scroll_area()
         self._install_residue_heatmap_scroll_area()
@@ -99,6 +111,105 @@ class ResultsTab(EnhancedResultsTab):
         self._install_fp_analysis_tab()
         self._install_fp_session_tab()
         self._reorder_tabs()
+
+    def _install_fullscreen_button(self) -> None:
+        root_layout = self.layout()
+        if root_layout is None or root_layout.count() < 2:
+            return
+        row = root_layout.itemAt(1).layout()
+        if row is None:
+            return
+        btn_fullscreen = QPushButton("Full screen")
+        btn_fullscreen.setToolTip("Abre o grafico atual em uma janela maior para inspeção visual.")
+        btn_fullscreen.clicked.connect(self.show_current_chart_fullscreen)
+        row.addWidget(btn_fullscreen)
+        row.addWidget(InfoButton("Amplia o grafico atualmente visivel. Use para inspecionar mapas de calor e barras sem mudar os dados."))
+
+    def show_current_chart_fullscreen(self) -> None:
+        if not HAS_MPL:
+            QMessageBox.information(self, "Full screen", "matplotlib nao esta instalado.")
+            return
+        figure, default_name = self._current_figure()
+        if figure is None or not getattr(figure, "axes", None):
+            QMessageBox.information(self, "Sem grafico", "A aba atual nao possui um grafico para ampliar.")
+            return
+        wd = self._current_wd() or Path.cwd()
+        preview_dir = Path(wd) / "results" / "_fullscreen_previews"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        out = preview_dir / f"{_safe_name(default_name or 'grafico')}.png"
+        try:
+            translate_figure(figure)
+            figure.savefig(out, dpi=260, bbox_inches="tight", pad_inches=0.18)
+        except Exception as exc:
+            QMessageBox.critical(self, "Full screen", str(exc))
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(default_name or "Grafico")
+        dlg.resize(1280, 820)
+        layout = QVBoxLayout(dlg)
+        toolbar = QHBoxLayout()
+        btn_zoom_out = QPushButton("Afastar")
+        btn_zoom_in = QPushButton("Aproximar")
+        btn_zoom_100 = QPushButton("100%")
+        btn_fit = QPushButton("Ajustar a tela")
+        zoom_label = QLabel("100%")
+        zoom_label.setMinimumWidth(58)
+        toolbar.addWidget(btn_zoom_out)
+        toolbar.addWidget(btn_zoom_in)
+        toolbar.addWidget(btn_zoom_100)
+        toolbar.addWidget(btn_fit)
+        toolbar.addWidget(zoom_label)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        original_pixmap = QPixmap(str(out))
+        image_label = QLabel()
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scroll = QScrollArea()
+        scroll.setWidget(image_label)
+        scroll.setWidgetResizable(False)
+        layout.addWidget(scroll, 1)
+
+        zoom_state = {"factor": 1.0}
+
+        def apply_zoom(factor: float) -> None:
+            factor = max(0.1, min(6.0, float(factor)))
+            zoom_state["factor"] = factor
+            width = max(1, int(original_pixmap.width() * factor))
+            height = max(1, int(original_pixmap.height() * factor))
+            image_label.setPixmap(
+                original_pixmap.scaled(
+                    width,
+                    height,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            zoom_label.setText(f"{int(round(factor * 100))}%")
+            image_label.adjustSize()
+
+        def fit_to_window() -> None:
+            viewport = scroll.viewport().size()
+            if viewport.width() <= 0 or viewport.height() <= 0:
+                apply_zoom(1.0)
+                return
+            factor = min(
+                viewport.width() / max(1, original_pixmap.width()),
+                viewport.height() / max(1, original_pixmap.height()),
+            )
+            apply_zoom(factor)
+
+        btn_zoom_out.clicked.connect(lambda: apply_zoom(zoom_state["factor"] / 1.25))
+        btn_zoom_in.clicked.connect(lambda: apply_zoom(zoom_state["factor"] * 1.25))
+        btn_zoom_100.clicked.connect(lambda: apply_zoom(1.0))
+        btn_fit.clicked.connect(fit_to_window)
+        btn_close = QPushButton("Fechar")
+        btn_close.clicked.connect(dlg.close)
+        layout.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+        self._fullscreen_dialog = dlg
+        dlg.showMaximized()
+        QTimer.singleShot(0, fit_to_window)
 
     def _install_stats_scope_control(self) -> None:
         st_layout = self.stats_tab.layout()
@@ -116,6 +227,34 @@ class ResultsTab(EnhancedResultsTab):
         self.cb_stats_scope.currentIndexChanged.connect(self._render_cached_stats_chart)
         st_ctrl.insertWidget(1, QLabel("Visao:"))
         st_ctrl.insertWidget(2, self.cb_stats_scope)
+        self.btn_stats_toggle_all = QPushButton("Ligar/desligar todas")
+        self.btn_stats_toggle_all.setToolTip(
+            "Oculta ou mostra todos os tipos de interacao do grafico de estatisticas."
+        )
+        self.btn_stats_toggle_all.clicked.connect(self._toggle_all_stats_interactions)
+        self.btn_stats_toggle_unfavorable = QPushButton("Ocultar desfav./repulsivas")
+        self.btn_stats_toggle_unfavorable.setToolTip(
+            "Oculta ou mostra, de uma vez, todas as interacoes desfavoraveis e repulsivas no grafico de estatisticas."
+        )
+        self.btn_stats_toggle_unfavorable.clicked.connect(
+            lambda: self._toggle_stats_interaction_group("unfavorable")
+        )
+        self.btn_stats_toggle_stacking = QPushButton("Ocultar empilhamentos")
+        self.btn_stats_toggle_stacking.setToolTip(
+            "Oculta ou mostra todos os tipos de pi-stacking/empilhamento no grafico de estatisticas."
+        )
+        self.btn_stats_toggle_stacking.clicked.connect(
+            lambda: self._toggle_stats_interaction_group("stacking")
+        )
+        st_ctrl.insertWidget(3, self.btn_stats_toggle_all)
+        st_ctrl.insertWidget(4, self.btn_stats_toggle_unfavorable)
+        st_ctrl.insertWidget(5, self.btn_stats_toggle_stacking)
+        st_ctrl.insertWidget(
+            6,
+            InfoButton(
+                "Estes filtros sao apenas visuais: ligam/desligam familias de interacoes no grafico de estatisticas sem alterar os arquivos do projeto."
+            ),
+        )
 
     def _install_residue_heatmap_scroll_area(self) -> None:
         if not HAS_MPL or not hasattr(self, "hm_canvas"):
@@ -301,18 +440,10 @@ class ResultsTab(EnhancedResultsTab):
     def _open_pse_path(self, path: str) -> None:
         if not path:
             return
-        pymol = shutil.which("pymol") or shutil.which("pymol.exe")
         try:
-            if pymol:
-                subprocess.Popen([pymol, path])
-            elif sys.platform == "win32":
-                os.startfile(path)  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
+            launch_pse_session(path, self.py_exe)
         except Exception as exc:
-            QMessageBox.critical(self, "Erro ao abrir", str(exc))
+            QMessageBox.critical(self, "Erro ao abrir PyMOL", str(exc))
 
     def _generate_pse_filter(self) -> None:
         wd = self._current_wd()
@@ -693,6 +824,33 @@ class ResultsTab(EnhancedResultsTab):
         btn = QPushButton("Atualizar heatmaps")
         btn.clicked.connect(self.compute_residue_matrix)
         ctrl.addWidget(btn)
+        self.btn_complete_toggle_all = QPushButton("Ligar/desligar todas")
+        self.btn_complete_toggle_all.setToolTip(
+            "Oculta ou mostra todos os tipos de interacao no mapa de calor completo."
+        )
+        self.btn_complete_toggle_all.clicked.connect(self._toggle_all_complete_heatmap_interactions)
+        self.btn_complete_toggle_unfavorable = QPushButton("Ocultar desfav./repulsivas")
+        self.btn_complete_toggle_unfavorable.setToolTip(
+            "Oculta ou mostra todas as interacoes desfavoraveis e repulsivas no mapa de calor completo."
+        )
+        self.btn_complete_toggle_unfavorable.clicked.connect(
+            lambda: self._toggle_complete_heatmap_group("unfavorable")
+        )
+        self.btn_complete_toggle_stacking = QPushButton("Ocultar empilhamentos")
+        self.btn_complete_toggle_stacking.setToolTip(
+            "Oculta ou mostra todos os tipos de pi-stacking/empilhamento no mapa de calor completo."
+        )
+        self.btn_complete_toggle_stacking.clicked.connect(
+            lambda: self._toggle_complete_heatmap_group("stacking")
+        )
+        ctrl.addWidget(self.btn_complete_toggle_all)
+        ctrl.addWidget(self.btn_complete_toggle_unfavorable)
+        ctrl.addWidget(self.btn_complete_toggle_stacking)
+        ctrl.addWidget(
+            InfoButton(
+                "Filtros visuais do mapa de calor completo. Eles ajudam a remover interacoes desfavoraveis/repulsivas ou empilhamentos para comparar padroes."
+            )
+        )
         self.hm_all_status = QLabel("-")
         self.hm_all_status.setProperty("muted", True)
         ctrl.addWidget(self.hm_all_status, 1)
@@ -752,6 +910,34 @@ class ResultsTab(EnhancedResultsTab):
         ctrl.addWidget(self.fp_analysis_status, 1)
         layout.addLayout(ctrl)
 
+        manual_row = QHBoxLayout()
+        manual_row.addWidget(QLabel("Fingerprints relevantes:"))
+        self.fp_manual_features_edit = QLineEdit()
+        self.fp_manual_features_edit.setPlaceholderText("IDs separados por virgula, espaco ou quebra de linha")
+        self.fp_manual_features_edit.setToolTip(
+            "Permite substituir a lista calculada pelo programa por fingerprints escolhidos manualmente. "
+            "A escolha atualiza a tabela e os graficos de FP analises."
+        )
+        manual_row.addWidget(self.fp_manual_features_edit, 1)
+        btn_manual_apply = QPushButton("Aplicar selecao")
+        btn_manual_apply.setToolTip("Usa os IDs informados como fingerprints relevantes para os graficos abaixo.")
+        btn_manual_apply.clicked.connect(self._apply_manual_fp_selection)
+        btn_manual_from_table = QPushButton("Usar linhas selecionadas")
+        btn_manual_from_table.setToolTip("Copia os IDs das linhas selecionadas da tabela para a selecao manual.")
+        btn_manual_from_table.clicked.connect(self._use_selected_fp_rows_as_manual_selection)
+        btn_manual_reset = QPushButton("Restabelecer calculado")
+        btn_manual_reset.setToolTip("Volta ao criterio automatico de importancia calculado pelo programa.")
+        btn_manual_reset.clicked.connect(self._reset_manual_fp_selection)
+        manual_row.addWidget(btn_manual_apply)
+        manual_row.addWidget(btn_manual_from_table)
+        manual_row.addWidget(btn_manual_reset)
+        manual_row.addWidget(
+            InfoButton(
+                "Substitui temporariamente os fingerprints importantes calculados por IDs escolhidos pelo usuario. Todos os graficos de FP analises passam a usar essa selecao."
+            )
+        )
+        layout.addLayout(manual_row)
+
         self.fp_analysis_summary = QLabel("-")
         self.fp_analysis_summary.setWordWrap(True)
         self.fp_analysis_summary.setProperty("muted", True)
@@ -790,7 +976,7 @@ class ResultsTab(EnhancedResultsTab):
             ]
         )
         self.fp_analysis_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.fp_analysis_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.fp_analysis_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.fp_analysis_table.itemSelectionChanged.connect(self._sync_fp_session_from_table)
         self.fp_analysis_table.horizontalHeader().setStretchLastSection(True)
         self.fp_analysis_table.setSortingEnabled(True)
@@ -1130,6 +1316,45 @@ class ResultsTab(EnhancedResultsTab):
     def _render_cached_stats_chart(self) -> None:
         if HAS_MPL and self._last_analysis:
             self._render_stats_chart(self._last_analysis)
+
+    def _known_stat_interactions(self) -> list[str]:
+        names: set[str] = set()
+        for key in (self._last_analysis.get("interaction_counts") or {}).keys():
+            names.add(str(key))
+        for counts in (self._last_analysis.get("entry_interaction_counts") or {}).values():
+            for key in (counts or {}).keys():
+                names.add(str(key))
+        artifact = self._ensure_trajectory_matrix(allow_compute=False)
+        for key in (artifact or {}).get("interaction_types", []) or []:
+            names.add(str(key))
+        return sorted(names, key=interaction_priority_key)
+
+    def _toggle_stats_interaction_group(self, group: str) -> None:
+        predicate = (
+            is_unfavorable_or_repulsive_interaction
+            if group == "unfavorable"
+            else is_pi_stacking_interaction
+        )
+        labels = [name for name in self._known_stat_interactions() if predicate(name)]
+        if not labels:
+            QMessageBox.information(self, "Interacoes", "Nenhuma interacao deste grupo foi encontrada no grafico atual.")
+            return
+        if all(label in self._stats_hidden_interactions for label in labels):
+            self._stats_hidden_interactions.difference_update(labels)
+        else:
+            self._stats_hidden_interactions.update(labels)
+        self._render_cached_stats_chart()
+
+    def _toggle_all_stats_interactions(self) -> None:
+        labels = self._known_stat_interactions()
+        if not labels:
+            QMessageBox.information(self, "Interacoes", "Nenhuma interacao foi encontrada no grafico atual.")
+            return
+        if all(label in self._stats_hidden_interactions for label in labels):
+            self._stats_hidden_interactions.difference_update(labels)
+        else:
+            self._stats_hidden_interactions.update(labels)
+        self._render_cached_stats_chart()
 
     def _install_stats_legend_toggle(self, legend, labels: list[str]) -> None:
         if not HAS_MPL or legend is None or not hasattr(self, "st_canvas"):
@@ -1486,6 +1711,8 @@ class ResultsTab(EnhancedResultsTab):
         residue_labels = self._residue_xticklabels(residues)
 
         width_in = max(7.5 / 2.54, 2.2 + (0.5 / 2.54) * max(1, len(residue_labels)))
+        title_width_in = 4.5 + (0.115 * len(str(interaction_type)))
+        width_in = max(9.0, width_in, title_width_in)
         height_in = max(5.0, 2.5 + (0.16 * max(1, arr.shape[0] if arr.ndim == 2 else 0)))
         self._resize_canvas(
             self.hm_fig,
@@ -1513,11 +1740,49 @@ class ResultsTab(EnhancedResultsTab):
             if len(ordered_entries) <= 220:
                 ax.set_ylabel("Ligantes")
             ax.set_xlabel("Residuos")
-            ax.set_title(f"{interaction_type}")
+            title = "\n".join(textwrap.wrap(str(interaction_type), width=72, break_long_words=False)) or str(interaction_type)
+            ax.set_title(title, pad=16)
             ax.tick_params(axis="y", pad=14)
             self.hm_fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
         self.hm_fig.tight_layout()
         self.hm_canvas.draw()
+
+    def _toggle_complete_heatmap_group(self, group: str) -> None:
+        if not self._residue_matrix:
+            QMessageBox.information(self, "Mapa de calor", "Carregue ou calcule a matriz de residuos primeiro.")
+            return
+        predicate = (
+            is_unfavorable_or_repulsive_interaction
+            if group == "unfavorable"
+            else is_pi_stacking_interaction
+        )
+        labels = [
+            str(name)
+            for name in (self._residue_matrix.get("interaction_types", []) or [])
+            if predicate(str(name))
+        ]
+        if not labels:
+            QMessageBox.information(self, "Interacoes", "Nenhuma interacao deste grupo foi encontrada no mapa atual.")
+            return
+        if all(label in self._complete_hidden_interactions for label in labels):
+            self._complete_hidden_interactions.difference_update(labels)
+        else:
+            self._complete_hidden_interactions.update(labels)
+        self._render_complete_heatmap()
+
+    def _toggle_all_complete_heatmap_interactions(self) -> None:
+        if not self._residue_matrix:
+            QMessageBox.information(self, "Mapa de calor", "Carregue ou calcule a matriz de residuos primeiro.")
+            return
+        labels = [str(name) for name in (self._residue_matrix.get("interaction_types", []) or [])]
+        if not labels:
+            QMessageBox.information(self, "Interacoes", "Nenhuma interacao foi encontrada no mapa atual.")
+            return
+        if all(label in self._complete_hidden_interactions for label in labels):
+            self._complete_hidden_interactions.difference_update(labels)
+        else:
+            self._complete_hidden_interactions.update(labels)
+        self._render_complete_heatmap()
 
     def _render_complete_heatmap(self) -> None:
         if not HAS_MPL or not self._residue_matrix:
@@ -1528,6 +1793,22 @@ class ResultsTab(EnhancedResultsTab):
         if row_order:
             layered_cells = [layered_cells[idx] for idx in row_order]
             entries = ordered_entries
+        if self._complete_hidden_interactions:
+            interaction_types = [
+                name for name in interaction_types
+                if name not in self._complete_hidden_interactions
+            ]
+            layered_cells = [
+                [
+                    [
+                        interaction_name
+                        for interaction_name in cell_types
+                        if interaction_name not in self._complete_hidden_interactions
+                    ]
+                    for cell_types in row
+                ]
+                for row in layered_cells
+            ]
         residue_labels = self._residue_xticklabels(residues)
         width_in = max(5.0 / 2.54, 2.2 + (0.5 / 2.54) * max(1, len(residue_labels)))
         legend_cols = max(1, min(3, len(interaction_types) or 1))
@@ -1711,6 +1992,96 @@ class ResultsTab(EnhancedResultsTab):
     def _on_fp_analysis_controls_changed(self) -> None:
         self._render_fp_analysis_table()
 
+    @staticmethod
+    def _parse_fp_id_text(text: str) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+        for token in str(text or "").replace("\n", ",").replace("\t", ",").replace(";", ",").split(","):
+            for piece in token.split():
+                cleaned = piece.strip()
+                if not cleaned:
+                    continue
+                try:
+                    feature_id = int(float(cleaned))
+                except Exception:
+                    continue
+                if feature_id not in seen:
+                    seen.add(feature_id)
+                    ids.append(feature_id)
+        return ids
+
+    def _current_fp_analysis_type(self) -> str:
+        if hasattr(self, "cb_fp_analysis_type") and self.cb_fp_analysis_type.count():
+            return str(self.cb_fp_analysis_type.currentData() or "")
+        return ""
+
+    def _apply_manual_fp_selection(self) -> None:
+        ifp_type = self._current_fp_analysis_type()
+        if not ifp_type:
+            return
+        ids = self._parse_fp_id_text(self.fp_manual_features_edit.text())
+        if not ids:
+            QMessageBox.information(
+                self,
+                "Fingerprints relevantes",
+                "Informe pelo menos um ID de fingerprint para aplicar a selecao manual.",
+            )
+            return
+        self._fp_manual_feature_ids[ifp_type] = ids
+        self._render_fp_analysis_table()
+
+    def _use_selected_fp_rows_as_manual_selection(self) -> None:
+        if not hasattr(self, "fp_analysis_table"):
+            return
+        selected_rows = sorted({index.row() for index in self.fp_analysis_table.selectedIndexes()})
+        ids: list[int] = []
+        for row in selected_rows:
+            item = self.fp_analysis_table.item(row, 0)
+            if item is None:
+                continue
+            try:
+                ids.append(int(float(item.text())))
+            except Exception:
+                continue
+        if not ids:
+            QMessageBox.information(self, "Fingerprints relevantes", "Selecione uma ou mais linhas na tabela.")
+            return
+        self.fp_manual_features_edit.setText(", ".join(str(feature_id) for feature_id in ids))
+        self._apply_manual_fp_selection()
+
+    def _reset_manual_fp_selection(self) -> None:
+        ifp_type = self._current_fp_analysis_type()
+        if ifp_type:
+            self._fp_manual_feature_ids.pop(ifp_type, None)
+        self.fp_manual_features_edit.clear()
+        self._render_fp_analysis_table()
+
+    def _dashboard_with_manual_selection(self, dashboard: dict, ifp_type: str | None) -> dict:
+        ids = list(self._fp_manual_feature_ids.get(str(ifp_type or ""), []) or [])
+        if not ids:
+            return dashboard
+        feature_by_id = {
+            int(feature.get("feature_id", 0) or 0): feature
+            for feature in list(dashboard.get("features", []) or [])
+        }
+        selected = [feature_by_id[feature_id] for feature_id in ids if feature_id in feature_by_id]
+        class_counts: dict[str, int] = {}
+        for feature in selected:
+            class_name = str(feature.get("assigned_class", CLASS_UNRELIABLE))
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
+        class_share = {
+            class_name: (100.0 * count / len(selected)) if selected else 0.0
+            for class_name, count in class_counts.items()
+        }
+        filtered = dict(dashboard)
+        filtered["important_features"] = selected
+        filtered["class_counts"] = class_counts
+        filtered["class_share"] = class_share
+        filtered["important_selection"] = "manual"
+        filtered["manual_feature_ids"] = ids
+        filtered["manual_found_feature_ids"] = [int(feature.get("feature_id", 0) or 0) for feature in selected]
+        return filtered
+
     def _dashboard_with_selected_cutoff(self, dashboard: dict) -> dict:
         cutoff = self._selected_fp_pvalue_cutoff()
         important = sorted(
@@ -1778,7 +2149,16 @@ class ResultsTab(EnhancedResultsTab):
             self._clear_fp_analysis_plots("Sem dados de fingerprints.")
             return
 
-        filtered_dashboard = self._dashboard_with_selected_cutoff(dashboard)
+        manual_ids = self._fp_manual_feature_ids.get(str(ifp_type), [])
+        if manual_ids:
+            self.fp_manual_features_edit.setText(", ".join(str(feature_id) for feature_id in manual_ids))
+        elif not self.fp_manual_features_edit.hasFocus():
+            self.fp_manual_features_edit.clear()
+
+        filtered_dashboard = self._dashboard_with_manual_selection(
+            self._dashboard_with_selected_cutoff(dashboard),
+            str(ifp_type),
+        )
         features = list(filtered_dashboard.get("features", []) or [])
         important = list(filtered_dashboard.get("important_features", []) or [])
         pvalue_cutoff = float(filtered_dashboard.get("pvalue_cutoff", 0.01) or 0.01)
@@ -1795,6 +2175,8 @@ class ResultsTab(EnhancedResultsTab):
         task_kind_preference = str(dashboard.get("task_kind_preference", label_kind) or label_kind)
         interaction_threshold_pct = float(dashboard.get("interaction_threshold_pct", 100.0) or 100.0)
         interaction_threshold_source = str(dashboard.get("interaction_threshold_source", "") or "")
+        pair_threshold_pct = float(dashboard.get("pair_threshold_pct", interaction_threshold_pct) or interaction_threshold_pct)
+        pair_threshold_source = str(dashboard.get("pair_threshold_source", interaction_threshold_source) or interaction_threshold_source)
         threshold_source = str(dashboard.get("threshold_source", "") or "")
         use_otsu_threshold = bool(dashboard.get("use_otsu_threshold", False))
         class_zscore_mean = float(dashboard.get("class_zscore_mean", 0.0) or 0.0)
@@ -1807,6 +2189,12 @@ class ResultsTab(EnhancedResultsTab):
                 sum(1 for row in features if row.get("importance_eligible")),
             )
             or 0
+        )
+        selection_mode = str(filtered_dashboard.get("important_selection", "") or "")
+        selection_text = (
+            f"selecao manual ({len(important)} de {len(filtered_dashboard.get('manual_feature_ids', []) or [])} IDs encontrados)"
+            if selection_mode == "manual"
+            else f"selecionadas por p < {pvalue_cutoff:.2f}"
         )
         self.fp_analysis_status.setText(
             f"{dashboard.get('total_molecules', 0)} moleculas - {len(features)} features"
@@ -1824,7 +2212,7 @@ class ResultsTab(EnhancedResultsTab):
             + (f" ({labels_column})" if label_source == 'external_csv' and labels_column else "")
             + (f" | pareadas: {matched_molecules}" if label_source == "external_csv" else "")
             + f" | tarefa: {'regressao' if label_kind == 'regression' else 'classificacao'}"
-            + f" | selecionadas por p < {pvalue_cutoff:.2f} | "
+            + f" | {selection_text} | "
             + f"Algoritmo: {algorithm_preference} | "
             + f"Modelo: {model_name}. {model_note}"
         )
@@ -1833,22 +2221,22 @@ class ResultsTab(EnhancedResultsTab):
             "onde z e o Z-score Importance mostrado na tabela para a feature. "
             "A coluna 'Cobertura (%)' segue o bit na base inteira, mas os percentuais do perfil "
             "da base usam apenas as ocorrencias classificadas do bit. "
-            f"Os graficos abaixo usam o corte atual p < {pvalue_cutoff:.2f}."
+            f"Os graficos abaixo usam {selection_text}."
         )
         interaction_rule = (
-            f"limiar de interacao = {interaction_threshold_pct:.2f}% "
-            "definido pelo menor percentual entre interacoes com z-score > 1"
-            if interaction_threshold_source == "zscore_gt_1"
+            f"limiar do par interacao/residuo = {pair_threshold_pct:.2f}% "
+            "definido pelo menor percentual entre pares com z-score > 1"
+            if pair_threshold_source == "zscore_gt_1"
             else (
-                f"limiar de interacao = {interaction_threshold_pct:.2f}% definido por Otsu's Thresholding"
-                if interaction_threshold_source in {"otsu", "otsu_single_value"}
-                else "sem interacoes com z-score > 1; apenas 100% foi aceito como interacao prevalente"
+                f"limiar do par interacao/residuo = {pair_threshold_pct:.2f}% definido por Otsu's Thresholding"
+                if pair_threshold_source in {"otsu", "otsu_single_value"}
+                else "sem pares interacao/residuo com z-score > 1; apenas 100% foi aceito como par prevalente"
             )
         )
         active_ifp_label = str(filtered_dashboard.get("ifp_label", ifp_type) or ifp_type)
         self.fp_analysis_active_context.setText(
             f"Graficos ativos: base = {active_ifp_label}; "
-            f"corte p-value = {pvalue_cutoff:.2f}; "
+            f"{selection_text}; "
             f"algoritmo = {algorithm_preference}."
         )
         self.fp_analysis_method.setText(
@@ -1857,7 +2245,8 @@ class ResultsTab(EnhancedResultsTab):
             f"Z-score de classe: media = {class_zscore_mean:.4f}, desvio = {class_zscore_std:.4f}. "
             f"Z-score Importance: media = {importance_zscore_mean:.4f}, desvio = {importance_zscore_std:.4f}. "
             f"Interacao prevalente: para cada feature importante, calcula-se a frequencia percentual "
-            f"de cada tipo de interacao nos shells reais do LUNA e a interacao dominante so e aceita quando passa o {interaction_rule}."
+            f"do par tipo de interacao/residuo nos shells reais do LUNA. O residuo so aparece no grafico "
+            f"quando o par exato passa o {interaction_rule}."
         )
         self.fp_analysis_table.setSortingEnabled(False)
         self.fp_analysis_table.setRowCount(len(features))
@@ -2569,27 +2958,36 @@ class ResultsTab(EnhancedResultsTab):
         self._open_path(item.data(Qt.ItemDataRole.UserRole))
 
     def _open_path(self, path: str) -> None:
-        pymol = shutil.which("pymol") or shutil.which("pymol.exe")
         try:
-            if pymol:
-                subprocess.Popen([pymol, path])
-            elif sys.platform == "win32":
-                os.startfile(path)  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
+            launch_pse_session(path, self.py_exe)
         except Exception as exc:
-            QMessageBox.critical(self, "Erro ao abrir", str(exc))
+            QMessageBox.critical(self, "Erro ao abrir PyMOL", str(exc))
 
     def _save_report_figure(self, fig, path: Path) -> Path | None:
         if not HAS_MPL or fig is None or not getattr(fig, "axes", None):
             return None
+        old_size = tuple(fig.get_size_inches())
+        old_dpi = fig.dpi
         try:
             translate_figure(fig)
-            fig.savefig(path, dpi=260, bbox_inches="tight")
+            width_in = max(float(old_size[0]), self._REPORT_FIGURE_WIDTH_IN)
+            height_in = max(float(old_size[1]), self._REPORT_FIGURE_HEIGHT_IN)
+            fig.set_size_inches(width_in, height_in, forward=False)
+            fig.savefig(
+                path,
+                dpi=self._REPORT_FIGURE_DPI,
+                bbox_inches="tight",
+                pad_inches=0.18,
+                facecolor=fig.get_facecolor(),
+            )
         except Exception:
             return None
+        finally:
+            try:
+                fig.set_size_inches(old_size, forward=False)
+                fig.set_dpi(old_dpi)
+            except Exception:
+                pass
         return path if path.exists() else None
 
     def _save_report_stats_overview(self, path: Path) -> Path | None:
@@ -2702,6 +3100,8 @@ class ResultsTab(EnhancedResultsTab):
                 return self.fp_cover_fig, "fp_cobertura_importancia"
             if current_plot is self.fp_heatmap_tab:
                 return self.fp_heatmap_fig, "fp_heatmap_importancia"
+            if current_plot is self.fp_interaction_assign_tab:
+                return self.fp_interaction_assign_fig, "fp_frequencia_interacoes"
             if current_plot is self.fp_interaction_tab:
                 return self.fp_interaction_fig, "fp_interacoes_prevalentes"
             if current_plot is self.fp_interaction_heatmap_tab:

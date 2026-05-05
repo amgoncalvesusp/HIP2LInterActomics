@@ -38,6 +38,12 @@ $$$$
 """
 
 
+PDB_LIGAND_TEMPLATE = """COMPND    {mol_name}
+HETATM    1  C1  LIG L   1       0.000   0.000   0.000  1.00  0.00           C
+END
+"""
+
+
 class LigandIoTests(unittest.TestCase):
     def test_consolidate_folder_clean_uses_filename_stems_as_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,6 +170,23 @@ class LigandIoTests(unittest.TestCase):
             self.assertEqual(names, ["ligand_A"])
             self.assertEqual(out.name, "_consolidated_ligands.sdf")
             self.assertEqual(parse_ligand_file(out), ["ligand_A"])
+
+    def test_parse_ligand_folder_accepts_pdb_ligands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "frame_19_ligand.pdb").write_text(
+                PDB_LIGAND_TEMPLATE.format(mol_name="frame_19_LIG"),
+                encoding="utf-8",
+            )
+            (folder / "frame_100_ligand.pdb").write_text(
+                PDB_LIGAND_TEMPLATE.format(mol_name="frame_100_LIG"),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                parse_ligand_file(folder),
+                ["frame_100_LIG", "frame_19_LIG"],
+            )
 
     def test_consolidate_ligand_folder_rejects_mixed_mol2_sdf_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,6 +1,6 @@
-# HIP2LInterActomics_GUI
+# HIP²LInterActomics
 
-HIP2L InterActomics GUI is a desktop interface for building and exploring protein-ligand and protein-protein intermolecular interaction datasets with LUNA. The application turns docking poses, hydrated complexes, or molecular dynamics trajectory frames into interaction summaries, fingerprint matrices, interpretable heatmaps, PyMOL sessions, and PDF reports.
+HIP²LInterActomics is a desktop interface for building and exploring protein-ligand and protein-protein intermolecular interaction datasets with LUNA. The application turns docking poses, hydrated complexes, or molecular dynamics trajectory frames into interaction summaries, fingerprint matrices, interpretable heatmaps, PyMOL sessions, and PDF reports.
 
 The software is designed as a practical hub for virtual screening analysis, trajectory inspection, pharmacophoric feature extraction, and data generation for future machine learning models. It helps compare interaction patterns across ligands or frames, filter binding modes, calculate LUNA interaction fingerprints, estimate feature importance with scikit-learn models, and export publication-ready visual summaries.
 
@@ -26,4 +26,4 @@ The software is designed as a practical hub for virtual screening analysis, traj
 
 The repository contains the GUI source code, runtime helpers, tests, and distribution launchers. Generated analysis folders such as `test_hydrated_linux/`, `test_hydrated_windows/`, and trajectory output directories are ignored because they can be large and are reproducible from the input projects.
 
-The public software and repository name is `HIP2LInterActomics_GUI`. The internal Python package remains `luna_gui` for compatibility with existing imports and saved projects.
+The public software name is `HIP²LInterActomics`. The technical repository name can remain `HIP2LInterActomics_GUI`, and the internal Python package remains `luna_gui` for compatibility with existing imports and saved projects.

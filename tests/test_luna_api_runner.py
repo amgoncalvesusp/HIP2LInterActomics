@@ -105,7 +105,7 @@ class LunaApiRunnerTests(unittest.TestCase):
                 (protein_dir / f"{name}.pdb").write_text("HEADER\n", encoding="utf-8")
 
             cfg = ProjectConfig(
-                protein_file=str(protein_dir / "CHEMBL112640.pdb"),
+                protein_file=str(protein_dir),
                 include_waters=True,
             )
             specs = build_entry_specs(cfg, ["CHEMBL112640_LIG", "CHEMBL2177539_ncw_LIG"])
@@ -139,13 +139,57 @@ class LunaApiRunnerTests(unittest.TestCase):
                 ],
             )
 
+    def test_build_entry_specs_accepts_protein_folder_without_waters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            protein_dir = Path(tmp) / "proteins"
+            protein_dir.mkdir()
+            for name in ("frame_19", "frame_100"):
+                (protein_dir / f"{name}.pdb").write_text("HEADER\n", encoding="utf-8")
+
+            cfg = ProjectConfig(
+                protein_file=str(protein_dir),
+                include_waters=False,
+            )
+            specs = build_entry_specs(cfg, ["frame_100_LIG", "frame_19_LIG"])
+
+            self.assertEqual(
+                specs,
+                [
+                    {"pdb_id": "frame_100", "ligand_name": "frame_100_LIG"},
+                    {"pdb_id": "frame_19", "ligand_name": "frame_19_LIG"},
+                ],
+            )
+            self.assertTrue(should_use_api_runner(cfg))
+
+    def test_build_entry_specs_accepts_ligand_folder_with_single_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            protein_dir = root / "proteins"
+            ligand_dir = root / "ligands"
+            protein_dir.mkdir()
+            ligand_dir.mkdir()
+            for name in ("frame_19", "frame_100"):
+                (protein_dir / f"{name}.pdb").write_text("HEADER\n", encoding="utf-8")
+                (ligand_dir / f"{name}_ligand.pdb").write_text(f"COMPND    {name}_LIG\nEND\n", encoding="utf-8")
+
+            cfg = ProjectConfig(
+                protein_file=str(protein_dir),
+                ligand_file=str(ligand_dir),
+            )
+            specs = build_entry_specs(cfg, ["frame_100_LIG", "frame_19_LIG"])
+
+            self.assertEqual(specs[0]["pdb_id"], "frame_100")
+            self.assertEqual(specs[0]["mol_file"], str(ligand_dir / "frame_100_ligand.pdb"))
+            self.assertEqual(specs[0]["mol_obj_type"], "openbabel")
+            self.assertFalse(specs[0]["is_multimol_file"])
+
     def test_validate_entry_specs_reports_missing_matching_pdb(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             protein_dir = Path(tmp)
             (protein_dir / "CHEMBL112640.pdb").write_text("HEADER\n", encoding="utf-8")
 
             cfg = ProjectConfig(
-                protein_file=str(protein_dir / "CHEMBL112640.pdb"),
+                protein_file=str(protein_dir),
                 include_waters=True,
             )
             errs = validate_entry_specs(cfg, ["CHEMBL999999_LIG"])
@@ -270,7 +314,7 @@ class LunaApiRunnerTests(unittest.TestCase):
             self.assertEqual(params["pdb_dir"], str(protein_dir))
             self.assertEqual(params["entry_specs"], [{"pdb_id": "ligA", "ligand_name": "ligA_LIG"}])
 
-    def test_validate_accepts_protein_folder_only_for_hydrated_mode(self) -> None:
+    def test_validate_accepts_protein_folder_for_per_complex_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             protein_dir = root / "proteins"
@@ -285,8 +329,6 @@ class LunaApiRunnerTests(unittest.TestCase):
                 selected_ligands=["ligA_LIG"],
             )
 
-            self.assertTrue(any("análise hidratada" in err for err in validate_cli_inputs(cfg)))
-            cfg.include_waters = True
             self.assertEqual(validate_cli_inputs(cfg), [])
 
     def test_write_params_keeps_original_receptor_and_requested_ph(self) -> None:

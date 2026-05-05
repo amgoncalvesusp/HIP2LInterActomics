@@ -1,6 +1,6 @@
-"""Lightweight ligand-file parsing — extracts molecule names without RDKit.
+"""Lightweight ligand-file parsing - extracts molecule names without RDKit.
 
-Supported formats: MOL2, SDF/MOL. The molecule name is what LUNA's
+Supported formats: MOL2, SDF/MOL, PDB/ENT. The molecule name is what LUNA's
 `MolFileEntry.from_file` expects, one per line, in entries.txt.
 """
 from __future__ import annotations
@@ -16,11 +16,15 @@ def parse_ligand_file(path: str | Path) -> list[str]:
     Order is preserved. Empty / unnamed molecules are kept as ''.
     """
     p = Path(path)
+    if p.is_dir():
+        return _parse_ligand_folder(p)
     ext = p.suffix.lower()
     if ext == ".mol2":
         return _parse_mol2(p)
-    if ext in (".sdf", ".mol"):
+    if ext in (".sdf", ".sd", ".mol"):
         return _parse_sdf(p)
+    if ext in (".pdb", ".ent"):
+        return _parse_pdb(p)
     raise ValueError(f"Unsupported ligand file format: {ext}")
 
 
@@ -55,6 +59,56 @@ def _parse_sdf(path: Path) -> list[str]:
                 block.append(line)
         if block and any(b.strip() for b in block):
             names.append(block[0].strip())
+    return names
+
+
+def _parse_pdb(path: Path) -> list[str]:
+    names: list[str] = []
+    current_name = ""
+    in_model = False
+    seen_atom_in_model = False
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            record = line[:6].strip().upper()
+            if record == "COMPND" and not seen_atom_in_model:
+                candidate = line[10:].strip()
+                if candidate:
+                    current_name = candidate
+                continue
+            if record == "MODEL":
+                in_model = True
+                seen_atom_in_model = False
+                if not current_name:
+                    current_name = f"{path.stem}__{len(names) + 1}"
+                continue
+            if record in {"ATOM", "HETATM"}:
+                seen_atom_in_model = True
+                continue
+            if record in {"ENDMDL", "END"} and (in_model or seen_atom_in_model):
+                names.append(current_name or path.stem)
+                current_name = ""
+                in_model = False
+                seen_atom_in_model = False
+    if seen_atom_in_model:
+        names.append(current_name or path.stem)
+    if not names:
+        names.append(path.stem)
+    return names
+
+
+def _parse_ligand_folder(folder: Path) -> list[str]:
+    names: list[str] = []
+    for file_path in _iter_supported_ligand_files(folder):
+        parsed = parse_ligand_file(file_path)
+        if not parsed:
+            names.append(file_path.stem)
+        elif len(parsed) == 1:
+            names.append(parsed[0] or file_path.stem)
+        else:
+            names.extend(
+                name or _name_from_source_file(file_path, idx, len(parsed))
+                for idx, name in enumerate(parsed, start=1)
+            )
     return names
 
 
@@ -262,7 +316,7 @@ def _iter_input_sdf_files(folder: Path, output_sdf: Path) -> list[Path]:
 
     inputs: list[Path] = []
     for candidate in sorted(folder.iterdir()):
-        if candidate.suffix.lower() not in {".sdf", ".mol"}:
+        if candidate.suffix.lower() not in {".sdf", ".sd", ".mol"}:
             continue
         try:
             same_file = candidate.resolve(strict=False) == out_resolved
@@ -272,6 +326,17 @@ def _iter_input_sdf_files(folder: Path, output_sdf: Path) -> list[Path]:
             continue
         inputs.append(candidate)
     return inputs
+
+
+def _iter_supported_ligand_files(folder: Path) -> list[Path]:
+    suffixes = {".mol2", ".sdf", ".sd", ".mol", ".pdb", ".ent"}
+    return [
+        candidate
+        for candidate in sorted(folder.iterdir())
+        if candidate.is_file()
+        and candidate.suffix.lower() in suffixes
+        and not candidate.name.startswith("_consolidated_ligands")
+    ]
 
 
 class _AtomicWriter:

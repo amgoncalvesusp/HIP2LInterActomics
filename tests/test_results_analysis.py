@@ -24,6 +24,8 @@ from luna_gui.core.results_analysis import (
     cluster_similarity_matrix,
     export_cluster_assignments,
     format_residue_label,
+    get_interaction_color,
+    is_pi_stacking_interaction,
     load_analysis_summary,
     load_external_fp_labels,
     load_fp_analysis_artifacts,
@@ -250,6 +252,23 @@ class ResultsAnalysisTests(unittest.TestCase):
     def test_format_residue_label_converts_three_letter_code(self) -> None:
         self.assertEqual(format_residue_label("A/GLY/12"), "A:G12")
         self.assertEqual(format_residue_label("B/TYR/104A"), "B:Y104A")
+
+    def test_pi_stacking_interactions_use_magenta_pink_palette(self) -> None:
+        names = [
+            "Displaced face-to-face pi stacking",
+            "Displaced face-to-edge pi stacking",
+            "Displaced face-to-slope pi stacking",
+            "Face-to-face pi stacking",
+            "Face-to-edge pi stacking",
+            "Face-to-slope pi stacking",
+            "pi stacking",
+            "T-shape",
+        ]
+        colors = [get_interaction_color(name) for name in names]
+
+        self.assertTrue(all(is_pi_stacking_interaction(name) for name in names))
+        self.assertEqual(len(set(colors)), len(colors))
+        self.assertTrue(all(color.lower().startswith("#") for color in colors))
 
     def test_normalize_fp_class_name_accepts_legacy_and_curly_labels(self) -> None:
         self.assertEqual(
@@ -808,6 +827,106 @@ class ResultsAnalysisTests(unittest.TestCase):
         self.assertEqual(feature["prevalent_interaction"], "Ionic")
         self.assertEqual(feature["prevalent_interaction_pct"], 100.0)
         self.assertEqual(feature["prevalent_interaction_entries"], ["ligA"])
+
+    def test_interaction_prevalence_thresholds_exact_interaction_residue_pair(self) -> None:
+        workdir = self.tmp_root / "fp_dashboard_pair_prevalence_workdir"
+        fp_dir = workdir / "results" / "fingerprints"
+        fp_dir.mkdir(parents=True, exist_ok=True)
+        bit_ids = [str(bit_id) for bit_id in range(10, 260, 10)]
+        bits_text = "\t".join(bit_ids)
+        counts_text = "\t".join(["1"] * len(bit_ids))
+        (fp_dir / "ifp_E.csv").write_text(
+            "ligand_id,on_bits,count\n"
+            f'ligA,"{bits_text}","{counts_text}"\n'
+            f'ligB,"{bits_text}","{counts_text}"\n'
+            f'ligC,"{bits_text}","{counts_text}"\n'
+            f'ligD,"{bits_text}","{counts_text}"\n',
+            encoding="utf-8",
+        )
+        labels_csv = workdir / "labels.csv"
+        labels_csv.write_text(
+            "ligand_id,label\nligA,active\nligB,active\nligC,inactive\nligD,inactive\n",
+            encoding="utf-8",
+        )
+        (fp_dir / "fp_detail_E.json").write_text(
+            json.dumps(
+                {
+                    "ifp_type": "EIFP",
+                    "feature_details": {
+                        "10": {
+                            "interaction_counts": {"Hydrogen bond": 9, "Ionic": 6},
+                            "residue_counts": {"A/ASP/1": 10, "A/TYR/2": 5},
+                            "pair_counts": {
+                                "Ionic||A/ASP/1": 6,
+                                "Hydrogen bond||A/TYR/2": 5,
+                                "Hydrogen bond||A/ASP/1": 4,
+                            },
+                            "entries": {
+                                "ligA": {
+                                    "shell_count": 1,
+                                    "interaction_counts": {"Ionic": 6, "Hydrogen bond": 4},
+                                    "residue_counts": {"A/ASP/1": 10},
+                                    "pair_counts": {"Ionic||A/ASP/1": 6, "Hydrogen bond||A/ASP/1": 4},
+                                },
+                                "ligB": {
+                                    "shell_count": 1,
+                                    "interaction_counts": {"Hydrogen bond": 5},
+                                    "residue_counts": {"A/TYR/2": 5},
+                                    "pair_counts": {"Hydrogen bond||A/TYR/2": 5},
+                                },
+                            },
+                        },
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        artifact = {
+            "ifp_type": "EIFP",
+            "ifp_label": "Extended",
+            "features": [
+                {
+                    "feature_id": 10,
+                    "molecule_hits": 4,
+                    "coverage_pct": 100.0,
+                    "collision_hits": 0,
+                    "total_count": 4,
+                    "nature_breakdown": {"Has noncovalent interactions with the protein": 4},
+                },
+            ]
+            + [
+                {
+                    "feature_id": bit_id,
+                    "molecule_hits": 4,
+                    "coverage_pct": 100.0,
+                    "collision_hits": 0,
+                    "total_count": 4,
+                    "nature_breakdown": {"Protein's level 0 features only": 4},
+                }
+                for bit_id in range(20, 260, 10)
+            ],
+        }
+        scores = np.zeros(len(bit_ids), dtype=float)
+        scores[0] = 1000.0
+        with patch(
+            "luna_gui.core.results_analysis._compute_feature_importances",
+            return_value=(scores, "GradientBoosting", "mocked"),
+        ):
+            dashboard = build_fp_analysis_dashboard(
+                workdir,
+                artifact,
+                labels_csv=labels_csv,
+                labels_column="label",
+                task_kind_preference="classification",
+                use_otsu_threshold=True,
+            )
+
+        feature = {row["feature_id"]: row for row in dashboard["important_features"]}[10]
+        self.assertEqual(feature["prevalent_pair"], "Ionic||A/ASP/1")
+        self.assertEqual(feature["prevalent_interaction"], "Ionic")
+        self.assertEqual(feature["prevalent_residue"], "A/ASP/1")
+        self.assertEqual(feature["prevalent_pair_entries"], ["ligA"])
 
     def test_build_fp_analysis_dashboard_uses_eligible_features_when_model_is_unavailable(self) -> None:
         workdir = self.tmp_root / "fp_dashboard_model_unavailable_workdir"

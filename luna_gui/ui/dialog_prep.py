@@ -1,4 +1,4 @@
-"""Wizard dialog — split docking MOL2 files into protein PDB + ligand MOL2."""
+"""Wizard dialog - split complex files into protein + ligand inputs."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,15 +11,16 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from ..core.mol2_prep import split_docking_folder, detect_last_protein_atom
+from ..core import env_manager as em
+from ..core.mol2_prep import split_complex_folder, detect_last_protein_atom
 
 
 class DockingPrepDialog(QDialog):
-    """Wizard to split combined docking MOL2 (protein+ligand) into separate files."""
+    """Wizard to split combined complex files into separate receptor/ligand files."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Preparar arquivos de docking")
+        self.setWindowTitle("Preparar arquivos de complexos")
         self.resize(760, 560)
 
         self.result_protein_dir: str | None = None
@@ -30,9 +31,11 @@ class DockingPrepDialog(QDialog):
         layout = QVBoxLayout(self)
 
         layout.addWidget(QLabel(
-            "Selecione uma pasta com arquivos .mol2 vindos de docking "
+            "Selecione uma pasta com arquivos .mol2, .pdb ou .ent "
             "(proteína + ligante no mesmo arquivo).\n"
-            "Serão geradas duas subpastas: proteinas_pdb/ e ligantes_mol2/."
+            "Serão geradas subpastas separadas para proteínas e ligantes compatíveis "
+            "com LUNA: MOL2 quando a origem é MOL2, SDF quando a origem é PDB/ENT, "
+            "com águas preservadas junto à proteína."
         ))
 
         form = QFormLayout()
@@ -159,7 +162,7 @@ class DockingPrepDialog(QDialog):
     # ---- pickers ----
 
     def _pick_src(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Pasta com arquivos MOL2 de docking")
+        d = QFileDialog.getExistingDirectory(self, "Pasta com arquivos de complexos")
         if d:
             self.src_edit.setText(d)
             # Trigger auto-detect whenever a new folder is chosen
@@ -179,10 +182,23 @@ class DockingPrepDialog(QDialog):
             self.detect_result_label.setText("Selecione a pasta de origem primeiro.")
             return
 
-        # Pick the first .mol2 in the folder as representative sample
+        # Pick the first .mol2 in the folder as representative sample.
+        # PDB/ENT inputs do not need the last-protein-atom boundary.
         mol2_files = sorted(Path(src).glob("*.mol2"))
         if not mol2_files:
-            self.detect_result_label.setText("Nenhum arquivo .mol2 encontrado.")
+            pdb_files = [
+                candidate for candidate in sorted(Path(src).iterdir())
+                if candidate.is_file() and candidate.suffix.lower() in {".pdb", ".ent"}
+            ]
+            if pdb_files:
+                self._detected_last_pa = None
+                self.detect_result_label.setText(
+                    f"{len(pdb_files)} arquivo(s) PDB/ENT detectado(s). "
+                    "Não é necessário informar o último átomo da proteína."
+                )
+                self.detect_result_label.setStyleSheet("color: #1a7a1a;")
+                return
+            self.detect_result_label.setText("Nenhum arquivo .mol2, .pdb ou .ent encontrado.")
             return
 
         sample = mol2_files[0]
@@ -225,12 +241,26 @@ class DockingPrepDialog(QDialog):
             QMessageBox.warning(self, "Pasta inválida", "Selecione uma pasta de origem válida.")
             return
 
-        # Resolve last_pa
+        mol2_files = sorted(Path(src).glob("*.mol2"))
+        pdb_files = [
+            candidate for candidate in sorted(Path(src).iterdir())
+            if candidate.is_file() and candidate.suffix.lower() in {".pdb", ".ent"}
+        ]
+
+        if mol2_files and pdb_files:
+            QMessageBox.warning(
+                self,
+                "Pasta mista",
+                "Use uma pasta com apenas arquivos MOL2 ou apenas arquivos PDB/ENT por preparação.",
+            )
+            return
+
+        # Resolve last_pa only for MOL2 inputs.
         if self.rb_auto.isChecked():
-            if self._detected_last_pa is None:
+            if mol2_files and self._detected_last_pa is None:
                 # Try to detect right now if user forgot to click "Detectar"
                 self._detect()
-            if self._detected_last_pa is None:
+            if mol2_files and self._detected_last_pa is None:
                 QMessageBox.warning(
                     self, "Detecção falhou",
                     "Não foi possível detectar o último átomo automaticamente.\n"
@@ -239,14 +269,14 @@ class DockingPrepDialog(QDialog):
                 return
             last_pa = self._detected_last_pa
         else:
-            last_pa = self.sp_last.value()
+            last_pa = self.sp_last.value() if mol2_files else None
 
         out = self.out_edit.text().strip() or None
 
         self.log.appendPlainText(
             f"\nIniciando preparação — last_pa={last_pa}, src={src}"
         )
-        total_files = len(sorted(Path(src).glob("*.mol2")))
+        total_files = len(mol2_files) + len(pdb_files)
         self.progress.setRange(0, max(1, total_files))
         self.progress.setValue(0)
         self.progress_status.setText(f"0 / {total_files} arquivos processados")
@@ -264,7 +294,22 @@ class DockingPrepDialog(QDialog):
             QApplication.processEvents()
 
         try:
-            r = split_docking_folder(src, last_pa, out, progress_cb=_on_progress)
+            chemistry_python = self._chemistry_python() if pdb_files else None
+            if pdb_files and chemistry_python:
+                self.log.appendPlainText(
+                    f"Conversao quimica PDB -> SDF usando luna-env: {chemistry_python}"
+                )
+            elif pdb_files:
+                self.log.appendPlainText(
+                    "Aviso: luna-env nao foi localizado; tentando converter PDB -> SDF apenas com o Python atual."
+                )
+            r = split_complex_folder(
+                src,
+                last_pa,
+                out,
+                progress_cb=_on_progress,
+                chemistry_python=chemistry_python,
+            )
         except Exception as e:
             self.btn_run.setEnabled(True)
             self.btn_close.setEnabled(True)
@@ -302,3 +347,15 @@ class DockingPrepDialog(QDialog):
             f"{r.water_molecules_detected} águas detectadas"
         )
         self.log.appendPlainText("\nConcluido com sucesso.")
+
+    def _chemistry_python(self) -> str | None:
+        try:
+            conda = em.find_conda()
+            if not conda:
+                return None
+            py = em.env_python(conda)
+            if py and py.exists():
+                return str(py)
+        except Exception:
+            return None
+        return None

@@ -20,8 +20,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         install_translation_hooks()
-        self.setWindowTitle("HIP2LInterActomics_GUI")
-        icon_path = Path(__file__).resolve().parents[1] / "assets" / "hip2l_interactomics_icon.svg"
+        self.setWindowTitle("HIP²LInterActomics")
+        icon_path = Path(__file__).resolve().parents[1] / "assets" / "hip2l_interactomics_icon.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self._fit_to_screen()
@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
         self.tab_results = ResultsTab(self.cfg)
         self.tab_history = HistoryTab()
 
-        self.tabs.addTab(self.tab_setup, "1. Setup")
+        self.tabs.addTab(self.tab_setup, "1. Inicio")
         self.tabs.addTab(self.tab_project, "2. Projeto")
         self.tabs.addTab(self.tab_analyses, "3. Análises")
         self.tabs.addTab(self.tab_run, "4. Executar")
@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
 
     def _open_project(self) -> None:
         f, _ = QFileDialog.getOpenFileName(
-            self, "Abrir projeto", "", "HIP2LInterActomics_GUI project (*.json);;Todos (*)"
+            self, "Abrir projeto", "", "HIP²LInterActomics project (*.json);;Todos (*)"
         )
         if not f:
             return
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{t('Projeto salvo em')} {self.cfg.workdir}", 5000)
 
     def _about(self) -> None:
-        QMessageBox.about(self, t("Sobre o HIP2LInterActomics_GUI"), self._about_html())
+        QMessageBox.about(self, t("Sobre o HIP²LInterActomics"), self._about_html())
 
     def _about_html(self) -> str:
         lang = language()
@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
             authors_label = "Authores"
             citations_label = "Citações"
         return (
-            "<h3>HIP2LInterActomics_GUI</h3>"
+            "<h3>HIP²LInterActomics</h3>"
             f"<p>{description}</p>"
             f"<p><b>{authors_label}:</b> Daniel Andrés Grajales Ruiz e Adriano Marques Gonçalves</p>"
             "<p>LUNA: <a href='https://luna-toolkit.readthedocs.io'>luna-toolkit.readthedocs.io</a></p>"

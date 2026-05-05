@@ -1,4 +1,4 @@
-# HIP2LInterActomics_GUI — Distribuição Linux
+# HIP²LInterActomics — Distribuição Linux
 
 ## Conteúdo
 - `run_gui.sh` — launcher principal no Linux; ativa o env `luna-gui`, valida dependências da GUI e inicia a aplicação

@@ -13,8 +13,8 @@ from .ui.theme import apply_theme
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("HIP2LInterActomics_GUI")
-    icon_path = Path(__file__).resolve().parent / "assets" / "hip2l_interactomics_icon.svg"
+    app.setApplicationName("HIP²LInterActomics")
+    icon_path = Path(__file__).resolve().parent / "assets" / "hip2l_interactomics_icon.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     apply_theme(app)

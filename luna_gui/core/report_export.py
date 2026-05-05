@@ -225,7 +225,7 @@ def _add_text_page(pdf, title: str, paragraphs: list[str], rows: list[tuple[str,
         y -= 0.046
 
         for row_index, (key, value) in enumerate(rows_to_draw):
-            key_lines = textwrap.wrap(str(key), width=24, break_long_words=True, break_on_hyphens=False) or [""]
+            key_lines = textwrap.wrap(str(key), width=19, break_long_words=True, break_on_hyphens=False) or [""]
             value_lines = textwrap.wrap(str(value), width=61, break_long_words=True, break_on_hyphens=False) or [""]
             line_count = max(len(key_lines), len(value_lines))
             line_height = 0.0215
@@ -267,7 +267,7 @@ def _add_image_page(pdf, title: str, image_path: Path, caption: str) -> None:
         return
     title = t(title)
     caption = t(caption)
-    fig = Figure(figsize=(13.2, 9.3), dpi=150)
+    fig = Figure(figsize=(13.2, 9.3), dpi=220)
     fig.patch.set_facecolor("#fbf7ef")
     title_ax = fig.add_axes([0.045, 0.905, 0.91, 0.06])
     title_ax.axis("off")
@@ -275,7 +275,7 @@ def _add_image_page(pdf, title: str, image_path: Path, caption: str) -> None:
     ax = fig.add_axes([0.045, 0.20, 0.91, 0.67])
     ax.axis("off")
     img = mpimg.imread(str(image_path))
-    ax.imshow(img, interpolation="nearest")
+    ax.imshow(img, interpolation="none", resample=False)
     caption_ax = fig.add_axes([0.045, 0.045, 0.91, 0.12])
     caption_ax.axis("off")
     caption_ax.add_patch(
@@ -294,7 +294,7 @@ def _add_image_page(pdf, title: str, image_path: Path, caption: str) -> None:
     for line in caption_lines[:5]:
         caption_ax.text(0.018, caption_y, line, fontsize=9.0, color="#2d251e", va="top")
         caption_y -= 0.18
-    pdf.savefig(fig, dpi=260)
+    pdf.savefig(fig, dpi=600)
 
 
 def save_pdf_report(
@@ -323,7 +323,7 @@ def save_pdf_report(
     with PdfPages(path) as pdf:
         _add_text_page(
             pdf,
-            "Relatório HIP2LInterActomics_GUI",
+            "Relatório HIP²LInterActomics",
             [
                 f"Gerado em {datetime.now().strftime('%Y-%m-%d %H:%M')}.",
                 "Este relatório resume os resultados carregados na aba 5.Resultados, os parâmetros usados no projeto e uma leitura guiada dos gráficos. Use-o como material de triagem: padrões fortes indicam hipóteses para inspeção estrutural, não uma conclusão automática de afinidade.",
@@ -336,8 +336,8 @@ def save_pdf_report(
             "Como interpretar as análises",
             [
                 "Estatísticas de interação: contam quantas vezes cada tipo de contato foi observado. Barras altas indicam mecanismos recorrentes, como ligações de hidrogênio, contatos hidrofóbicos ou interações iônicas. Compare tipos dominantes com resíduos frequentes para separar padrões químicos reais de ruído de pose.",
-                "Heatmap por tipo: cruza ligantes e resíduos para uma interação escolhida. Células mais intensas indicam mais ocorrências daquele contato. Colunas densas sugerem resíduos-chave; linhas densas sugerem ligantes com muitos contatos daquele tipo.",
-                "Heatmap completo ligantes x resíduos: usa faixas coloridas para mostrar múltiplos tipos de interação no mesmo par ligante-resíduo. Ele é útil para enxergar complementaridade química: o mesmo resíduo pode estabilizar ligantes por mecanismos diferentes.",
+                "Mapa de calor por tipo: cruza ligantes e resíduos para uma interação escolhida. Células mais intensas indicam mais ocorrências daquele contato. Colunas densas sugerem resíduos-chave; linhas densas sugerem ligantes com muitos contatos daquele tipo.",
+                "Mapa de calor completo ligantes x resíduos: usa faixas coloridas para mostrar múltiplos tipos de interação no mesmo par ligante-resíduo. Ele é útil para enxergar complementaridade química: o mesmo resíduo pode estabilizar ligantes por mecanismos diferentes.",
                 "Matriz de similaridade: compara ligantes pelos fingerprints de interação. Valores próximos de 1 indicam perfis de interação semelhantes; valores baixos indicam modos de interação distintos, mesmo quando as moléculas parecem estruturalmente parecidas.",
                 "Clusters: reorganizam a matriz de similaridade para revelar famílias de ligantes por comportamento no sítio. Use os grupos como hipótese para priorização e para escolher representantes para inspeção no PyMOL.",
                 "Fingerprints e FP análises: cada feature resume uma vizinhança de interação. A classe atribuída descreve a natureza dominante da feature; a importância do modelo estima quanto ela ajuda a separar classes/rótulos ou valores de atividade.",

@@ -1,4 +1,4 @@
-"""Small runtime translation layer for HIP2LInterActomics_GUI.
+"""Small runtime translation layer for HIP²LInterActomics.
 
 The GUI was originally written with direct Portuguese strings.  This module
 keeps those strings as the source language and translates widgets and
@@ -30,7 +30,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Salvar projeto": {"en": "Save project", "es": "Guardar proyecto"},
     "Sair": {"en": "Exit", "es": "Salir"},
     "Sobre": {"en": "About", "es": "Acerca de"},
-    "Sobre o HIP2LInterActomics_GUI": {"en": "About HIP2LInterActomics_GUI", "es": "Acerca de HIP2LInterActomics_GUI"},
+    "Sobre o HIP²LInterActomics": {"en": "About HIP²LInterActomics", "es": "Acerca de HIP²LInterActomics"},
     "Documentação LUNA": {"en": "LUNA documentation", "es": "Documentación de LUNA"},
     "Pronto": {"en": "Ready", "es": "Listo"},
     "Defina um workdir antes de salvar.": {"en": "Set a workdir before saving.", "es": "Define un workdir antes de guardar."},
@@ -41,7 +41,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Idioma alterado para Português": {"en": "Language changed to Portuguese", "es": "Idioma cambiado a portugués"},
     "Idioma alterado para English": {"en": "Language changed to English", "es": "Idioma cambiado a inglés"},
     "Idioma alterado para Español": {"en": "Language changed to Spanish", "es": "Idioma cambiado a español"},
-    "1. Setup": {"en": "1. Setup", "es": "1. Configuración"},
+    "1. Setup": {"pt": "1. Inicio", "en": "1. Home", "es": "1. Inicio"},
+    "1. Inicio": {"pt": "1. Inicio", "en": "1. Home", "es": "1. Inicio"},
     "2. Projeto": {"en": "2. Project", "es": "2. Proyecto"},
     "3. Análises": {"en": "3. Analyses", "es": "3. Análisis"},
     "4. Executar": {"en": "4. Run", "es": "4. Ejecutar"},
@@ -55,6 +56,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Pasta MOL2/SDF": {"en": "MOL2/SDF folder", "es": "Carpeta MOL2/SDF"},
     "Selecionar tudo": {"en": "Select all", "es": "Seleccionar todo"},
     "Nenhum": {"en": "None", "es": "Ninguno"},
+    "Limpar detecção": {"en": "Clear detection", "es": "Limpiar detección"},
     "Atualizar": {"en": "Refresh", "es": "Actualizar"},
     "Cancelar": {"en": "Cancel", "es": "Cancelar"},
     "Fechar": {"en": "Close", "es": "Cerrar"},
@@ -66,9 +68,38 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
     # Setup tab.
     "Verificando ambiente...": {"en": "Checking environment...", "es": "Verificando entorno..."},
-    "O que é o HIP2LInterActomics_GUI": {"en": "What is HIP2LInterActomics_GUI", "es": "Qué es HIP2LInterActomics_GUI"},
+    "O que é o HIP²LInterActomics": {"en": "What is HIP²LInterActomics", "es": "Qué es HIP²LInterActomics"},
+    "Configuração do ambiente e instalação de pacotes": {
+        "en": "Environment setup and package installation",
+        "es": "Configuración del entorno e instalación de paquetes",
+    },
     (
-        "O HIP2LInterActomics_GUI é uma interface gráfica para preparar, executar e interpretar análises "
+        "HIP²LInterActomics é uma interface gráfica para estabelecer um fluxo de trabalho "
+        "eficiente na análise de interações intermoleculares protein-ligand e protein-protein.\n\n"
+        "O software ajuda a avaliar virtual screening, inspecionar poses de docking ou frames "
+        "de dinâmica molecular, calcular fingerprints interpretáveis, organizar dados para "
+        "modelos de machine learning e extrair pharmacophoric features de um alvo específico.\n\n"
+        "Autores do software: Daniel Andrés Grajales Ruiz e Adriano Marques Gonçalves."
+    ): {
+        "en": (
+            "HIP²LInterActomics is a graphical interface for an efficient workflow in "
+            "protein-ligand and protein-protein intermolecular interaction analysis. The software "
+            "helps evaluate virtual screening, inspect docking poses or molecular dynamics frames, "
+            "calculate interpretable fingerprints, organize data for machine-learning models and "
+            "extract pharmacophoric features from a specific target.\n\n"
+            "Software authors: Daniel Andrés Grajales Ruiz and Adriano Marques Gonçalves."
+        ),
+        "es": (
+            "HIP²LInterActomics es una interfaz gráfica para establecer un flujo de trabajo "
+            "eficiente en el análisis de interacciones intermoleculares protein-ligand y protein-protein. "
+            "El software ayuda a evaluar virtual screening, inspeccionar poses de docking o frames "
+            "de dinámica molecular, calcular fingerprints interpretables, organizar datos para modelos "
+            "de machine learning y extraer pharmacophoric features de un blanco específico.\n\n"
+            "Autores del software: Daniel Andrés Grajales Ruiz y Adriano Marques Gonçalves."
+        ),
+    },
+    (
+        "O HIP²LInterActomics é uma interface gráfica para preparar, executar e interpretar análises "
         "baseadas no LUNA. Ele ajuda a avaliar resultados de virtual screening, comparar "
         "poses ou trajetórias de dinâmica molecular, construir modelos de machine learning "
         "com fingerprints de interação e extrair pharmacophoric features de um alvo "
@@ -77,7 +108,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "scikit-learn, estejam disponíveis."
     ): {
         "en": (
-            "HIP2LInterActomics_GUI is a graphical interface for preparing, running and interpreting analyses "
+            "HIP²LInterActomics is a graphical interface for preparing, running and interpreting analyses "
             "based on LUNA. It helps evaluate virtual screening results, compare poses or "
             "molecular dynamics trajectories, build machine-learning models from interaction "
             "fingerprints and extract pharmacophoric features from a specific target. In this "
@@ -86,7 +117,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "are available."
         ),
         "es": (
-            "HIP2LInterActomics_GUI es una interfaz gráfica para preparar, ejecutar e interpretar análisis "
+            "HIP²LInterActomics es una interfaz gráfica para preparar, ejecutar e interpretar análisis "
             "basados en LUNA. Ayuda a evaluar resultados de virtual screening, comparar poses "
             "o trayectorias de dinámica molecular, construir modelos de machine learning con "
             "fingerprints de interacción y extraer pharmacophoric features de un blanco "
@@ -105,10 +136,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     # Project tab.
     (
         "Nesta aba você define o modo do projeto, escolhe o diretório de trabalho, pode "
-        "pré-processar arquivos de docking e então informa proteína e ligantes para a análise."
+        "pré-processar arquivos de complexos de docking ou frames de dinâmica e então informa proteína e ligantes para a análise."
     ): {
-        "en": "In this tab you define the project mode, choose the working directory, optionally pre-process docking files, then provide the protein and ligands for the analysis.",
-        "es": "En esta pestaña defines el modo del proyecto, eliges el directorio de trabajo, puedes preprocesar archivos de docking y luego indicas la proteína y los ligandos para el análisis.",
+        "en": "In this tab you define the project mode, choose the working directory, optionally pre-process docking complexes or dynamics frames, then provide the protein and ligands for the analysis.",
+        "es": "En esta pestaña defines el modo del proyecto, eliges el directorio de trabajo, puedes preprocesar complejos de docking o frames de dinámica y luego indicas la proteína y los ligandos para el análisis.",
     },
     "Entradas": {"en": "Inputs", "es": "Entradas"},
     "Modo do projeto:": {"en": "Project mode:", "es": "Modo del proyecto:"},
@@ -116,12 +147,31 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Projeto fonte:": {"en": "Source project:", "es": "Proyecto fuente:"},
     "Diretório de trabalho:": {"en": "Working directory:", "es": "Directorio de trabajo:"},
     "Pré-processamento:": {"en": "Pre-processing:", "es": "Preprocesamiento:"},
-    "Preparar arquivos de docking...": {"en": "Prepare docking files...", "es": "Preparar archivos de docking..."},
+    "Preparar arquivos de complexos...": {"en": "Prepare complex files...", "es": "Preparar archivos de complejos..."},
     "Proteína (PDB):": {"en": "Protein (PDB):", "es": "Proteína (PDB):"},
     "Ligantes (MOL2/SDF):": {"en": "Ligands (MOL2/SDF):", "es": "Ligandos (MOL2/SDF):"},
     "Incluir águas (HOH) — análise hidratada": {"en": "Include waters (HOH) - hydrated analysis", "es": "Incluir aguas (HOH) - análisis hidratado"},
     "Águas detectadas nos inputs: 0": {"en": "Waters detected in inputs: 0", "es": "Aguas detectadas en los inputs: 0"},
-    "Análise de trajetória de dinâmica molecular (entradas = frames)": {"en": "Molecular dynamics trajectory analysis (entries = frames)", "es": "Análisis de trayectoria de dinámica molecular (entradas = frames)"},
+    "Análise de trajetória de dinâmica molecular/poses de docking (entradas = frames/poses)": {
+        "en": "Molecular dynamics trajectory/docking pose analysis (entries = frames/poses)",
+        "es": "Análisis de trayectoria de dinámica molecular/poses de docking (entradas = frames/poses)",
+    },
+    (
+        "Marque quando cada entrada do projeto representar um frame de dinâmica molecular "
+        "ou uma pose de docking. A aba Resultados > Estatísticas mostrará gráficos por "
+        "frame/pose e percentuais de entradas por resíduo/interação."
+    ): {
+        "en": (
+            "Check this when each project entry represents a molecular dynamics frame "
+            "or a docking pose. Results > Statistics will show plots per frame/pose "
+            "and entry percentages by residue/interaction."
+        ),
+        "es": (
+            "Márcalo cuando cada entrada del proyecto representa un frame de dinámica molecular "
+            "o una pose de docking. Resultados > Estadísticas mostrará gráficos por frame/pose "
+            "y porcentajes de entradas por residuo/interacción."
+        ),
+    },
     "Ligantes detectados": {"en": "Detected ligands", "es": "Ligandos detectados"},
     (
         "Depois de carregar os ligantes, marque apenas os que devem entrar na análise. "
@@ -131,6 +181,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "Después de cargar los ligandos, marca solo los que deben entrar en el análisis. El filtro ayuda a localizar nombres específicos sin borrar la lista.",
     },
     "Filtrar por nome (texto livre)...": {"en": "Filter by name (free text)...", "es": "Filtrar por nombre (texto libre)..."},
+    "Remove todos os ligantes detectados da lista atual sem apagar os arquivos de entrada.": {
+        "en": "Removes all detected ligands from the current list without deleting input files.",
+        "es": "Elimina todos los ligandos detectados de la lista actual sin borrar los archivos de entrada.",
+    },
     "0 ligantes": {"en": "0 ligands", "es": "0 ligandos"},
     "Pasta com proteínas PDB": {"en": "Folder with PDB proteins", "es": "Carpeta con proteínas PDB"},
     "Selecionar pasta com proteínas PDB": {"en": "Select folder with PDB proteins", "es": "Seleccionar carpeta con proteínas PDB"},
@@ -139,6 +193,43 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Pasta com arquivos MOL2/SDF": {"en": "Folder with MOL2/SDF files", "es": "Carpeta con archivos MOL2/SDF"},
     "Consolidado": {"en": "Consolidated", "es": "Consolidado"},
     "Próximo passo": {"en": "Next step", "es": "Próximo paso"},
+    "Pasta com arquivos de complexos": {"en": "Folder with complex files", "es": "Carpeta con archivos de complejos"},
+    (
+        "Selecione uma pasta com arquivos .mol2, .pdb ou .ent (proteína + ligante no mesmo arquivo).\n"
+        "Serão geradas subpastas separadas para proteínas e ligantes compatíveis com LUNA: MOL2 quando a origem é MOL2, SDF quando a origem é PDB/ENT, com águas preservadas junto à proteína."
+    ): {
+        "en": (
+            "Select a folder with .mol2, .pdb or .ent files (protein + ligand in the same file).\n"
+            "Separate folders will be generated for proteins and LUNA-compatible ligands: MOL2 when the source is MOL2, SDF when the source is PDB/ENT, with waters preserved with the protein."
+        ),
+        "es": (
+            "Selecciona una carpeta con archivos .mol2, .pdb o .ent (proteína + ligando en el mismo archivo).\n"
+            "Se generarán carpetas separadas para proteínas y ligandos compatibles con LUNA: MOL2 cuando el origen es MOL2, SDF cuando el origen es PDB/ENT, con las aguas preservadas junto a la proteína."
+        ),
+    },
+    "Divide complexos MOL2/PDB (proteína+ligante+águas) em entradas separadas.": {
+        "en": "Splits MOL2/PDB complexes (protein+ligand+waters) into separate inputs.",
+        "es": "Divide complejos MOL2/PDB (proteína+ligando+aguas) en entradas separadas.",
+    },
+    (
+        "Arquivo PDB da proteína para todos os ligantes, ou pasta com um PDB por ligante/complexo.\n"
+        "Quando uma pasta é usada, cada ligante será pareado com o PDB de mesmo nome-base."
+    ): {
+        "en": "Protein PDB file for all ligands, or a folder with one PDB per ligand/complex.\nWhen a folder is used, each ligand is paired with the PDB that has the same base name.",
+        "es": "Archivo PDB de proteína para todos los ligandos, o carpeta con un PDB por ligando/complejo.\nCuando se usa una carpeta, cada ligando se empareja con el PDB del mismo nombre base.",
+    },
+    "Seleciona um arquivo PDB de proteína para todos os ligantes.": {
+        "en": "Selects one protein PDB file for all ligands.",
+        "es": "Selecciona un archivo PDB de proteína para todos los ligandos.",
+    },
+    "Seleciona uma pasta com um arquivo .pdb para cada ligante/complexo.": {
+        "en": "Selects a folder with one .pdb file for each ligand/complex.",
+        "es": "Selecciona una carpeta con un archivo .pdb para cada ligando/complejo.",
+    },
+    "Arquivo ou pasta com ligantes. Pode ser MOL2/SDF/PDB único, pasta de PDBs ou arquivo consolidado com vários ligantes.": {
+        "en": "Ligand file or folder. It can be a single MOL2/SDF/PDB, a PDB folder, or a consolidated file with multiple ligands.",
+        "es": "Archivo o carpeta con ligandos. Puede ser un MOL2/SDF/PDB único, una carpeta de PDBs o un archivo consolidado con varios ligandos.",
+    },
 
     # Analyses tab.
     (
@@ -299,12 +390,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "Resume cuántas interacciones de cada tipo aparecen en el conjunto analizado. Es una visión global del perfil químico observado.",
     },
     "Calcular estatísticas (usa luna-env)": {"en": "Calculate statistics (uses luna-env)", "es": "Calcular estadísticas (usa luna-env)"},
-    "Heatmap por tipo": {"en": "Heatmap by type", "es": "Heatmap por tipo"},
+    "Heatmap por tipo": {"pt": "Mapa de calor por tipo", "en": "Heatmap by type", "es": "Mapa de calor por tipo"},
     "Mostra, para um tipo de interação escolhido, quais resíduos da proteína aparecem associados aos ligantes.": {
         "en": "Shows, for the selected interaction type, which protein residues are associated with ligands.",
         "es": "Muestra, para un tipo de interacción elegido, qué residuos de la proteína aparecen asociados a los ligandos.",
     },
-    "Calcular heatmap (usa luna-env)": {"en": "Calculate heatmap (uses luna-env)", "es": "Calcular heatmap (usa luna-env)"},
+    "Calcular heatmap (usa luna-env)": {"pt": "Calcular mapa de calor (usa luna-env)", "en": "Calculate heatmap (uses luna-env)", "es": "Calcular mapa de calor (usa luna-env)"},
     "Método:": {"en": "Method:", "es": "Método:"},
     "Clusters:": {"en": "Clusters:", "es": "Clusters:"},
     "Atualizar clusters": {"en": "Update clusters", "es": "Actualizar clusters"},
@@ -320,7 +411,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "Sessões PyMOL": {"en": "PyMOL sessions", "es": "Sesiones PyMOL"},
     "Estatisticas": {"en": "Statistics", "es": "Estadísticas"},
-    "Heatmap completo ligantes x residuos": {"en": "Complete ligand x residue heatmap", "es": "Heatmap completo ligandos x residuos"},
+    "Heatmap completo ligantes x residuos": {"pt": "Mapa de calor completo ligantes x resíduos", "en": "Complete ligand x residue heatmap", "es": "Mapa de calor completo ligandos x residuos"},
     "Sessoes em PyMOL": {"en": "PyMOL sessions", "es": "Sesiones en PyMOL"},
     "FP analises": {"en": "FP analyses", "es": "Análisis FP"},
     "FP sessao em PyMOL": {"en": "FP PyMOL session", "es": "Sesión FP en PyMOL"},
@@ -343,7 +434,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Totais do projeto": {"en": "Project totals", "es": "Totales del proyecto"},
     "Todos os frames": {"en": "All frames", "es": "Todos los frames"},
     "Todos os ligantes": {"en": "All ligands", "es": "Todos los ligandos"},
-    "Atualizar heatmaps": {"en": "Update heatmaps", "es": "Actualizar heatmaps"},
+    "Full screen": {"pt": "Tela cheia", "en": "Full screen", "es": "Pantalla completa"},
+    "Afastar": {"en": "Zoom out", "es": "Alejar"},
+    "Aproximar": {"en": "Zoom in", "es": "Acercar"},
+    "Ajustar a tela": {"pt": "Ajustar à tela", "en": "Fit to window", "es": "Ajustar a pantalla"},
+    "Ligar/desligar todas": {"en": "Toggle all", "es": "Activar/desactivar todas"},
+    "Ocultar desfav./repulsivas": {
+        "en": "Hide unfavorable/repulsive",
+        "es": "Ocultar desfav./repulsivas",
+    },
+    "Ocultar empilhamentos": {"en": "Hide stacking", "es": "Ocultar apilamientos"},
+    "Fingerprints relevantes:": {"en": "Relevant fingerprints:", "es": "Fingerprints relevantes:"},
+    "Aplicar selecao": {"pt": "Aplicar seleção", "en": "Apply selection", "es": "Aplicar selección"},
+    "Usar linhas selecionadas": {"en": "Use selected rows", "es": "Usar filas seleccionadas"},
+    "Restabelecer calculado": {"en": "Restore calculated", "es": "Restablecer calculado"},
+    "Atualizar heatmaps": {"pt": "Atualizar mapas de calor", "en": "Update heatmaps", "es": "Actualizar mapas de calor"},
     (
         "Mostra, em cada par ligante x residuo, todas as interacoes presentes em faixas coloridas. "
         "As cores indicam a classe da interacao, nao a contagem."
@@ -364,10 +469,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Classes importantes": {"en": "Important classes", "es": "Clases importantes"},
     "Frequencia por classe": {"en": "Frequency by class", "es": "Frecuencia por clase"},
     "Cobertura e importancia": {"en": "Coverage and importance", "es": "Cobertura e importancia"},
-    "Heatmap importância": {"en": "Importance heatmap", "es": "Heatmap de importancia"},
+    "Heatmap importância": {"pt": "Mapa de calor de importância", "en": "Importance heatmap", "es": "Mapa de calor de importancia"},
     "Frequencia interacoes": {"en": "Interaction frequency", "es": "Frecuencia de interacciones"},
     "Interações prevalentes": {"en": "Prevalent interactions", "es": "Interacciones prevalentes"},
-    "Heatmap interações": {"en": "Interaction heatmap", "es": "Heatmap de interacciones"},
+    "Heatmap interações": {"pt": "Mapa de calor de interações", "en": "Interaction heatmap", "es": "Mapa de calor de interacciones"},
     "Fingerprint:": {"en": "Fingerprint:", "es": "Fingerprint:"},
     "Molecula:": {"en": "Molecule:", "es": "Molécula:"},
     "Gerar sessao": {"en": "Generate session", "es": "Generar sesión"},
@@ -402,7 +507,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "− Remover linha": {"en": "- Remove row", "es": "- Remover fila"},
     "Carregar .cfg": {"en": "Load .cfg", "es": "Cargar .cfg"},
     "Salvar .cfg": {"en": "Save .cfg", "es": "Guardar .cfg"},
-    "Preparar arquivos de docking": {"en": "Prepare docking files", "es": "Preparar archivos de docking"},
+    "Preparar arquivos de complexos": {"en": "Prepare complex files", "es": "Preparar archivos de complejos"},
     "Pasta de origem:": {"en": "Source folder:", "es": "Carpeta de origen:"},
     "Pasta de saída:": {"en": "Output folder:", "es": "Carpeta de salida:"},
     "Último átomo da proteína": {"en": "Last protein atom", "es": "Último átomo de la proteína"},
@@ -435,13 +540,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Clique para ocultar/mostrar": {"en": "Click to hide/show", "es": "Click para ocultar/mostrar"},
     "Sem matriz de residuos disponivel": {"en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
     "Sem matriz completa disponivel": {"en": "No complete matrix available", "es": "Sin matriz completa disponible"},
-    "Sem dados de interacao para o heatmap completo": {"en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el heatmap completo"},
+    "Sem dados de interacao para o heatmap completo": {"pt": "Sem dados de interação para o mapa de calor completo", "en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el mapa de calor completo"},
     "Sem features importantes para resumir.": {"en": "No important features to summarize.", "es": "Sin features importantes para resumir."},
     "Sem features importantes para plotar.": {"en": "No important features to plot.", "es": "Sin features importantes para graficar."},
-    "Sem features importantes para gerar o heatmap.": {"en": "No important features to generate the heatmap.", "es": "Sin features importantes para generar el heatmap."},
+    "Sem features importantes para gerar o heatmap.": {"pt": "Sem features importantes para gerar o mapa de calor.", "en": "No important features to generate the heatmap.", "es": "Sin features importantes para generar el mapa de calor."},
     "Sem interacoes prevalentes confiaveis nas features importantes.": {"en": "No reliable prevalent interactions among important features.", "es": "Sin interacciones prevalentes confiables en las features importantes."},
     "Todas as interacoes estao ocultas pela legenda.": {"en": "All interactions are hidden by the legend.", "es": "Todas las interacciones están ocultas por la leyenda."},
-    "Sem interacoes prevalentes para gerar o heatmap.": {"en": "No prevalent interactions to generate the heatmap.", "es": "Sin interacciones prevalentes para generar el heatmap."},
+    "Sem interacoes prevalentes para gerar o heatmap.": {"pt": "Sem interações prevalentes para gerar o mapa de calor.", "en": "No prevalent interactions to generate the heatmap.", "es": "Sin interacciones prevalentes para generar el mapa de calor."},
     "% Important features": {"en": "% Important features", "es": "% Features importantes"},
     "Distribuicao das classes entre as features mais importantes": {"en": "Class distribution among the most important features", "es": "Distribución de clases entre las features más importantes"},
     "Assignment frequency of each class (%)": {"en": "Assignment frequency of each class (%)", "es": "Frecuencia de asignación de cada clase (%)"},
@@ -465,16 +570,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "% de frames (entradas)": {"en": "% of frames (entries)", "es": "% de frames (entradas)"},
     "Número de interações no ligante": {"en": "Number of interactions in the ligand", "es": "Número de interacciones en el ligando"},
     "Número de interações no frame": {"en": "Number of interactions in the frame", "es": "Número de interacciones en el frame"},
-    "Sem matriz resíduo x interação.\nCalcule o heatmap por tipo ou reexecute a análise.": {"en": "No residue x interaction matrix.\nCalculate the heatmap by type or rerun the analysis.", "es": "Sin matriz residuo x interacción.\nCalcula el heatmap por tipo o reejecuta el análisis."},
-    "Sem matriz resíduo x interação para trajetória.\nCalcule o heatmap por tipo ou reexecute a análise.": {"en": "No residue x interaction matrix for trajectory.\nCalculate the heatmap by type or rerun the analysis.", "es": "Sin matriz residuo x interacción para trayectoria.\nCalcula el heatmap por tipo o reejecuta el análisis."},
-    "Heatmap completo ligantes x resíduos": {"en": "Complete ligand x residue heatmap", "es": "Heatmap completo ligandos x residuos"},
+    "Sem matriz resíduo x interação.\nCalcule o heatmap por tipo ou reexecute a análise.": {"pt": "Sem matriz resíduo x interação.\nCalcule o mapa de calor por tipo ou reexecute a análise.", "en": "No residue x interaction matrix.\nCalculate the heatmap by type or rerun the analysis.", "es": "Sin matriz residuo x interacción.\nCalcula el mapa de calor por tipo o reejecuta el análisis."},
+    "Sem matriz resíduo x interação para trajetória.\nCalcule o heatmap por tipo ou reexecute a análise.": {"pt": "Sem matriz resíduo x interação para trajetória.\nCalcule o mapa de calor por tipo ou reexecute a análise.", "en": "No residue x interaction matrix for trajectory.\nCalculate the heatmap by type or rerun the analysis.", "es": "Sin matriz residuo x interacción para trayectoria.\nCalcula el mapa de calor por tipo o reejecuta el análisis."},
+    "Heatmap completo ligantes x resíduos": {"pt": "Mapa de calor completo ligantes x resíduos", "en": "Complete ligand x residue heatmap", "es": "Mapa de calor completo ligandos x residuos"},
     "FP - classes importantes": {"en": "FP - important classes", "es": "FP - clases importantes"},
     "FP - frequência por classe": {"en": "FP - frequency by class", "es": "FP - frecuencia por clase"},
     "FP - cobertura e importância": {"en": "FP - coverage and importance", "es": "FP - cobertura e importancia"},
-    "FP - heatmap de importância": {"en": "FP - importance heatmap", "es": "FP - heatmap de importancia"},
+    "FP - heatmap de importância": {"pt": "FP - mapa de calor de importância", "en": "FP - importance heatmap", "es": "FP - mapa de calor de importancia"},
     "FP - frequência de interações": {"en": "FP - interaction frequency", "es": "FP - frecuencia de interacciones"},
     "FP - interações prevalentes": {"en": "FP - prevalent interactions", "es": "FP - interacciones prevalentes"},
-    "FP - heatmap de interações": {"en": "FP - interaction heatmap", "es": "FP - heatmap de interacciones"},
+    "FP - heatmap de interações": {"pt": "FP - mapa de calor de interações", "en": "FP - interaction heatmap", "es": "FP - mapa de calor de interacciones"},
     "Has noncovalent interactions with the protein": {
         "pt": "Possui interações não covalentes com a proteína",
         "en": "Has noncovalent interactions with the protein",
@@ -580,7 +685,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "Sem matriz de resíduos disponível": {"en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
     "Sem matriz completa disponível": {"en": "No complete matrix available", "es": "Sin matriz completa disponible"},
-    "Sem dados de interação para o heatmap completo": {"en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el heatmap completo"},
+    "Sem dados de interação para o heatmap completo": {"pt": "Sem dados de interação para o mapa de calor completo", "en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el mapa de calor completo"},
     (
         "Linhas representam ligantes e colunas representam resíduos. A intensidade da célula indica quantas vezes o tipo de interação selecionado aparece naquele par; colunas densas destacam resíduos recorrentes."
     ): {
@@ -590,8 +695,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     (
         "Heatmap completo ligantes x resíduos: usa faixas coloridas para mostrar múltiplos tipos de interação no mesmo par ligante-resíduo. Ele é útil para enxergar complementaridade química: o mesmo resíduo pode estabilizar ligantes por mecanismos diferentes."
     ): {
+        "pt": "Mapa de calor completo ligantes x resíduos: usa faixas coloridas para mostrar múltiplos tipos de interação no mesmo par ligante-resíduo. Ele é útil para enxergar complementaridade química: o mesmo resíduo pode estabilizar ligantes por mecanismos diferentes.",
         "en": "Complete ligand x residue heatmap: uses colored bands to show multiple interaction types in the same ligand-residue pair. It helps visualize chemical complementarity: the same residue can stabilize ligands through different mechanisms.",
-        "es": "Heatmap completo ligandos x residuos: usa franjas de color para mostrar múltiples tipos de interacción en el mismo par ligando-residuo. Es útil para ver complementariedad química: el mismo residuo puede estabilizar ligandos por mecanismos diferentes.",
+        "es": "Mapa de calor completo ligandos x residuos: usa franjas de color para mostrar múltiples tipos de interacción en el mismo par ligando-residuo. Es útil para ver complementariedad química: el mismo residuo puede estabilizar ligandos por mecanismos diferentes.",
     },
     (
         "Clusters: reorganizam a matriz de similaridade para revelar famílias de ligantes por comportamento no sítio. Use os grupos como hipótese para priorização e para escolher representantes para inspeção no PyMOL."
@@ -641,7 +747,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
 
     # Report text.
-    "Relatório HIP2LInterActomics_GUI": {"en": "HIP2LInterActomics_GUI report", "es": "Reporte HIP2LInterActomics_GUI"},
+    "Relatório HIP²LInterActomics": {"en": "HIP²LInterActomics report", "es": "Reporte HIP²LInterActomics"},
     "Como interpretar as análises": {"en": "How to interpret the analyses", "es": "Cómo interpretar los análisis"},
     "Distribuição de interações": {"en": "Interaction distribution", "es": "Distribución de interacciones"},
     "Resumo das FP análises": {"en": "FP analyses summary", "es": "Resumen de análisis FP"},
@@ -676,8 +782,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     (
         "Heatmap por tipo: cruza ligantes e resíduos para uma interação escolhida. Células mais intensas indicam mais ocorrências daquele contato. Colunas densas sugerem resíduos-chave; linhas densas sugerem ligantes com muitos contatos daquele tipo."
     ): {
+        "pt": "Mapa de calor por tipo: cruza ligantes e resíduos para uma interação escolhida. Células mais intensas indicam mais ocorrências daquele contato. Colunas densas sugerem resíduos-chave; linhas densas sugerem ligantes com muitos contatos daquele tipo.",
         "en": "Heatmap by type: crosses ligands and residues for a selected interaction. More intense cells indicate more occurrences of that contact. Dense columns suggest key residues; dense rows suggest ligands with many contacts of that type.",
-        "es": "Heatmap por tipo: cruza ligandos y residuos para una interacción elegida. Celdas más intensas indican más ocurrencias de ese contacto. Columnas densas sugieren residuos clave; filas densas sugieren ligandos con muchos contactos de ese tipo.",
+        "es": "Mapa de calor por tipo: cruza ligandos y residuos para una interacción elegida. Celdas más intensas indican más ocurrencias de ese contacto. Columnas densas sugieren residuos clave; filas densas sugieren ligandos con muchos contactos de ese tipo.",
     },
     (
         "Matriz de similaridade: compara ligantes pelos fingerprints de interação. Valores próximos de 1 indicam perfis de interação semelhantes; valores baixos indicam modos de interação distintos, mesmo quando as moléculas parecem estruturalmente parecidas."
@@ -1165,8 +1272,13 @@ def retranslate_ui(root) -> None:
     widgets = [root] + list(root.findChildren(QObject))
     for widget in widgets:
         if isinstance(widget, QLabel):
-            source = getattr(widget, "_luna_i18n_text", None) or source_text(widget.text())
-            widget.setText(source)
+            try:
+                has_pixmap = widget.pixmap() is not None
+            except Exception:
+                has_pixmap = False
+            if not (has_pixmap and not widget.text()):
+                source = getattr(widget, "_luna_i18n_text", None) or source_text(widget.text())
+                widget.setText(source)
         if isinstance(widget, QAbstractButton):
             source = getattr(widget, "_luna_i18n_text", None) or source_text(widget.text())
             widget.setText(source)

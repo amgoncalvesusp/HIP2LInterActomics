@@ -29,6 +29,34 @@ PREVALENCE_EXCLUDED_INTERACTIONS = {
     "hydrophobic",
 }
 
+PI_STACKING_INTERACTIONS = {
+    "displaced face to face pi stacking",
+    "displaced face to edge pi stacking",
+    "displaced face to slope pi stacking",
+    "face to face pi stacking",
+    "face to edge pi stacking",
+    "face to slope pi stacking",
+    "pi stacking",
+    "t shape",
+    "t shaped",
+}
+
+PI_STACKING_COLORS = {
+    "Pi-stacking": "#c026d3",
+    "pi stacking": "#c026d3",
+    "Aromatic stacking": "#d946ef",
+    "Edge-to-face": "#f0abfc",
+    "Face-to-face": "#db2777",
+    "Face-to-edge pi-stacking": "#e879f9",
+    "Face-to-face pi-stacking": "#db2777",
+    "Face-to-slope pi-stacking": "#f472b6",
+    "Displaced face-to-edge pi-stacking": "#f0abfc",
+    "Displaced face-to-face pi-stacking": "#be185d",
+    "Displaced face-to-slope pi-stacking": "#fb7185",
+    "T-shaped": "#ec4899",
+    "T-shape": "#ec4899",
+}
+
 INTERACTION_COLORS = {
     "Hydrogen bond": "#05FF23",
     "Weak hydrogen bond": "#C5FFCC",
@@ -42,22 +70,12 @@ INTERACTION_COLORS = {
     "Cation-nucleophile": "#00AC3D",
     "Anion-electrophile": "#FFB7B7",
     "Anion-pi": "#FF5B5B",
-    "Pi-stacking": "#6B6ECF",
-    "Aromatic stacking": "#EA00C9",
-    "Edge-to-face": "#EA00C9",
-    "Face-to-face": "#EA00C9",
-    "Face-to-edge pi-stacking": "#EA00C9",
-    "Face-to-face pi-stacking": "#EA00C9",
-    "Face-to-slope pi-stacking": "#EA00C9",
-    "Displaced face-to-edge pi-stacking": "#EA00C9",
-    "Displaced face-to-face pi-stacking": "#EA00C9",
-    "Displaced face-to-slope pi-stacking": "#EA00C9",
+    **PI_STACKING_COLORS,
     "Parallel": "#D5D5D5",
     "Parallel multipolar": "#A9A9A9",
     "Antiparallel multipolar": "#4E6DBA",
     "Orthogonal multipolar": "#324982",
     "Tilted multipolar": "#273863",
-    "T-shaped": "#EA00C9",
     "Hydrophobic": "#FDD595",
     "Amide-aromatic stacking": "#BCBD22",
     "Charge-dipole interaction": "#9FBF00",
@@ -101,12 +119,22 @@ INTERACTION_PRIORITY = [
 
 INTERACTION_PRIORITY_ALIASES = {
     "salt bridge": "Ionic",
+    "pi stacking": "Pi-stacking",
+    "pi-stacking": "Pi-stacking",
+    "t-shape": "T-shaped",
+    "t shaped": "T-shaped",
     "face-to-face": "Face-to-face pi-stacking",
+    "face-to-face pi stacking": "Face-to-face pi-stacking",
     "face-to-slope": "Face-to-slope pi-stacking",
+    "face-to-slope pi stacking": "Face-to-slope pi-stacking",
     "face-to-edge": "Face-to-edge pi-stacking",
+    "face-to-edge pi stacking": "Face-to-edge pi-stacking",
     "displaced face-to-face": "Displaced face-to-face pi-stacking",
+    "displaced face-to-face pi stacking": "Displaced face-to-face pi-stacking",
     "displaced face-to-slope": "Displaced face-to-slope pi-stacking",
+    "displaced face-to-slope pi stacking": "Displaced face-to-slope pi-stacking",
     "displaced face-to-edge": "Displaced face-to-edge pi-stacking",
+    "displaced face-to-edge pi stacking": "Displaced face-to-edge pi-stacking",
 }
 
 _ENTRY_ID_SUFFIXES = (
@@ -437,6 +465,21 @@ def normalize_interaction_name(name: str | None) -> str:
     if raw.lower().startswith("unfavorable"):
         return raw
     return raw
+
+
+def _interaction_key(name: str | None) -> str:
+    text = normalize_interaction_name(name).casefold()
+    text = text.replace("-", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_pi_stacking_interaction(name: str | None) -> bool:
+    return _interaction_key(name) in PI_STACKING_INTERACTIONS
+
+
+def is_unfavorable_or_repulsive_interaction(name: str | None) -> bool:
+    key = _interaction_key(name)
+    return key.startswith("unfavorable") or key == "repulsive" or " repulsive" in key
 
 
 def interaction_priority_key(name: str | None) -> tuple[int, str]:
@@ -1850,11 +1893,11 @@ def build_fp_analysis_dashboard(
     }
 
     interaction_features: list[dict] = []
-    for feature in important_features:
+    for feature in enriched:
         if str(feature.get("assigned_class", "")) != CLASS_NONCOVALENT:
             continue
         interaction_breakdown, residue_breakdown, pair_breakdown, entry_details = _filtered_prevalence_counts(feature)
-        if sum(interaction_breakdown.values()) <= 0:
+        if sum(pair_breakdown.values()) <= 0:
             continue
         feature["interaction_breakdown"] = interaction_breakdown
         feature["residue_breakdown"] = residue_breakdown
@@ -1908,27 +1951,26 @@ def build_fp_analysis_dashboard(
         feature["prevalent_interaction_zscore"] = float(interaction_zscore)
         feature["prevalent_residue_zscore"] = float(residue_zscore)
         feature["prevalent_pair_zscore"] = float(pair_zscore)
-        if float(feature["prevalent_interaction_pct"]) < interaction_threshold_pct:
-            feature["prevalent_interaction"] = CLASS_UNRELIABLE
-        if float(feature["prevalent_residue_pct"]) < residue_threshold_pct:
-            feature["prevalent_residue"] = CLASS_UNRELIABLE
         if float(feature["prevalent_pair_pct"]) < pair_threshold_pct:
             feature["prevalent_pair"] = CLASS_UNRELIABLE
+            feature["prevalent_interaction"] = CLASS_UNRELIABLE
+            feature["prevalent_residue"] = CLASS_UNRELIABLE
+            feature["prevalent_pair_entries"] = []
+            feature["prevalent_interaction_entries"] = []
         else:
             pair_name = str(feature["prevalent_pair"])
-            interaction_name = pair_name.split("||", 1)[0]
+            if "||" in pair_name:
+                interaction_name, residue_name = pair_name.split("||", 1)
+            else:
+                interaction_name, residue_name = pair_name, ""
+            feature["prevalent_interaction"] = interaction_name.strip()
+            feature["prevalent_residue"] = residue_name.strip()
             feature["prevalent_pair_entries"] = [
                 entry_name
                 for entry_name, entry_info in (feature.get("entry_details") or {}).items()
                 if pair_name in ((entry_info or {}).get("pair_counts") or {})
             ]
-        if str(feature.get("prevalent_interaction", "")) != CLASS_UNRELIABLE:
-            interaction_name = str(feature["prevalent_interaction"])
-            feature["prevalent_interaction_entries"] = [
-                entry_name
-                for entry_name, entry_info in (feature.get("entry_details") or {}).items()
-                if interaction_name in ((entry_info or {}).get("interaction_counts") or {})
-            ]
+            feature["prevalent_interaction_entries"] = list(feature["prevalent_pair_entries"])
 
     all_features = sorted(
         enriched,

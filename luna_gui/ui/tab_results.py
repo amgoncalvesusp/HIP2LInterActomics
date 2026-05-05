@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import csv
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -16,6 +13,7 @@ from PyQt6.QtWidgets import (
 
 from ..core.project import ProjectConfig
 from ..core.analysis_helper import run_analysis, run_residue_matrix
+from ..core.pymol_launcher import launch_pse_session
 from ..core.report import save_report
 from ..i18n import translate_figure
 
@@ -299,21 +297,10 @@ class ResultsTab(QWidget):
             QMessageBox.information(self, "PSE", "Selecione um arquivo .pse na lista.")
             return
         path = it.data(Qt.ItemDataRole.UserRole)
-        pymol = shutil.which("pymol") or shutil.which("pymol.exe")
         try:
-            if pymol:
-                subprocess.Popen([pymol, path])
-            else:
-                # Fall back to OS file association
-                if sys.platform == "win32":
-                    import os
-                    os.startfile(path)  # type: ignore
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", path])
-                else:
-                    subprocess.Popen(["xdg-open", path])
+            launch_pse_session(path, self.py_exe)
         except Exception as e:
-            QMessageBox.critical(self, "Erro ao abrir", str(e))
+            QMessageBox.critical(self, "Erro ao abrir PyMOL", str(e))
 
 
     # ---- statistics (post-analysis via luna-env helper) ----

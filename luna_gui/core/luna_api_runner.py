@@ -14,6 +14,7 @@ from .project import ProjectConfig, resolve_ifp_output_paths, resolve_sim_matrix
 
 
 _LIGAND_SUFFIXES = ("_ligand", "-ligand", "_lig", "-lig")
+_LIGAND_FILE_SUFFIXES = {".mol2", ".sdf", ".sd", ".mol", ".pdb", ".ent"}
 _PREPARED_PROTEIN_MARKER = "REMARK   Separated Protein"
 
 
@@ -797,13 +798,19 @@ entry_objs = []
 for spec in entry_specs:
     name = spec["ligand_name"]
     pdb_id = spec["pdb_id"]
+    mol_file = spec.get("mol_file") or lig_file
+    spec_ext = Path(mol_file).suffix.lower()
+    spec_mol_obj_type = spec.get("mol_obj_type") or (
+        "rdkit" if spec_ext in {".sdf", ".sd", ".mol"} else lig_mol_obj_type
+    )
+    is_multimol_file = bool(spec.get("is_multimol_file", True))
     try:
         e = MolFileEntry.from_mol_file(
             pdb_id=pdb_id,
             mol_id=name,
-            mol_file=lig_file,
-            is_multimol_file=True,
-            mol_obj_type=lig_mol_obj_type,
+            mol_file=mol_file,
+            is_multimol_file=is_multimol_file,
+            mol_obj_type=spec_mol_obj_type,
         )
         entry_objs.append(e)
     except Exception as ex:
@@ -987,13 +994,9 @@ def _candidate_protein_files(cfg: ProjectConfig) -> list[Path]:
     protein_path = Path(cfg.protein_file)
     if not protein_path.exists():
         return []
-    if not cfg.include_waters:
-        if protein_path.is_dir():
-            return []
-        return [protein_path]
     if protein_path.is_dir():
         return sorted(protein_path.glob("*.pdb"))
-    return sorted(protein_path.parent.glob("*.pdb"))
+    return [protein_path]
 
 
 def _iter_ligand_hydrogen_flags(ligand_file: str | Path) -> list[bool]:
@@ -1117,7 +1120,14 @@ def resolve_protein_processing_flags(cfg: ProjectConfig) -> dict[str, bool | flo
 def should_use_api_runner(cfg: ProjectConfig) -> bool:
     """Return True when we need the Python API runner instead of the CLI."""
     flags = resolve_protein_processing_flags(cfg)
-    return cfg.uses_python_api() or not flags["amend_mol"]
+    protein_is_dir = bool(cfg.protein_file) and Path(cfg.protein_file).is_dir()
+    ligand_is_dir = bool(cfg.ligand_file) and Path(cfg.ligand_file).is_dir()
+    return (
+        cfg.uses_python_api()
+        or protein_is_dir
+        or ligand_is_dir
+        or not flags["amend_mol"]
+    )
 
 
 def _protein_index(protein_dir: Path) -> tuple[dict[str, str], set[str]]:
@@ -1132,21 +1142,65 @@ def _protein_index(protein_dir: Path) -> tuple[dict[str, str], set[str]]:
     return index, duplicates
 
 
+def _ligand_file_index(ligand_dir: Path) -> tuple[dict[str, Path], set[str]]:
+    index: dict[str, Path] = {}
+    duplicates: set[str] = set()
+    for ligand_file in sorted(ligand_dir.iterdir()):
+        if not ligand_file.is_file() or ligand_file.suffix.lower() not in _LIGAND_FILE_SUFFIXES:
+            continue
+        key = _normalize_complex_name(ligand_file.stem)
+        if key in index and index[key] != ligand_file:
+            duplicates.add(key)
+            continue
+        index[key] = ligand_file
+    return index, duplicates
+
+
 def build_entry_specs(cfg: ProjectConfig, entries: list[str]) -> list[dict[str, str]]:
     """Return the per-entry protein/ligand mapping for the API runner."""
     protein_path = Path(cfg.protein_file)
-    if not cfg.include_waters:
-        pdb_id = protein_path.stem
-        return [{"pdb_id": pdb_id, "ligand_name": ligand_name} for ligand_name in entries]
+    ligand_path = Path(cfg.ligand_file) if cfg.ligand_file else None
+    ligand_index: dict[str, Path] = {}
+    ligand_duplicates: set[str] = set()
+    ligand_is_dir = ligand_path is not None and ligand_path.is_dir()
+    if ligand_is_dir:
+        ligand_index, ligand_duplicates = _ligand_file_index(ligand_path)
 
     protein_dir = protein_path if protein_path.is_dir() else protein_path.parent
-    protein_index, duplicates = _protein_index(protein_dir)
+    protein_index: dict[str, str] = {}
+    protein_duplicates: set[str] = set()
+    if protein_path.is_dir():
+        protein_index, protein_duplicates = _protein_index(protein_dir)
 
+    single_pdb_id = protein_path.stem
     errors: list[str] = []
     specs: list[dict[str, str]] = []
     for ligand_name in entries:
         key = _normalize_complex_name(ligand_name)
-        if key in duplicates:
+        if key in ligand_duplicates:
+            errors.append(
+                f"Mais de um arquivo de ligante corresponde a '{ligand_name}' na pasta {ligand_path}."
+            )
+            continue
+
+        spec: dict[str, str] = {"ligand_name": ligand_name}
+        if ligand_is_dir:
+            mol_file = ligand_index.get(key)
+            if mol_file is None:
+                errors.append(
+                    f"Nenhum arquivo de ligante com o mesmo nome de '{ligand_name}' foi encontrado em {ligand_path}."
+                )
+                continue
+            spec["mol_file"] = str(mol_file)
+            spec["mol_obj_type"] = ligand_mol_obj_type(mol_file)
+            spec["is_multimol_file"] = False
+
+        if not protein_path.is_dir():
+            spec["pdb_id"] = single_pdb_id
+            specs.append(spec)
+            continue
+
+        if key in protein_duplicates:
             errors.append(
                 f"Mais de um PDB corresponde ao ligante '{ligand_name}' na pasta {protein_dir}."
             )
@@ -1157,7 +1211,8 @@ def build_entry_specs(cfg: ProjectConfig, entries: list[str]) -> list[dict[str, 
                 f"Nenhum PDB com o mesmo nome do ligante '{ligand_name}' foi encontrado em {protein_dir}."
             )
             continue
-        specs.append({"pdb_id": pdb_id, "ligand_name": ligand_name})
+        spec["pdb_id"] = pdb_id
+        specs.append(spec)
 
     if errors:
         raise ValueError("\n".join(errors))

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from ..core.project import ProjectConfig
 from ..core.analysis_runtime import run_analysis, run_residue_matrix
+from ..core.pymol_launcher import launch_pse_session
 from ..core.report_export import save_pdf_report, save_report
 from ..i18n import translate_figure
 from ..core.results_analysis import (
@@ -64,6 +65,19 @@ def _sortable_item(text: str, sort_value=None) -> QTableWidgetItem:
     if sort_value is not None:
         item.setData(Qt.ItemDataRole.UserRole, sort_value)
     return item
+
+
+def _popen_detached(args: list[str]) -> subprocess.Popen:
+    kwargs = {}
+    if sys.platform == "win32":
+        flags = 0
+        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        if flags:
+            kwargs["creationflags"] = flags
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(args, **kwargs)
 
 
 class ResultsTab(QWidget):
@@ -601,19 +615,10 @@ class ResultsTab(QWidget):
             QMessageBox.information(self, "PSE", "Selecione um arquivo .pse na lista.")
             return
         path = item.data(Qt.ItemDataRole.UserRole)
-        pymol = shutil.which("pymol") or shutil.which("pymol.exe")
         try:
-            if pymol:
-                subprocess.Popen([pymol, path])
-            elif sys.platform == "win32":
-                import os
-                os.startfile(path)  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
+            launch_pse_session(path, self.py_exe)
         except Exception as exc:
-            QMessageBox.critical(self, "Erro ao abrir", str(exc))
+            QMessageBox.critical(self, "Erro ao abrir PyMOL", str(exc))
 
     def set_python(self, py_exe: str) -> None:
         self.py_exe = py_exe
@@ -925,13 +930,13 @@ class ResultsTab(QWidget):
         try:
             if HAS_MPL and hasattr(self, "fig") and self.fig.axes:
                 translate_figure(self.fig)
-                self.fig.savefig(heatmap_png, dpi=260, bbox_inches="tight")
+                self.fig.savefig(heatmap_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
             if HAS_MPL and hasattr(self, "st_fig") and self.st_fig.axes:
                 translate_figure(self.st_fig)
-                self.st_fig.savefig(inter_png, dpi=260, bbox_inches="tight")
+                self.st_fig.savefig(inter_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
             if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
                 translate_figure(self.cluster_fig)
-                self.cluster_fig.savefig(cluster_png, dpi=260, bbox_inches="tight")
+                self.cluster_fig.savefig(cluster_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
         except Exception:
             pass
 

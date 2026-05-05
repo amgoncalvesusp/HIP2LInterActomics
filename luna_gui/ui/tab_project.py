@@ -11,10 +11,11 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.ligand_io import (
-    parse_ligand_file, consolidate_folder, consolidate_ligand_folder,
+    parse_ligand_file, consolidate_ligand_folder,
 )
 from ..core.mol2_prep import count_water_molecules_in_inputs
 from ..core.project import ProjectConfig
+from .info import InfoButton
 
 
 class ProjectTab(QWidget):
@@ -39,7 +40,7 @@ class ProjectTab(QWidget):
 
         intro = QLabel(
             "Nesta aba você define o modo do projeto, escolhe o diretório de trabalho, pode "
-            "pré-processar arquivos de docking e então informa proteína e ligantes para a análise."
+            "pré-processar arquivos de complexos de docking ou frames de dinâmica e então informa proteína e ligantes para a análise."
         )
         intro.setWordWrap(True)
         intro.setProperty("muted", True)
@@ -72,6 +73,7 @@ class ProjectTab(QWidget):
         btn_fork.setToolTip("Seleciona a pasta do projeto fonte.")
         btn_fork.clicked.connect(self._pick_fork)
         fork_row = QHBoxLayout(); fork_row.addWidget(self.fork_edit, 1); fork_row.addWidget(btn_fork)
+        fork_row.addWidget(InfoButton("Use quando quiser reabrir um projeto LUNA existente e acrescentar novas entradas sem apagar resultados antigos."))
         self.fork_row_widget = self._wrap(fork_row)
         form.addRow("Projeto fonte:", self.fork_row_widget)
 
@@ -84,34 +86,43 @@ class ProjectTab(QWidget):
         btn_w.setToolTip("Escolhe a pasta onde o projeto será salvo e reaberto depois.")
         btn_w.clicked.connect(self._pick_workdir)
         wrow = QHBoxLayout(); wrow.addWidget(self.workdir_edit, 1); wrow.addWidget(btn_w)
+        wrow.addWidget(InfoButton("Diretorio raiz do projeto. A GUI salva configuracoes, entradas, logs, resultados, relatorios e sessoes PyMOL nesta pasta."))
         form.addRow("Diretório de trabalho:", self._wrap(wrow))
 
         prep_row = QHBoxLayout()
-        btn_prep = QPushButton("Preparar arquivos de docking...")
+        btn_prep = QPushButton("Preparar arquivos de complexos...")
         btn_prep.setMinimumWidth(260)
-        btn_prep.setToolTip("Divide MOL2 de docking (proteína+ligante) em PDB + MOL2 separados")
+        btn_prep.setToolTip("Divide complexos MOL2/PDB (proteína+ligante+águas) em entradas separadas.")
         btn_prep.clicked.connect(self._open_prep_wizard)
         prep_row.addWidget(btn_prep)
+        prep_row.addWidget(InfoButton("Divide arquivos de complexos em proteina, ligante e aguas. Aceita MOL2/PDB e remove pares LP de aguas para evitar confusao no LUNA."))
         prep_row.addStretch()
         form.addRow("Pré-processamento:", self._wrap(prep_row))
 
         self.protein_edit = QLineEdit()
         self.protein_edit.setToolTip(
-            "Arquivo PDB da proteína ou receptor que será analisado pelo LUNA.\n"
-            "Se 'Incluir águas' estiver marcado e a pasta tiver um PDB por complexo,\n"
-            "cada ligante usará automaticamente o PDB de mesmo nome-base."
+            "Arquivo PDB da proteína para todos os ligantes, ou pasta com um PDB por ligante/complexo.\n"
+            "Quando uma pasta é usada, cada ligante será pareado com o PDB de mesmo nome-base."
         )
         self.protein_edit.textChanged.connect(lambda _text: self._update_water_count())
-        self.btn_protein = QPushButton("Procurar...")
-        self.btn_protein.setMinimumWidth(118)
-        self.btn_protein.setToolTip("Seleciona o arquivo PDB da proteína.")
-        self.btn_protein.clicked.connect(self._pick_protein)
-        prow = QHBoxLayout(); prow.addWidget(self.protein_edit, 1); prow.addWidget(self.btn_protein)
+        self.btn_protein_file = QPushButton("Arquivo...")
+        self.btn_protein_file.setMinimumWidth(106)
+        self.btn_protein_file.setToolTip("Seleciona um arquivo PDB de proteína para todos os ligantes.")
+        self.btn_protein_file.clicked.connect(self._pick_protein_file)
+        self.btn_protein_folder = QPushButton("Pasta...")
+        self.btn_protein_folder.setMinimumWidth(106)
+        self.btn_protein_folder.setToolTip("Seleciona uma pasta com um arquivo .pdb para cada ligante/complexo.")
+        self.btn_protein_folder.clicked.connect(self._pick_protein_folder)
+        prow = QHBoxLayout()
+        prow.addWidget(self.protein_edit, 1)
+        prow.addWidget(self.btn_protein_file)
+        prow.addWidget(self.btn_protein_folder)
+        prow.addWidget(InfoButton("Arquivo PDB unico: uma proteina para todos os ligantes. Pasta: usa a proteina correspondente a cada ligante/frame pelo nome-base."))
         form.addRow("Proteína (PDB):", self._wrap(prow))
 
         self.ligand_edit = QLineEdit()
         self.ligand_edit.setToolTip(
-            "Arquivo com os ligantes. Pode ser um MOL2/SDF único ou um arquivo consolidado com vários ligantes."
+            "Arquivo ou pasta com ligantes. Pode ser MOL2/SDF/PDB único, pasta de PDBs ou arquivo consolidado com vários ligantes."
         )
         btn_l = QPushButton("Arquivo...")
         btn_l.setMinimumWidth(106)
@@ -125,6 +136,7 @@ class ProjectTab(QWidget):
         )
         btn_lf.clicked.connect(self._pick_ligand_folder)
         lrow = QHBoxLayout(); lrow.addWidget(self.ligand_edit, 1); lrow.addWidget(btn_l); lrow.addWidget(btn_lf)
+        lrow.addWidget(InfoButton("Entrada de ligantes ou frames. Pode ser arquivo MOL2/SDF/PDB ou pasta para consolidar/selecionar multiplas moleculas."))
         form.addRow("Ligantes (MOL2/SDF):", self._wrap(lrow))
 
         self.cb_waters = QCheckBox("Incluir águas (HOH) — análise hidratada")
@@ -141,7 +153,11 @@ class ProjectTab(QWidget):
             "Requer opcoes avancadas - usa o runner Python API."
         )
         self.cb_waters.toggled.connect(self._on_waters_toggled)
-        form.addRow(self.cb_waters)
+        water_row = QHBoxLayout()
+        water_row.addWidget(self.cb_waters)
+        water_row.addWidget(InfoButton("Mantem aguas do complexo no PDB da proteina e executa LUNA permitindo interacoes mediadas por agua."))
+        water_row.addStretch()
+        form.addRow(self._wrap(water_row))
 
         self.water_count_label = QLabel("Águas detectadas nos inputs: 0")
         self.water_count_label.setProperty("muted", True)
@@ -155,14 +171,19 @@ class ProjectTab(QWidget):
         self._on_fork_toggled(False)
         self._on_waters_toggled(bool(getattr(self.cfg, "include_waters", False)))
 
-        self.cb_trajectory = QCheckBox("Análise de trajetória de dinâmica molecular (entradas = frames)")
+        self.cb_trajectory = QCheckBox("Análise de trajetória de dinâmica molecular/poses de docking (entradas = frames/poses)")
         self.cb_trajectory.setToolTip(
-            "Marque quando cada entrada do projeto representar um frame de dinâmica molecular. "
-            "A aba Resultados > Estatísticas mostrará gráficos por frame e percentuais de frames por resíduo/interação."
+            "Marque quando cada entrada do projeto representar um frame de dinâmica molecular "
+            "ou uma pose de docking. A aba Resultados > Estatísticas mostrará gráficos por "
+            "frame/pose e percentuais de entradas por resíduo/interação."
         )
         self.cb_trajectory.setChecked(bool(getattr(self.cfg, "trajectory_analysis", False)))
         self.cb_trajectory.toggled.connect(lambda v: setattr(self.cfg, "trajectory_analysis", bool(v)))
-        layout.addWidget(self.cb_trajectory)
+        trajectory_row = QHBoxLayout()
+        trajectory_row.addWidget(self.cb_trajectory)
+        trajectory_row.addWidget(InfoButton("Ative quando cada entrada representa um frame/pose. Os graficos passam a usar percentuais de frames/entradas."))
+        trajectory_row.addStretch()
+        layout.addWidget(self._wrap(trajectory_row))
 
         # --- Ligand selection ---
         lig_box = QGroupBox("Ligantes detectados")
@@ -187,9 +208,13 @@ class ProjectTab(QWidget):
         btn_none = QPushButton("Nenhum")
         btn_none.setToolTip("Desmarca todos os ligantes visíveis na lista atual.")
         btn_none.clicked.connect(lambda: self._set_all(False))
+        btn_clear = QPushButton("Limpar detecção")
+        btn_clear.setToolTip("Remove todos os ligantes detectados da lista atual sem apagar os arquivos de entrada.")
+        btn_clear.clicked.connect(self._clear_detected_ligands)
         filter_row.addWidget(self.filter_edit, 1)
         filter_row.addWidget(btn_all)
         filter_row.addWidget(btn_none)
+        filter_row.addWidget(btn_clear)
         lig_layout.addLayout(filter_row)
 
         self.lig_list = QListWidget()
@@ -213,24 +238,23 @@ class ProjectTab(QWidget):
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return w
 
-    def _pick_protein(self) -> None:
-        if self.cb_waters.isChecked():
-            d = QFileDialog.getExistingDirectory(
-                self,
-                "Selecionar pasta com proteínas PDB",
-                self.protein_edit.text().strip(),
-            )
-            if d:
-                self.protein_edit.setText(d)
-                self.cfg.protein_file = d
-                self._update_water_count()
-            return
-
+    def _pick_protein_file(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, "Selecionar proteína", "",
                                            "PDB (*.pdb *.ent);;Todos (*)")
         if f:
             self.protein_edit.setText(f)
             self.cfg.protein_file = f
+            self._update_water_count()
+
+    def _pick_protein_folder(self) -> None:
+        d = QFileDialog.getExistingDirectory(
+            self,
+            "Selecionar pasta com proteínas PDB",
+            self.protein_edit.text().strip(),
+        )
+        if d:
+            self.protein_edit.setText(d)
+            self.cfg.protein_file = d
             self._update_water_count()
 
     def _pick_fork(self) -> None:
@@ -247,7 +271,7 @@ class ProjectTab(QWidget):
 
     def _pick_ligand(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, "Selecionar ligantes", "",
-                                           "Ligantes (*.mol2 *.sdf *.mol);;Todos (*)")
+                                           "Ligantes (*.mol2 *.sdf *.sd *.mol *.pdb *.ent);;Todos (*)")
         if not f:
             return
         self.ligand_edit.setText(f)
@@ -286,32 +310,33 @@ class ProjectTab(QWidget):
         dlg = DockingPrepDialog(self)
         dlg.exec()
         if dlg.cb_open_after.isChecked() and dlg.result_ligand_dir:
-            # Consolidate the freshly generated ligands folder and load it
-            out = Path(dlg.result_ligand_dir) / "_consolidated_ligands.mol2"
-            try:
-                # The docking pre-processor already writes clean single-ligand MOL2
-                # files, so preserve their existing MOLECULE blocks verbatim here.
-                n = consolidate_folder(
-                    dlg.result_ligand_dir,
-                    out,
-                    use_file_stem_as_name=False,
-                )
-            except Exception as e:
-                QMessageBox.critical(self, "Erro ao consolidar", str(e))
-                return
-            if n > 0:
-                self.ligand_edit.setText(str(out))
-                self.cfg.ligand_file = str(out)
-                self._load_ligands(str(out))
-            # Point the user at the protein folder — they pick one
+            ligand_dir = Path(dlg.result_ligand_dir)
+            pdb_ligands = any(
+                item.is_file() and item.suffix.lower() in {".pdb", ".ent"}
+                for item in ligand_dir.iterdir()
+            )
+            if pdb_ligands:
+                self.ligand_edit.setText(str(ligand_dir))
+                self.cfg.ligand_file = str(ligand_dir)
+                self._load_ligands(str(ligand_dir))
+                n = self.lig_list.count()
+            else:
+                try:
+                    n, _names, out = consolidate_ligand_folder(
+                        ligand_dir,
+                        use_file_stem_as_name=False,
+                    )
+                except Exception as e:
+                    QMessageBox.critical(self, "Erro ao consolidar", str(e))
+                    return
+                if n > 0:
+                    self.ligand_edit.setText(str(out))
+                    self.cfg.ligand_file = str(out)
+                    self._load_ligands(str(out))
+            # Point the project at the protein folder generated for each complex.
             if dlg.result_protein_dir:
-                protein_files = sorted(Path(dlg.result_protein_dir).glob("*.pdb"))
-                if self.cb_waters.isChecked():
-                    self.protein_edit.setText(str(dlg.result_protein_dir))
-                    self.cfg.protein_file = str(dlg.result_protein_dir)
-                elif protein_files:
-                    self.protein_edit.setText(str(protein_files[0]))
-                    self.cfg.protein_file = str(protein_files[0])
+                self.protein_edit.setText(str(dlg.result_protein_dir))
+                self.cfg.protein_file = str(dlg.result_protein_dir)
                 self._update_water_count()
                 water_msg = ""
                 if getattr(dlg, "water_molecules_detected", 0):
@@ -319,8 +344,7 @@ class ProjectTab(QWidget):
                 QMessageBox.information(
                     self, "Próximo passo",
                     "Os ligantes extraídos foram carregados automaticamente.\n"
-                    "No modo hidratado, o campo de proteína usa a pasta de PDBs gerados;\n"
-                    "fora dele, usa o primeiro PDB da pasta:\n"
+                    "O campo de proteína usa a pasta de PDBs gerados para parear cada ligante/complexo:\n"
                     + dlg.result_protein_dir
                     + water_msg,
                 )
@@ -355,6 +379,12 @@ class ProjectTab(QWidget):
                 it.setCheckState(state)
         self._update_count()
 
+    def _clear_detected_ligands(self) -> None:
+        self.lig_list.clear()
+        self.filter_edit.clear()
+        self.cfg.selected_ligands = []
+        self._update_count()
+
     def _apply_filter(self, text: str) -> None:
         text = text.lower().strip()
         for i in range(self.lig_list.count()):
@@ -375,22 +405,10 @@ class ProjectTab(QWidget):
         self._update_water_count()
 
     def _update_protein_picker_mode(self) -> None:
-        hydrated = self.cb_waters.isChecked()
-        if hydrated:
-            self.btn_protein.setText("Pasta...")
-            self.btn_protein.setToolTip(
-                "Seleciona a pasta com um arquivo .pdb para cada ligante/complexo."
-            )
-            self.protein_edit.setToolTip(
-                "Pasta com proteínas PDB. No modo hidratado, cada ligante será pareado "
-                "com o PDB de mesmo nome-base."
-            )
-        else:
-            self.btn_protein.setText("Procurar...")
-            self.btn_protein.setToolTip("Seleciona o arquivo PDB da proteína.")
-            self.protein_edit.setToolTip(
-                "Arquivo PDB da proteína ou receptor que será analisado pelo LUNA."
-            )
+        self.protein_edit.setToolTip(
+            "Arquivo PDB da proteína para todos os ligantes, ou pasta com um PDB por ligante/complexo.\n"
+            "Quando uma pasta é usada, cada ligante será pareado com o PDB de mesmo nome-base."
+        )
 
     def _update_water_count(self) -> None:
         if not hasattr(self, "water_count_label"):

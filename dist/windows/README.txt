@@ -1,4 +1,4 @@
-LUNA GUI — Distribuição Windows
+HIP²LInterActomics — Distribuição Windows
 ================================
 
 Conteúdo:

@@ -1,4 +1,4 @@
-"""Shared Qt theme for HIP2LInterActomics_GUI."""
+"""Shared Qt theme for HIP²LInterActomics."""
 from __future__ import annotations
 
 from PyQt6.QtGui import QColor, QFont, QPalette

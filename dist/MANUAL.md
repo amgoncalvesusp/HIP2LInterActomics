@@ -1,4 +1,4 @@
-# Manual de Instalação e Uso — HIP2LInterActomics_GUI
+# Manual de Instalação e Uso — HIP²LInterActomics
 
 > Versão da interface: 1.0  
 > Sistema operacional: Windows 10/11 ou Linux (Ubuntu 20.04+, Fedora 36+)  
