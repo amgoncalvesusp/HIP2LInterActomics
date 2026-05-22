@@ -40,6 +40,7 @@ from ..core.analysis_runtime import (
     run_residue_matrix,
 )
 from ..core.pymol_launcher import launch_pse_session
+from ..core.project import PROJECT_FILENAME, ProjectConfig
 from ..core.report_export import save_pdf_report
 from ..i18n import translate_figure
 from ..core.results_analysis import (
@@ -103,6 +104,7 @@ class ResultsTab(EnhancedResultsTab):
         self._fp_interaction_legend_artist_labels: dict[object, str] = {}
         self._fp_manual_feature_ids: dict[str, list[int]] = {}
         self._fullscreen_dialog: QDialog | None = None
+        self._workdir_project_cache: dict[str, tuple[float, ProjectConfig | None]] = {}
         self._install_fullscreen_button()
         self._install_stats_scope_control()
         self._install_stats_scroll_area()
@@ -620,11 +622,86 @@ class ResultsTab(EnhancedResultsTab):
         unique = sorted({str(group) for group in groups if str(group).strip()}, key=lambda value: value.casefold())
         return {group: palette[idx % len(palette)] for idx, group in enumerate(unique)}
 
-    def _entry_label_context(self, entries: list[str]) -> dict:
+    def _workdir_path_no_warning(self) -> Path | None:
+        wd = str(self.wd_edit.text().strip() or getattr(self.cfg, "workdir", "") or "").strip()
+        if not wd:
+            return None
+        path = Path(wd)
+        return path if path.exists() else None
+
+    @staticmethod
+    def _same_existing_path(left: Path | str | None, right: Path | str | None) -> bool:
+        if not left or not right:
+            return False
+        try:
+            return Path(left).resolve() == Path(right).resolve()
+        except Exception:
+            return str(left) == str(right)
+
+    def _workdir_project_cfg(self) -> ProjectConfig | None:
+        wd = self._workdir_path_no_warning()
+        if wd is None:
+            return None
+        cfg_path = wd / PROJECT_FILENAME
+        if not cfg_path.exists():
+            return None
+        cache_key = str(cfg_path)
+        try:
+            mtime = cfg_path.stat().st_mtime
+        except OSError:
+            return None
+        cached = self._workdir_project_cache.get(cache_key)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        try:
+            loaded = ProjectConfig.load(cfg_path)
+        except Exception:
+            loaded = None
+        self._workdir_project_cache[cache_key] = (mtime, loaded)
+        return loaded
+
+    def _workdir_cfg_is_active(self) -> bool:
+        wd = self._workdir_path_no_warning()
+        saved_cfg = self._workdir_project_cfg()
+        if wd is None or saved_cfg is None:
+            return False
+        current_wd = str(getattr(self.cfg, "workdir", "") or "").strip()
+        return not current_wd or not self._same_existing_path(wd, current_wd)
+
+    def _results_label_settings(self) -> tuple[str, str, str, str]:
+        saved_cfg = self._workdir_project_cfg()
+        if saved_cfg is not None and self._workdir_cfg_is_active():
+            saved_labels_csv = str(getattr(saved_cfg, "fp_labels_csv", "") or "").strip()
+            if saved_labels_csv:
+                return (
+                    saved_labels_csv,
+                    str(getattr(saved_cfg, "fp_labels_id_column", "") or "").strip(),
+                    str(getattr(saved_cfg, "fp_labels_column", "") or "").strip(),
+                    str(getattr(saved_cfg, "fp_label_task", "regression") or "regression").strip().lower(),
+                )
+
         labels_csv = str(getattr(self.cfg, "fp_labels_csv", "") or "").strip()
-        labels_column = str(getattr(self.cfg, "fp_labels_column", "") or "").strip()
         labels_id_column = str(getattr(self.cfg, "fp_labels_id_column", "") or "").strip()
+        labels_column = str(getattr(self.cfg, "fp_labels_column", "") or "").strip()
         task = str(getattr(self.cfg, "fp_label_task", "regression") or "regression").strip().lower()
+        if labels_csv or saved_cfg is None:
+            return labels_csv, labels_id_column, labels_column, task
+
+        return (
+            str(getattr(saved_cfg, "fp_labels_csv", "") or "").strip(),
+            str(getattr(saved_cfg, "fp_labels_id_column", "") or "").strip(),
+            str(getattr(saved_cfg, "fp_labels_column", "") or "").strip(),
+            str(getattr(saved_cfg, "fp_label_task", "regression") or "regression").strip().lower(),
+        )
+
+    def _results_trajectory_mode(self) -> bool:
+        saved_cfg = self._workdir_project_cfg()
+        if saved_cfg is not None and self._workdir_cfg_is_active():
+            return bool(getattr(saved_cfg, "trajectory_analysis", False))
+        return bool(getattr(self.cfg, "trajectory_analysis", False))
+
+    def _entry_label_context(self, entries: list[str]) -> dict:
+        labels_csv, labels_id_column, labels_column, task = self._results_label_settings()
         wd = self._current_wd()
         empty = {"task": "", "values": {}, "numeric": {}, "groups": {}, "colors": {}}
         if not wd or not labels_csv:
@@ -1538,7 +1615,7 @@ class ResultsTab(EnhancedResultsTab):
             )
 
     def _is_trajectory_mode(self) -> bool:
-        return bool(getattr(self.cfg, "trajectory_analysis", False))
+        return self._results_trajectory_mode()
 
     @staticmethod
     def _residue_matrix_has_ligand_atoms(artifact: dict | None) -> bool:
@@ -2255,10 +2332,7 @@ class ResultsTab(EnhancedResultsTab):
     def _ensure_fp_dashboard(self, ifp_type: str | None) -> dict | None:
         if not ifp_type:
             return None
-        labels_csv = str(getattr(self.cfg, "fp_labels_csv", "") or "").strip()
-        labels_id_column = str(getattr(self.cfg, "fp_labels_id_column", "") or "").strip()
-        labels_column = str(getattr(self.cfg, "fp_labels_column", "") or "").strip()
-        task_kind_preference = str(getattr(self.cfg, "fp_label_task", "regression") or "regression")
+        labels_csv, labels_id_column, labels_column, task_kind_preference = self._results_label_settings()
         algorithm_preference = self._selected_fp_algorithm()
         use_otsu_threshold = bool(getattr(self.cfg, "fp_use_otsu_threshold", False))
         artifact = self._fp_artifacts.get(ifp_type)
