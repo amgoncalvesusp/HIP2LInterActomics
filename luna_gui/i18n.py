@@ -712,10 +712,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "Fingerprints y análisis FP: cada feature resume una vecindad de interacción. La clase asignada describe la naturaleza dominante de la feature; la importancia del modelo estima cuánto ayuda a separar clases/rótulos o valores de actividad.",
     },
     (
-        "Importância e p-value: o z-score de importância compara uma feature contra a distribuição de importâncias do conjunto. O p-value é um filtro exploratório; features abaixo do corte merecem inspeção visual, especialmente quando aparecem em vários ligantes."
+        "Importância e p-value: o z-score de importância compara uma feature contra a distribuição de importâncias do conjunto. O p-value é calculado pela equação de Keiser and Hert [1], p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665))."
     ): {
-        "en": "Importance and p-value: the importance z-score compares a feature against the importance distribution of the set. The p-value is an exploratory filter; features below the cutoff deserve visual inspection, especially when they appear in several ligands.",
-        "es": "Importancia y p-value: el z-score de importancia compara una feature contra la distribución de importancias del conjunto. El p-value es un filtro exploratorio; features por debajo del corte merecen inspección visual, especialmente cuando aparecen en varios ligandos.",
+        "en": "Importance and p-value: the importance z-score compares a feature against the importance distribution of the set. The p-value is calculated with the Keiser and Hert equation [1], p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)).",
+        "es": "Importancia y p-value: el z-score de importancia compara una feature contra la distribución de importancias del conjunto. El p-value se calcula con la ecuación de Keiser and Hert [1], p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)).",
     },
     (
         "Otsu's Thresholding: quando nenhuma feature passa pelo critério z-score > 1, Otsu define um limiar alternativo baseado na separação da distribuição de percentuais. Isso evita aceitar apenas casos 100% prevalentes quando a base tem padrões intermediários."

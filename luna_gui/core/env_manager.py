@@ -106,8 +106,9 @@ def _conda_candidates_from_path(path: Path) -> list[Path]:
         return candidates
 
     roots: list[Path] = []
-    if path.suffix.lower() in (".exe", ".bat", ".cmd"):
-        parent_name = path.parent.name.lower()
+    path_name = path.name.lower()
+    parent_name = path.parent.name.lower()
+    if path.suffix.lower() in (".exe", ".bat", ".cmd") or path_name in ("conda", "mamba", "python"):
         if parent_name in ("scripts", "condabin", "bin"):
             roots.append(path.parent.parent)
         roots.append(path.parent)
@@ -129,6 +130,14 @@ def _conda_candidates_from_path(path: Path) -> list[Path]:
         envs_dir = path.parent.parent
         if envs_dir.name.lower() == "envs":
             roots.append(envs_dir.parent)
+    elif (
+        path.name.lower() == "python"
+        and path.parent.name.lower() == "bin"
+        and path.parent.parent.name.lower() == GUI_ENV_NAME
+    ):
+        envs_dir = path.parent.parent.parent
+        if envs_dir.name.lower() == "envs":
+            roots.append(envs_dir.parent)
     elif path.name.lower() == GUI_ENV_NAME and path.parent.name.lower() == "envs":
         roots.append(path.parent.parent)
 
@@ -148,6 +157,8 @@ def _conda_executables_for_root(root: Path) -> list[Path]:
     return [
         root / "bin" / "conda",
         root / "bin" / "mamba",
+        root / "condabin" / "conda",
+        root / "condabin" / "mamba",
     ]
 
 
@@ -185,7 +196,23 @@ def _common_conda_roots() -> list[Path]:
             Path("/opt/miniforge3"),
             Path("/opt/mambaforge"),
         ])
+        roots.extend(_nested_home_conda_roots(home))
     return _dedupe_paths(roots)
+
+
+def _nested_home_conda_roots(home: Path) -> list[Path]:
+    """Return one-level nested Conda roots, e.g. ~/softwares/anaconda3."""
+    root_names = ("miniconda3", "anaconda3", "miniforge3", "mambaforge")
+    roots: list[Path] = []
+    try:
+        children = list(home.iterdir())
+    except OSError:
+        return roots
+    for child in children:
+        if not child.is_dir():
+            continue
+        roots.extend(child / name for name in root_names)
+    return roots
 
 
 def _dedupe_paths(paths: list[Path]) -> list[Path]:

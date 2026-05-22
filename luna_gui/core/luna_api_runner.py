@@ -8,6 +8,7 @@ Python script to the workdir and returns the argv needed to run it.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .project import ProjectConfig, resolve_ifp_output_paths, resolve_sim_matrix_output_paths
@@ -98,10 +99,216 @@ def _load_existing_entries(workdir):
 
 IFP_SUFFIX = {"EIFP": "E", "HIFP": "H", "FIFP": "F"}
 IFP_LABELS = {"EIFP": "Extended", "HIFP": "Hybrid", "FIFP": "Functional"}
+LIGAND_STRUCTURE_SUFFIXES = {".mol2", ".sdf", ".sd", ".mol", ".pdb", ".ent"}
+
+
+def _ifp_seed(params):
+    try:
+        return int(params.get("ifp_seed", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _write_ifp_seed(params, type_name):
+    workdir = Path(params["workdir"])
+    suffix = IFP_SUFFIX.get(type_name, type_name)
+    seed = _ifp_seed(params)
+    seed_dir = workdir / "results" / "fingerprints"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    seed_path = seed_dir / f"seed_ifp_{suffix}_importance.txt"
+    seed_path.write_text(f"{seed}\n", encoding="utf-8")
+    source = str(params.get("ifp_seed_file") or "").strip()
+    if source:
+        try:
+            source_path = Path(source)
+            if source_path.exists():
+                source_path.write_text(f"{seed}\n", encoding="utf-8")
+        except Exception as ex:
+            print(f"[luna-api] aviso: nao foi possivel reescrever seed informado: {ex}", flush=True)
+    return str(seed_path), seed
 
 
 def _safe_name(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "entry"
+
+
+def _shell_level_key(shell):
+    value = getattr(shell, "level", None)
+    try:
+        return str(int(value))
+    except Exception:
+        return str(value if value is not None else "unknown")
+
+
+def _sorted_level_keys(values):
+    keys = {str(value) for value in (values or []) if str(value).strip()}
+    return sorted(
+        keys,
+        key=lambda value: (
+            not str(value).lstrip("-").isdigit(),
+            int(value) if str(value).lstrip("-").isdigit() else str(value),
+        ),
+    )
+
+
+def _feature_key(feature_id, level):
+    text = str(level or "").strip()
+    return f"{int(feature_id)}_{text}" if text else ""
+
+
+def _legacy_level_breakdown_from_nature(nature_breakdown):
+    level_map = {
+        "Ligand's level 0 features only": "0",
+        "Protein's level 0 features only": "0",
+        "Intraligand interactions only": "0",
+        "Intraprotein interactions only": "0",
+        "Has noncovalent interactions with the protein": "0",
+        "Upper level with ligand atomic information only": "1",
+        "Upper level with protein atomic information only": "1",
+    }
+    inferred = {}
+    unknown_count = 0
+    for raw_name, raw_count in (nature_breakdown or {}).items():
+        try:
+            count = int(raw_count)
+        except Exception:
+            continue
+        if count <= 0:
+            continue
+        name = str(raw_name or "").strip()
+        level = level_map.get(name)
+        if level is None:
+            match = re.search(r"\blevel\s*(-?\d+)\b", name, flags=re.IGNORECASE)
+            if match:
+                level = match.group(1)
+        if level is None:
+            unknown_count += count
+            continue
+        inferred[level] = inferred.get(level, 0) + count
+    if unknown_count > 0:
+        return {}
+    return inferred
+
+
+def _level_threshold(values, use_otsu=False):
+    positives = [float(value) for value in values if float(value) > 0.0]
+    if not positives:
+        return 100.0, "no_positive_values", [0.0 for _value in values]
+    mean_value = sum(positives) / len(positives)
+    variance = sum((value - mean_value) ** 2 for value in positives) / len(positives)
+    std_value = variance ** 0.5
+    zscores = [
+        ((float(value) - mean_value) / std_value if float(value) > 0.0 and std_value > 1e-12 else 0.0)
+        for value in values
+    ]
+    candidates = [float(value) for value, zscore in zip(values, zscores) if zscore > 1.0]
+    if candidates:
+        return min(candidates), "zscore_gt_1", zscores
+    if not use_otsu:
+        return 100.0, "no_reference", zscores
+    unique = sorted(set(positives))
+    if len(unique) == 1:
+        return unique[0], "otsu_single_value", zscores
+    best_threshold = (unique[0] + unique[1]) / 2.0
+    best_score = -1.0
+    for idx in range(len(unique) - 1):
+        threshold = (unique[idx] + unique[idx + 1]) / 2.0
+        low = [value for value in positives if value <= threshold]
+        high = [value for value in positives if value > threshold]
+        if not low or not high:
+            continue
+        score = (len(low) / len(positives)) * (len(high) / len(positives)) * ((sum(low) / len(low)) - (sum(high) / len(high))) ** 2
+        if score > best_score:
+            best_score = score
+            best_threshold = threshold
+    return best_threshold, "otsu", zscores
+
+
+def _assign_feature_levels(features, use_otsu=False):
+    collision_candidates = []
+    for feature in features:
+        breakdown = feature.get("shell_level_breakdown") or {}
+        breakdown = {str(key): int(value) for key, value in breakdown.items() if int(value) > 0}
+        feature["assigned_level"] = ""
+        feature["assigned_level_pct"] = 0.0
+        feature["assigned_level_source"] = "undetermined"
+        feature["feature_key"] = ""
+        if not breakdown:
+            breakdown = _legacy_level_breakdown_from_nature(feature.get("nature_breakdown") or {})
+        if not breakdown:
+            continue
+        level, count = max(sorted(breakdown.items()), key=lambda item: (int(item[1]), str(item[0])))
+        total = sum(breakdown.values())
+        pct = (100.0 * count / total) if total else 0.0
+        feature["top_level"] = str(level)
+        feature["top_level_pct"] = float(pct)
+        if len(breakdown) == 1:
+            feature["assigned_level"] = str(level)
+            feature["assigned_level_pct"] = 100.0
+            feature["assigned_level_source"] = "single_level"
+            feature["feature_key"] = _feature_key(feature["feature_id"], level)
+        else:
+            collision_candidates.append(feature)
+    threshold, source, zscores = _level_threshold([feature.get("top_level_pct", 0.0) for feature in collision_candidates], use_otsu)
+    for feature, zscore in zip(collision_candidates, zscores):
+        feature["assigned_level_zscore"] = float(zscore)
+        if source in {"zscore_gt_1", "otsu", "otsu_single_value"} and float(feature.get("top_level_pct", 0.0)) >= threshold:
+            level = str(feature.get("top_level", ""))
+            feature["assigned_level"] = level
+            feature["assigned_level_pct"] = float(feature.get("top_level_pct", 0.0))
+            feature["assigned_level_source"] = source
+            feature["feature_key"] = _feature_key(feature["feature_id"], level)
+    return {"threshold_pct": threshold, "threshold_source": source}
+
+
+def _rewrite_ifp_csv_with_feature_keys(path, features):
+    if not path:
+        return {"rewritten": False}
+    path = Path(path)
+    if not path.exists():
+        return {"rewritten": False}
+    mapping = {
+        str(int(feature.get("feature_id", 0))): str(feature.get("feature_key", ""))
+        for feature in features
+        if str(feature.get("feature_key", "")).strip()
+    }
+    if not mapping:
+        return {"rewritten": False}
+    rows = []
+    changed = False
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as fh:
+        reader = csv.DictReader(fh)
+        fieldnames = list(reader.fieldnames or [])
+        if "count" not in fieldnames:
+            fieldnames.append("count")
+        for record in reader:
+            bits = [token.strip() for token in str(record.get("on_bits") or "").split("\t") if token.strip()]
+            raw_counts = [token.strip() for token in str(record.get("count") or "").split("\t") if token.strip()]
+            counts = [float(token) for token in raw_counts] if len(raw_counts) == len(bits) else [1.0] * len(bits)
+            row_counts = {}
+            for bit, count in zip(bits, counts):
+                new_bit = bit if "_" in bit else mapping.get(str(int(bit)) if str(bit).lstrip("-").isdigit() else bit, "")
+                if not new_bit:
+                    changed = True
+                    continue
+                if new_bit != bit:
+                    changed = True
+                row_counts[new_bit] = row_counts.get(new_bit, 0.0) + float(count)
+            ordered = sorted(row_counts, key=lambda value: (int(str(value).split("_", 1)[0]), str(value)))
+            updated = dict(record)
+            updated["on_bits"] = "\t".join(ordered)
+            updated["count"] = "\t".join(str(int(row_counts[bit])) if float(row_counts[bit]).is_integer() else f"{row_counts[bit]:.10g}" for bit in ordered)
+            rows.append(updated)
+    if not changed:
+        return {"rewritten": False}
+    backup = path.with_suffix(path.suffix + ".pre_level_assignment.bak")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return {"rewritten": True, "backup": str(backup)}
 
 
 def _group_has_water_residue(atm_grp):
@@ -120,6 +327,27 @@ def _group_has_water_residue(atm_grp):
     return False
 
 
+def _residue_name_from_atom(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    resname = getattr(residue, "resname", None)
+    if resname is None:
+        try:
+            resname = residue.get_resname()
+        except Exception:
+            resname = ""
+    return str(resname or "").strip().upper()
+
+
+def _group_has_ligand_residue(atm_grp):
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        resname = _residue_name_from_atom(atom)
+        if resname and resname not in AA_RESIDUES and resname not in WATER_RESIDUES:
+            return True
+    return False
+
+
 def _group_role(atm_grp):
     if atm_grp is None:
         return "unknown"
@@ -134,6 +362,11 @@ def _group_role(atm_grp):
     except Exception:
         pass
     try:
+        if atm_grp.has_hetatm() and _group_has_ligand_residue(atm_grp):
+            return "ligand"
+    except Exception:
+        pass
+    try:
         if atm_grp.has_residue() or atm_grp.has_nucleotide():
             return "protein"
     except Exception:
@@ -143,6 +376,8 @@ def _group_role(atm_grp):
             return "ligand"
     except Exception:
         pass
+    if _group_has_ligand_residue(atm_grp):
+        return "ligand"
     return "other"
 
 
@@ -312,7 +547,8 @@ def _load_ifp_sparse_rows(path):
             counts = [float(token) for token in raw_counts] if raw_counts else [1.0] * len(raw_bits)
             row_map = {}
             for bit, count in zip(raw_bits, counts):
-                row_map[int(bit)] = row_map.get(int(bit), 0.0) + float(count)
+                key = int(bit) if str(bit).lstrip("-").isdigit() else str(bit)
+                row_map[key] = row_map.get(key, 0.0) + float(count)
             labels.append(label)
             rows.append(row_map)
     return labels, rows
@@ -437,6 +673,108 @@ def _save_feature_shell_payload(path, entry, feature_shells, pdb_dir):
         pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
 
+def _fp_detail_interaction_name(interaction):
+    value = getattr(interaction, "type", None)
+    if value is None:
+        return type(interaction).__name__
+    return str(value).strip() or type(interaction).__name__
+
+
+def _fp_detail_residue_label_from_group(atm_grp):
+    labels = {}
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        residue = getattr(atom, "parent", None)
+        if residue is None:
+            continue
+        chain = "?"
+        full_id = getattr(residue, "full_id", None)
+        if isinstance(full_id, (list, tuple)) and len(full_id) >= 3:
+            chain = str(full_id[2] or "?").strip() or "?"
+        else:
+            parent = getattr(residue, "parent", None)
+            chain = str(getattr(parent, "id", "?") or "?").strip() or "?"
+        resname = str(getattr(residue, "resname", None) or getattr(residue, "get_resname", lambda: "")()).strip() or "UNK"
+        resid = getattr(residue, "id", None)
+        seq = ""
+        if isinstance(resid, (list, tuple)) and len(resid) >= 3:
+            seq = f"{resid[1]}{str(resid[2] or '').strip()}".strip()
+        elif resid is not None:
+            seq = str(resid).strip()
+        if not seq:
+            continue
+        label = f"{chain}/{resname}/{seq}"
+        labels[label] = labels.get(label, 0) + 1
+    if not labels:
+        return ""
+    return max(sorted(labels), key=lambda key: labels[key])
+
+
+def _fp_detail_interaction_residue_group(src_grp, trgt_grp, src_role, trgt_role):
+    pair = {src_role, trgt_role}
+    if pair == {"ligand", "protein"}:
+        return src_grp if src_role == "protein" else trgt_grp
+    if pair == {"protein", "water"}:
+        return src_grp if src_role == "protein" else trgt_grp
+    if pair == {"ligand", "water"}:
+        return src_grp if src_role == "water" else trgt_grp
+    return None
+
+
+def _increment_fp_detail_counter(container, key, amount=1):
+    text = str(key or "").strip()
+    if not text:
+        return
+    container[text] = container.get(text, 0) + int(amount)
+
+
+def _add_fp_detail_shell(feature_details, feature_id, entry_name, shell):
+    feature_key = str(int(feature_id))
+    detail = feature_details.setdefault(
+        feature_key,
+        {
+            "interaction_counts": {},
+            "residue_counts": {},
+            "pair_counts": {},
+            "shell_level_counts": {},
+            "entries": {},
+        },
+    )
+    entry_info = detail["entries"].setdefault(
+        entry_name,
+        {
+            "shell_count": 0,
+            "interaction_counts": {},
+            "residue_counts": {},
+            "pair_counts": {},
+            "shell_level_counts": {},
+        },
+    )
+    entry_info["shell_count"] += 1
+    level_key = _shell_level_key(shell)
+    _increment_fp_detail_counter(detail["shell_level_counts"], level_key)
+    _increment_fp_detail_counter(entry_info["shell_level_counts"], level_key)
+
+    for interaction in list(getattr(shell, "interactions", []) or []):
+        src_grp = getattr(interaction, "src_grp", None)
+        trgt_grp = getattr(interaction, "trgt_grp", None)
+        src_role = _group_role(src_grp)
+        trgt_role = _group_role(trgt_grp)
+        residue_group = _fp_detail_interaction_residue_group(src_grp, trgt_grp, src_role, trgt_role)
+        if residue_group is None:
+            continue
+        interaction_name = _fp_detail_interaction_name(interaction)
+        residue_label = _fp_detail_residue_label_from_group(residue_group)
+        pair_key = interaction_name if not residue_label else f"{interaction_name}||{residue_label}"
+
+        _increment_fp_detail_counter(detail["interaction_counts"], interaction_name)
+        _increment_fp_detail_counter(entry_info["interaction_counts"], interaction_name)
+        if residue_label:
+            _increment_fp_detail_counter(detail["residue_counts"], residue_label)
+            _increment_fp_detail_counter(entry_info["residue_counts"], residue_label)
+        _increment_fp_detail_counter(detail["pair_counts"], pair_key)
+        _increment_fp_detail_counter(entry_info["pair_counts"], pair_key)
+
+
 def _export_fp_artifacts(proj, params, type_name):
     workdir = Path(params["workdir"])
     suffix = IFP_SUFFIX.get(type_name, type_name)
@@ -446,6 +784,7 @@ def _export_fp_artifacts(proj, params, type_name):
     total_entries = 0
     feature_summary = {}
     entry_index = {}
+    feature_details = {}
 
     for entry in list(getattr(proj, "entries", []) or []):
         entry_name = getattr(entry, "to_string", lambda: str(entry))()
@@ -485,16 +824,23 @@ def _export_fp_artifacts(proj, params, type_name):
             nature_tags = set()
             stored_shells = []
             shell_nature_sets = []
+            shell_levels = []
+            shell_level_counts = {}
 
             for ori_feature, found_shells in traced:
                 original_features.append(int(ori_feature))
                 for shell in found_shells:
+                    level_key = _shell_level_key(shell)
+                    shell_levels.append(level_key)
+                    shell_level_counts[level_key] = shell_level_counts.get(level_key, 0) + 1
                     shell_natures = _classify_shell_natures(shell)
                     shell_nature_sets.append(shell_natures)
                     nature_tags.update(shell_natures)
+                    _add_fp_detail_shell(feature_details, int(feature_id), entry_name, shell)
                     stored_shells.append(_detach_shell_for_storage(shell))
 
             collision = bool(raw_collision and _has_mixed_class_collision(shell_nature_sets))
+            collision_level_counts = dict(shell_level_counts) if raw_collision else {}
             if collision:
                 nature_tags.add("Features with collision in the same complex")
             if not nature_tags:
@@ -504,12 +850,28 @@ def _export_fp_artifacts(proj, params, type_name):
 
             feature_info = feature_summary.setdefault(
                 int(feature_id),
-                {"molecule_hits": 0, "total_count": 0, "collision_hits": 0, "nature_counts": {}},
+                {
+                    "molecule_hits": 0,
+                    "total_count": 0,
+                    "collision_hits": 0,
+                    "raw_collision_hits": 0,
+                    "nature_counts": {},
+                    "level_counts": {},
+                    "collision_level_counts": {},
+                },
             )
             feature_info["molecule_hits"] += 1
             feature_info["total_count"] += int(count)
+            if raw_collision:
+                feature_info["raw_collision_hits"] += 1
             if collision:
                 feature_info["collision_hits"] += 1
+            for level_key, level_count in shell_level_counts.items():
+                feature_info["level_counts"][level_key] = feature_info["level_counts"].get(level_key, 0) + int(level_count)
+            for level_key, level_count in collision_level_counts.items():
+                feature_info["collision_level_counts"][level_key] = (
+                    feature_info["collision_level_counts"].get(level_key, 0) + int(level_count)
+                )
             for nature in nature_tags:
                 feature_info["nature_counts"][nature] = feature_info["nature_counts"].get(nature, 0) + 1
 
@@ -520,9 +882,15 @@ def _export_fp_artifacts(proj, params, type_name):
                     "feature_id": int(feature_id),
                     "count": int(count),
                     "collision": bool(collision),
+                    "raw_collision": bool(raw_collision),
+                    "mixed_class_collision": bool(collision),
                     "dominant_nature": dominant_nature,
                     "nature_tags": sorted(nature_tags),
                     "original_features": sorted(set(original_features)),
+                    "shell_levels": _sorted_level_keys(shell_levels),
+                    "shell_level_breakdown": shell_level_counts,
+                    "collision_shell_levels": _sorted_level_keys(collision_level_counts.keys()),
+                    "collision_level_breakdown": collision_level_counts,
                 }
             )
         entry_index[entry_name] = entry_rows
@@ -568,14 +936,27 @@ def _export_fp_artifacts(proj, params, type_name):
                 "zscore": round(zscore, 6),
                 "total_count": int(info["total_count"]),
                 "collision_hits": int(info["collision_hits"]),
+                "raw_collision_hits": int(info.get("raw_collision_hits", 0)),
                 "dominant_nature": dominant_nature,
                 "nature_breakdown": info["nature_counts"],
+                "shell_levels": _sorted_level_keys(info.get("level_counts", {}).keys()),
+                "shell_level_breakdown": info.get("level_counts", {}),
+                "collision_shell_levels": _sorted_level_keys(info.get("collision_level_counts", {}).keys()),
+                "collision_level_breakdown": info.get("collision_level_counts", {}),
             }
         )
+
+    level_assignment = _assign_feature_levels(features, bool(params.get("fp_use_otsu_threshold", False)))
+    assigned_matrix = _rewrite_ifp_csv_with_feature_keys(params.get("ifp_outputs", {}).get(type_name), features)
 
     artifact = {
         "ifp_type": type_name,
         "ifp_label": IFP_LABELS.get(type_name, type_name),
+        "random_seed": _ifp_seed(params),
+        "seed_file": str(workdir / "results" / "fingerprints" / f"seed_ifp_{suffix}_importance.txt"),
+        "use_otsu_threshold": bool(params.get("fp_use_otsu_threshold", False)),
+        "level_assignment": level_assignment,
+        "assigned_matrix": assigned_matrix,
         "fingerprint_length": int(proj.ifp_length),
         "count_fingerprint": bool(proj.ifp_count),
         "total_molecules": int(total_entries),
@@ -586,6 +967,15 @@ def _export_fp_artifacts(proj, params, type_name):
     artifact_path = workdir / "results" / "fingerprints" / f"fp_analysis_{suffix}.json"
     _save_json(artifact_path, artifact)
     print(f"[luna-api] an\u00e1lise de fingerprints salva em {artifact_path}", flush=True)
+
+    detail_artifact = {
+        "ifp_type": type_name,
+        "feature_details": feature_details,
+        "source": "luna_api_live_shells",
+    }
+    detail_path = workdir / "results" / "fingerprints" / f"fp_detail_{suffix}.json"
+    _save_json(detail_path, detail_artifact)
+    print(f"[luna-api] detalhes de fingerprints salvos em {detail_path}", flush=True)
 
 
 def _generate_ifps(proj, params):
@@ -606,6 +996,8 @@ def _generate_ifps(proj, params):
 
     total_ifp_types = max(1, len(ifp_types))
     for ifp_index, type_name in enumerate(ifp_types, start=1):
+        seed_path, ifp_seed = _write_ifp_seed(params, type_name)
+        print(f"[luna-api] seed IFP {type_name}: {ifp_seed} salvo em {seed_path}", flush=True)
         proj.ifp_type = getattr(IFPType, type_name)
         proj.ifp_output = outputs.get(type_name)
         # Avoid LUNA's internal multiprocessing similarity calculation on Windows:
@@ -635,6 +1027,16 @@ def _generate_ifps(proj, params):
             if saved_square:
                 print(f"[luna-api] Similaridade quadrada {type_name} salva em {saved_square}", flush=True)
         _export_fp_artifacts(proj, params, type_name)
+        if sim_output_path and proj.ifp_output and Path(proj.ifp_output).exists():
+            saved_edge, saved_square = _write_similarity_outputs_from_ifp(
+                proj.ifp_output,
+                sim_output_path,
+                square_path,
+            )
+            if saved_edge:
+                print(f"[luna-api] Similaridade {type_name} atualizada com niveis assinados em {saved_edge}", flush=True)
+            if saved_square:
+                print(f"[luna-api] Similaridade quadrada {type_name} atualizada com niveis assinados em {saved_square}", flush=True)
 
 
 AA_RESIDUES = {
@@ -643,7 +1045,7 @@ AA_RESIDUES = {
     "PRO", "SER", "THR", "TRP", "TYR", "VAL",
 }
 
-WATER_RESIDUES = {"HOH", "WAT", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+WATER_RESIDUES = {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
 
 
 def _interaction_type_name(interaction):
@@ -677,6 +1079,51 @@ def _labels_from_group(group, include_water=False):
     return labels
 
 
+def _atom_label(atom):
+    value = getattr(atom, "name", None)
+    if not value:
+        try:
+            value = atom.get_name()
+        except Exception:
+            value = ""
+    if not value:
+        value = getattr(atom, "id", None) or getattr(atom, "element", None)
+    text = str(value or "").strip()
+    if text:
+        return text
+    serial = getattr(atom, "serial_number", None)
+    if serial is None:
+        try:
+            serial = atom.get_serial_number()
+        except Exception:
+            serial = ""
+    return str(serial or "atom").strip()
+
+
+def _atom_sort_key(label):
+    text = str(label or "")
+    parts = re.split(r"(\d+)", text)
+    key = []
+    for part in parts:
+        if part.isdigit():
+            key.append((0, int(part)))
+        elif part:
+            key.append((1, part.lower()))
+    return key or [(1, text.lower())]
+
+
+def _interaction_ligand_atom_labels(interaction):
+    labels = set()
+    for group in (getattr(interaction, "src_grp", None), getattr(interaction, "trgt_grp", None)):
+        if _group_role(group) != "ligand":
+            continue
+        for atom in getattr(group, "atoms", []) or []:
+            label = _atom_label(atom)
+            if label:
+                labels.add(label)
+    return labels
+
+
 def _interaction_residue_labels(interaction):
     src_grp = getattr(interaction, "src_grp", None)
     trgt_grp = getattr(interaction, "trgt_grp", None)
@@ -699,7 +1146,161 @@ def _save_json(path, data):
         json.dump(data, fh, indent=2)
 
 
-def _export_summary_artifacts(proj, workdir):
+def _iter_ligand_source_files(ligand_path):
+    path = Path(str(ligand_path or ""))
+    if not path.exists():
+        return []
+    if path.is_file() and path.suffix.lower() in LIGAND_STRUCTURE_SUFFIXES:
+        return [path]
+    if not path.is_dir():
+        return []
+    return [
+        candidate
+        for candidate in sorted(path.iterdir())
+        if candidate.is_file() and candidate.suffix.lower() in LIGAND_STRUCTURE_SUFFIXES
+    ]
+
+
+def _first_mol2_block_atom_names(path):
+    names = []
+    in_atoms = False
+    try:
+        with Path(path).open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("@<TRIPOS>ATOM"):
+                    in_atoms = True
+                    continue
+                if line.startswith("@<TRIPOS>") and in_atoms:
+                    break
+                if not in_atoms:
+                    continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    names.append(parts[1].strip())
+    except Exception:
+        return []
+    return names
+
+
+def _rdkit_mol_from_source(path):
+    suffix = Path(path).suffix.lower()
+    try:
+        from rdkit import Chem
+    except Exception:
+        return None
+    try:
+        if suffix in {".sdf", ".sd"}:
+            supplier = Chem.SDMolSupplier(str(path), removeHs=False)
+            for mol in supplier:
+                if mol is not None:
+                    return mol
+            return None
+        if suffix == ".mol":
+            return Chem.MolFromMolFile(str(path), removeHs=False)
+        if suffix == ".mol2":
+            return Chem.MolFromMol2File(str(path), sanitize=True, removeHs=False)
+        if suffix in {".pdb", ".ent"}:
+            return Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=False)
+    except Exception:
+        return None
+    return None
+
+
+def _rdkit_atom_labels_for_source(path, mol):
+    labels = []
+    if Path(path).suffix.lower() == ".mol2":
+        labels = _first_mol2_block_atom_names(path)
+    if len(labels) < int(mol.GetNumAtoms()):
+        labels = []
+        for atom in mol.GetAtoms():
+            label = ""
+            for prop_name in ("molAtomMapNumber", "_TriposAtomName", "atomLabel", "name"):
+                try:
+                    if atom.HasProp(prop_name):
+                        label = str(atom.GetProp(prop_name)).strip()
+                        if label:
+                            break
+                except Exception:
+                    pass
+            if not label:
+                label = f"{atom.GetSymbol()}{atom.GetIdx() + 1}"
+            labels.append(label)
+    return [str(label or idx + 1) for idx, label in enumerate(labels[: int(mol.GetNumAtoms())])]
+
+
+def _rdkit_heavy_atom_mol_and_labels(path, mol):
+    try:
+        from rdkit import Chem
+    except Exception:
+        return mol, _rdkit_atom_labels_for_source(path, mol)
+    source_mol = Chem.Mol(mol)
+    source_labels = _rdkit_atom_labels_for_source(path, source_mol)
+    for atom in source_mol.GetAtoms():
+        idx = int(atom.GetIdx())
+        label = source_labels[idx] if idx < len(source_labels) else f"{atom.GetSymbol()}{idx + 1}"
+        atom.SetProp("_hip2l_atom_label", str(label))
+    try:
+        heavy_mol = Chem.RemoveHs(source_mol, sanitize=False)
+    except Exception:
+        heavy_mol = source_mol
+    labels = []
+    for atom in heavy_mol.GetAtoms():
+        try:
+            label = atom.GetProp("_hip2l_atom_label")
+        except Exception:
+            label = f"{atom.GetSymbol()}{atom.GetIdx() + 1}"
+        labels.append(str(label))
+    return heavy_mol, labels
+
+
+def _export_ligand_atom_map(params, residue_artifact):
+    if not bool(params.get("trajectory_analysis", False)):
+        return ""
+    workdir = Path(params["workdir"])
+    output_path = workdir / "results" / "ligand_atom_map.png"
+    meta_path = workdir / "results" / "ligand_atom_map.json"
+    for source in _iter_ligand_source_files(params.get("lig_file")):
+        mol = _rdkit_mol_from_source(source)
+        if mol is None:
+            continue
+        try:
+            from rdkit import Chem
+            from rdkit.Chem import AllChem, Draw
+
+            draw_mol, labels = _rdkit_heavy_atom_mol_and_labels(source, mol)
+            try:
+                AllChem.Compute2DCoords(draw_mol)
+            except Exception:
+                pass
+            options = Draw.MolDrawOptions()
+            options.addAtomIndices = False
+            for idx, label in enumerate(labels):
+                options.atomLabels[idx] = str(label)
+            drawer = Draw.MolDraw2DCairo(900, 650)
+            drawer.SetDrawOptions(options)
+            drawer.DrawMolecule(draw_mol)
+            drawer.FinishDrawing()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(drawer.GetDrawingText())
+            meta = {
+                "image": str(output_path),
+                "source_file": str(source),
+                "atom_labels": labels,
+                "heavy_atoms_only": True,
+            }
+            _save_json(meta_path, meta)
+            residue_artifact["ligand_atom_map"] = str(output_path)
+            residue_artifact["ligand_atom_map_source"] = str(source)
+            print(f"[luna-api] mapa 2D do ligante salvo em {output_path}", flush=True)
+            return str(output_path)
+        except Exception as ex:
+            print(f"[luna-api] aviso: mapa 2D do ligante falhou para {source}: {ex}", flush=True)
+            continue
+    print("[luna-api] aviso: nao foi possivel gerar mapa 2D do ligante para estatisticas.", flush=True)
+    return ""
+
+
+def _export_summary_artifacts(proj, workdir, params=None):
     summary = {
         "entries": 0,
         "interaction_counts": {},
@@ -707,8 +1308,10 @@ def _export_summary_artifacts(proj, workdir):
         "errors": [],
     }
     residue_counts = {}
+    ligand_atom_counts = {}
     entries = []
     residues = set()
+    ligand_atoms = set()
     interaction_types = set()
 
     for entry in list(getattr(proj, "entries", []) or []):
@@ -735,6 +1338,13 @@ def _export_summary_artifacts(proj, workdir):
                 by_entry = by_type.setdefault(entry_name, {})
                 by_entry[label] = by_entry.get(label, 0) + 1
 
+            touched_ligand_atoms = _interaction_ligand_atom_labels(interaction)
+            for label in touched_ligand_atoms:
+                ligand_atoms.add(label)
+                by_type = ligand_atom_counts.setdefault(itype, {})
+                by_entry = by_type.setdefault(entry_name, {})
+                by_entry[label] = by_entry.get(label, 0) + 1
+
         if per_entry_counts:
             summary["entries"] += 1
         summary["entry_interaction_counts"][entry_name] = per_entry_counts
@@ -749,13 +1359,25 @@ def _export_summary_artifacts(proj, workdir):
             for entry_name in ordered_entries
         ]
 
+    ligand_atom_labels = sorted(ligand_atoms, key=_atom_sort_key)
+    ligand_atom_matrix = {}
+    for itype in sorted(interaction_types):
+        by_entry = ligand_atom_counts.get(itype, {})
+        ligand_atom_matrix[itype] = [
+            [float(by_entry.get(entry_name, {}).get(label, 0.0)) for label in ligand_atom_labels]
+            for entry_name in ordered_entries
+        ]
+
     residue_artifact = {
         "interaction_types": sorted(interaction_types),
         "residues": residue_labels,
+        "ligand_atoms": ligand_atom_labels,
         "entries": ordered_entries,
         "matrix": matrix,
+        "ligand_atom_matrix": ligand_atom_matrix,
         "errors": list(summary["errors"]),
     }
+    _export_ligand_atom_map(params or {}, residue_artifact)
 
     summary_path = os.path.join(workdir, "results", "analysis_summary.json")
     residue_path = os.path.join(workdir, "results", "residue_matrix.json")
@@ -905,7 +1527,7 @@ print("[luna-api] iniciando proj.run()...", flush=True)
 print("[luna-api-progress] 20% - calculando interacoes", flush=True)
 proj.run()
 print("[luna-api-progress] 70% - interacoes calculadas", flush=True)
-_export_summary_artifacts(proj, workdir)
+_export_summary_artifacts(proj, workdir, p)
 print("[luna-api-progress] 74% - resumo e matriz de residuos salvos", flush=True)
 
 # ----- Export IFP CSV / similarity matrix -----
@@ -1237,6 +1859,21 @@ def write_runner(workdir: str | Path) -> str:
     return str(path)
 
 
+def read_ifp_seed_file(path: str | Path | None) -> int:
+    """Read the first integer seed from a user-provided text file."""
+    raw_path = str(path or "").strip()
+    if not raw_path:
+        return 0
+    seed_path = Path(raw_path)
+    if not seed_path.exists():
+        raise ValueError(f"Arquivo seed IFP nao encontrado: {seed_path}")
+    text = seed_path.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"-?\d+", text)
+    if match is None:
+        raise ValueError(f"Arquivo seed IFP nao contem um inteiro: {seed_path}")
+    return int(match.group(0))
+
+
 def write_params(workdir: str | Path, cfg: ProjectConfig, entries: list[str]) -> str:
     """Dump the relevant ProjectConfig subset as JSON next to the runner."""
     wd = Path(workdir)
@@ -1267,6 +1904,7 @@ def write_params(workdir: str | Path, cfg: ProjectConfig, entries: list[str]) ->
         "protein_is_preprocessed": protein_flags["protein_is_preprocessed"],
         "stage_protein_without_h": protein_flags["stage_protein_without_h"],
         "stage_ligand_without_h": protein_flags["stage_ligand_without_h"],
+        "trajectory_analysis": cfg.trajectory_analysis,
         "include_waters": cfg.include_waters,
         "out_ifp": cfg.out_ifp,
         "ifp_type": cfg.ifp_type,
@@ -1276,6 +1914,9 @@ def write_params(workdir: str | Path, cfg: ProjectConfig, entries: list[str]) ->
         "ifp_length": cfg.ifp_length,
         "ifp_bit": cfg.ifp_bit,
         "ifp_output": cfg.ifp_output,
+        "ifp_seed_file": cfg.ifp_seed_file,
+        "ifp_seed": read_ifp_seed_file(cfg.ifp_seed_file),
+        "fp_use_otsu_threshold": cfg.fp_use_otsu_threshold,
         "ifp_outputs": resolve_ifp_output_paths(cfg) if (cfg.out_ifp or cfg.sim_matrix) else {},
         "sim_matrix": cfg.sim_matrix,
         "sim_matrix_output": cfg.sim_matrix_output,

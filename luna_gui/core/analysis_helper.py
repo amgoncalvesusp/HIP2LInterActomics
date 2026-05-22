@@ -76,9 +76,17 @@ print(json.dumps(out))
 
 
 RESIDUE_MATRIX_SCRIPT = r"""
-import sys, os, json, glob
+import sys, os, json, glob, re
 workdir = sys.argv[1]
-out = {"interaction_types": [], "residues": [], "entries": [], "matrix": {}, "errors": []}
+out = {
+    "interaction_types": [],
+    "residues": [],
+    "ligand_atoms": [],
+    "entries": [],
+    "matrix": {},
+    "ligand_atom_matrix": {},
+    "errors": [],
+}
 try:
     from luna.projects import EntryResults
     from luna.analysis.residues import generate_residue_matrix
@@ -86,6 +94,124 @@ try:
 except Exception as e:
     print(json.dumps({"error": "luna import failed: %s" % e}))
     sys.exit(0)
+
+AA_RESIDUES = {
+    "ALA", "ARG", "ASN", "ASP", "ASH", "CYS", "CYM", "CYX", "GLN", "GLU", "GLH",
+    "GLY", "HIS", "HID", "HIE", "HIP", "ILE", "LEU", "LYS", "LYN", "MET", "PHE",
+    "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+}
+WATER_RESIDUES = {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+
+
+def _residue_name(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    value = getattr(residue, "resname", None)
+    if value is None:
+        try:
+            value = residue.get_resname()
+        except Exception:
+            value = ""
+    return str(value or "").strip().upper()
+
+
+def _group_has_water_residue(atm_grp):
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        if _residue_name(atom) in WATER_RESIDUES:
+            return True
+    return False
+
+
+def _group_has_ligand_residue(atm_grp):
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        resname = _residue_name(atom)
+        if resname and resname not in AA_RESIDUES and resname not in WATER_RESIDUES:
+            return True
+    return False
+
+
+def _group_role(atm_grp):
+    if atm_grp is None:
+        return "unknown"
+    try:
+        if atm_grp.has_water():
+            return "water"
+    except Exception:
+        pass
+    if _group_has_water_residue(atm_grp):
+        return "water"
+    try:
+        if atm_grp.has_hetatm() and _group_has_ligand_residue(atm_grp):
+            return "ligand"
+    except Exception:
+        pass
+    try:
+        if atm_grp.has_residue() or atm_grp.has_nucleotide():
+            return "protein"
+    except Exception:
+        pass
+    try:
+        if atm_grp.has_hetatm():
+            return "ligand"
+    except Exception:
+        pass
+    if _group_has_ligand_residue(atm_grp):
+        return "ligand"
+    return "other"
+
+
+def _interaction_type_name(interaction):
+    value = getattr(interaction, "type", None)
+    name = getattr(value, "name", None) or getattr(value, "value", None)
+    if name:
+        return str(name)
+    return str(value or interaction.__class__.__name__)
+
+
+def _atom_label(atom):
+    value = getattr(atom, "name", None)
+    if not value:
+        try:
+            value = atom.get_name()
+        except Exception:
+            value = ""
+    if not value:
+        value = getattr(atom, "id", None) or getattr(atom, "element", None)
+    text = str(value or "").strip()
+    if text:
+        return text
+    serial = getattr(atom, "serial_number", None)
+    if serial is None:
+        try:
+            serial = atom.get_serial_number()
+        except Exception:
+            serial = ""
+    return str(serial or "atom").strip()
+
+
+def _atom_sort_key(label):
+    text = str(label or "")
+    parts = re.split(r"(\d+)", text)
+    key = []
+    for part in parts:
+        if part.isdigit():
+            key.append((0, int(part)))
+        elif part:
+            key.append((1, part.lower()))
+    return key or [(1, text.lower())]
+
+
+def _interaction_ligand_atom_labels(interaction):
+    labels = set()
+    for group in (getattr(interaction, "src_grp", None), getattr(interaction, "trgt_grp", None)):
+        if _group_role(group) != "ligand":
+            continue
+        for atom in getattr(group, "atoms", []) or []:
+            label = _atom_label(atom)
+            if label:
+                labels.add(label)
+    return labels
 
 patterns = [
     os.path.join(workdir, "results", "**", "*.pkl.gz"),
@@ -100,6 +226,8 @@ for pat in patterns:
 
 managers = []
 entry_names = []
+ligand_atoms = set()
+ligand_atom_values = {}
 for f in files:
     try:
         er = EntryResults.load(f)
@@ -114,6 +242,15 @@ for f in files:
     except Exception:
         name = os.path.basename(f)
     entry_names.append(name)
+    for interaction in list(getattr(im, "interactions", []) or []):
+        labels = _interaction_ligand_atom_labels(interaction)
+        if not labels:
+            continue
+        itype = _interaction_type_name(interaction)
+        by_entry = ligand_atom_values.setdefault(itype, {}).setdefault(name, {})
+        for label in labels:
+            ligand_atoms.add(label)
+            by_entry[label] = by_entry.get(label, 0) + 1
 
 if not managers:
     print(json.dumps(out)); sys.exit(0)
@@ -146,10 +283,23 @@ try:
             per_entry[e] = [float(v) for v in vals]
         matrix[it] = [per_entry[e] for e in entries_in_order]
 
+    ligand_atom_labels = sorted(ligand_atoms, key=_atom_sort_key)
+    ligand_atom_matrix = {}
+    for it in sorted(ligand_atom_values):
+        by_entry = ligand_atom_values.get(it, {})
+        ligand_atom_matrix[it] = [
+            [float(by_entry.get(e, {}).get(label, 0.0)) for label in ligand_atom_labels]
+            for e in entries_in_order
+        ]
+        if it not in interaction_types:
+            interaction_types.append(it)
+
     out["interaction_types"] = interaction_types
     out["residues"] = residues
+    out["ligand_atoms"] = ligand_atom_labels
     out["entries"] = entries_in_order
     out["matrix"] = matrix
+    out["ligand_atom_matrix"] = ligand_atom_matrix
 except Exception as e:
     out["errors"].append("matrix build: %s" % e)
 
@@ -175,9 +325,17 @@ def run_residue_matrix(py_exe: str, workdir: str, timeout: int = 600) -> dict:
     if r.returncode != 0:
         return {"error": f"Helper falhou:\n{r.stderr.strip()}"}
     try:
-        return json.loads(r.stdout.strip().splitlines()[-1])
+        result = json.loads(r.stdout.strip().splitlines()[-1])
     except Exception:
         return {"error": f"Saída inválida do helper:\n{r.stdout[:500]}"}
+    if "error" not in result:
+        try:
+            out_path = Path(workdir) / "results" / "residue_matrix.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+    return result
 
 
 def run_analysis(py_exe: str, workdir: str, timeout: int = 300) -> dict:

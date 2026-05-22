@@ -7,12 +7,233 @@ import csv
 import json
 import math
 import re
+import shutil
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, leaves_list, linkage
 from scipy.spatial.distance import squareform
 
 IFP_SUFFIX_TO_TYPE = {"E": "EIFP", "H": "HIFP", "F": "FIFP"}
+IFP_TYPE_TO_SUFFIX = {value: key for key, value in IFP_SUFFIX_TO_TYPE.items()}
+
+
+def _coerce_random_seed(value: object | None) -> int:
+    try:
+        text = str(value).strip()
+    except Exception:
+        return 0
+    if not text:
+        return 0
+    match = re.search(r"-?\d+", text)
+    if match is None:
+        return 0
+    return int(match.group(0))
+
+
+def resolve_fp_random_seed(
+    workdir: str | Path,
+    artifact: dict | None = None,
+    random_seed: object | None = None,
+) -> int:
+    """Resolve the seed used by stochastic FP dashboard models."""
+    if random_seed is not None and str(random_seed).strip():
+        return _coerce_random_seed(random_seed)
+    artifact = artifact or {}
+    artifact_seed = artifact.get("random_seed")
+    if artifact_seed is not None and str(artifact_seed).strip():
+        return _coerce_random_seed(artifact_seed)
+
+    seed_file = str(artifact.get("seed_file") or "").strip()
+    if seed_file:
+        path = Path(seed_file)
+        if path.exists():
+            return _coerce_random_seed(path.read_text(encoding="utf-8", errors="replace"))
+
+    suffix = IFP_TYPE_TO_SUFFIX.get(str(artifact.get("ifp_type") or "").upper())
+    if suffix:
+        path = Path(workdir) / "results" / "fingerprints" / f"seed_ifp_{suffix}_importance.txt"
+        if path.exists():
+            return _coerce_random_seed(path.read_text(encoding="utf-8", errors="replace"))
+    return 0
+
+
+def _normalize_count_breakdown(value: object | None) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, int] = {}
+    for key, count in value.items():
+        try:
+            numeric = int(count)
+        except Exception:
+            continue
+        if numeric <= 0:
+            continue
+        text_key = str(key).strip()
+        if not text_key:
+            continue
+        normalized[text_key] = normalized.get(text_key, 0) + numeric
+    return normalized
+
+
+def _sorted_level_values(values: object | None, breakdown: dict[str, int] | None = None) -> list[str]:
+    source: list[object] = []
+    if isinstance(values, (list, tuple, set)):
+        source.extend(values)
+    elif values is not None and str(values).strip():
+        source.append(values)
+    if not source and breakdown:
+        source.extend(breakdown.keys())
+    keys = {str(value).strip() for value in source if str(value).strip()}
+    return sorted(
+        keys,
+        key=lambda value: (
+            not str(value).lstrip("-").isdigit(),
+            int(value) if str(value).lstrip("-").isdigit() else str(value),
+        ),
+    )
+
+
+def _parse_ifp_feature_token(token: object) -> int | str:
+    text = str(token or "").strip()
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    return text
+
+
+def _feature_sort_key(value: object) -> tuple[int, int, str]:
+    text = str(value or "").strip()
+    base = text.split("_", 1)[0]
+    try:
+        base_value = int(base)
+    except Exception:
+        base_value = 0
+    level = ""
+    if "_" in text:
+        level = text.split("_", 1)[1]
+    try:
+        level_value = int(level)
+    except Exception:
+        level_value = 999999
+    return base_value, level_value, text
+
+
+def _feature_key(feature_id: object, level: object | None) -> str:
+    level_text = str(level or "").strip()
+    if not level_text:
+        return ""
+    return f"{int(feature_id)}_{level_text}"
+
+
+def _feature_lookup_candidates(feature: dict) -> list[object]:
+    feature_id = int(feature.get("feature_id", 0) or 0)
+    assigned_level = str(feature.get("assigned_level", "") or "").strip()
+    feature_key = str(feature.get("feature_key", "") or "").strip()
+    candidates: list[object] = []
+    if feature_key:
+        candidates.append(feature_key)
+    if assigned_level:
+        candidates.append(_feature_key(feature_id, assigned_level))
+    candidates.extend([feature_id, str(feature_id)])
+    return candidates
+
+
+def _display_feature_key(feature: dict) -> str:
+    feature_key = str(feature.get("feature_key", "") or "").strip()
+    if feature_key:
+        return feature_key
+    assigned_level = str(feature.get("assigned_level", "") or "").strip()
+    if assigned_level:
+        return _feature_key(feature.get("feature_id", 0), assigned_level)
+    return str(feature.get("feature_id", "") or "")
+
+
+def _build_feature_lookup(feature_ids: list[int | str]) -> dict[object, int]:
+    lookup: dict[object, int] = {}
+    for col, feature_token in enumerate(feature_ids):
+        lookup[feature_token] = col
+        token_text = str(feature_token)
+        if re.fullmatch(r"-?\d+", token_text):
+            lookup[int(token_text)] = col
+        elif "_" in token_text:
+            base = token_text.split("_", 1)[0]
+            if re.fullmatch(r"-?\d+", base):
+                lookup.setdefault(int(base), col)
+    return lookup
+
+
+def _feature_levels_from_ids(feature_ids: list[int | str]) -> dict[int, str]:
+    levels: dict[int, str] = {}
+    for feature_token in feature_ids:
+        token_text = str(feature_token).strip()
+        if "_" not in token_text:
+            continue
+        base, level = token_text.split("_", 1)
+        if not re.fullmatch(r"-?\d+", base):
+            continue
+        level = level.strip()
+        if level:
+            levels.setdefault(int(base), level)
+    return levels
+
+
+def _rewrite_ifp_csv_with_assigned_levels(path: str | Path, features: list[dict]) -> dict:
+    source_path = Path(path)
+    assigned = {
+        str(int(feature.get("feature_id", 0) or 0)): _display_feature_key(feature)
+        for feature in features
+        if str(feature.get("assigned_level", "") or "").strip()
+    }
+    assigned = {key: value for key, value in assigned.items() if value and "_" in value}
+    if not assigned or not source_path.exists():
+        return {"rewritten": False, "reason": "no_assigned_levels"}
+
+    rows: list[dict] = []
+    changed = False
+    with source_path.open("r", encoding="utf-8", errors="replace", newline="") as fh:
+        reader = csv.DictReader(fh)
+        fieldnames = list(reader.fieldnames or [])
+        if "ligand_id" not in fieldnames or "on_bits" not in fieldnames:
+            return {"rewritten": False, "reason": "unsupported_csv"}
+        if "count" not in fieldnames:
+            fieldnames.append("count")
+        for record in reader:
+            raw_bits = [token.strip() for token in str(record.get("on_bits") or "").split("\t") if token.strip()]
+            raw_counts = [token.strip() for token in str(record.get("count") or "").split("\t") if token.strip()]
+            if raw_counts and len(raw_counts) != len(raw_bits):
+                rows.append(record)
+                continue
+            counts = [float(token) for token in raw_counts] if raw_counts else [1.0] * len(raw_bits)
+            row_counts: dict[str, float] = {}
+            for bit, count in zip(raw_bits, counts):
+                if "_" in bit:
+                    new_bit = bit
+                else:
+                    new_bit = assigned.get(str(int(bit))) if re.fullmatch(r"-?\d+", bit) else ""
+                if not new_bit:
+                    changed = True
+                    continue
+                if new_bit != bit:
+                    changed = True
+                row_counts[new_bit] = row_counts.get(new_bit, 0.0) + float(count)
+            ordered_bits = sorted(row_counts, key=_feature_sort_key)
+            updated = dict(record)
+            updated["on_bits"] = "\t".join(ordered_bits)
+            updated["count"] = "\t".join(
+                str(int(row_counts[bit])) if float(row_counts[bit]).is_integer() else f"{row_counts[bit]:.10g}"
+                for bit in ordered_bits
+            )
+            rows.append(updated)
+
+    if not changed:
+        return {"rewritten": False, "reason": "already_assigned"}
+    backup = source_path.with_suffix(source_path.suffix + ".pre_level_assignment.bak")
+    if not backup.exists():
+        shutil.copy2(source_path, backup)
+    with source_path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return {"rewritten": True, "path": str(source_path), "backup": str(backup)}
 
 CLASS_L0_LIGAND = "Ligand's level 0 features only"
 CLASS_L0_PROTEIN = "Protein's level 0 features only"
@@ -23,6 +244,8 @@ CLASS_INTRAPROTEIN = "Intraprotein interactions only"
 CLASS_NONCOVALENT = "Has noncovalent interactions with the protein"
 CLASS_COLLISION = "Features with collision in the same complex"
 CLASS_UNRELIABLE = "Unreliable feature"
+CLASS_UNRELIABLE_BY_CLASS = "unreliable feature by class"
+LEVEL_UNRELIABLE = "unreliable feature by level"
 EULER_MASCHERONI = 0.577215665
 PREVALENCE_EXCLUDED_INTERACTIONS = {
     "weak hydrogen bond",
@@ -157,6 +380,7 @@ FP_CLASS_ORDER = [
     CLASS_INTRALIGAND,
     CLASS_INTRAPROTEIN,
     CLASS_COLLISION,
+    CLASS_UNRELIABLE_BY_CLASS,
     CLASS_UNRELIABLE,
 ]
 
@@ -169,6 +393,7 @@ FP_CLASS_COLORS = {
     CLASS_INTRALIGAND: "#2f9c61",
     CLASS_INTRAPROTEIN: "#a6c95f",
     CLASS_COLLISION: "#c8c8c8",
+    CLASS_UNRELIABLE_BY_CLASS: "#8f8f8f",
     CLASS_UNRELIABLE: "#7d7d7d",
 }
 
@@ -193,6 +418,7 @@ FP_CLASS_ALIASES = {
     "has non-covalent interactions with the protein": CLASS_NONCOVALENT,
     "features with collision in the same complex": CLASS_COLLISION,
     "with collision": CLASS_COLLISION,
+    "unreliable feature by class": CLASS_UNRELIABLE_BY_CLASS,
     "unreliable feature": CLASS_UNRELIABLE,
 }
 
@@ -417,6 +643,76 @@ def build_trajectory_entry_counts(
     keep_residue = np.sum(matrix, axis=1) > 0.0
     filtered_residues = [residue for residue, keep in zip(residues, keep_residue) if bool(keep)]
     return filtered_residues, kept_types, matrix[keep_residue, :]
+
+
+def build_ligand_atom_frame_percentages(artifact: dict) -> tuple[list[str], list[str], np.ndarray]:
+    """Return ligand atom x interaction percentages across entries."""
+    entries = list(artifact.get("entries", []) or [])
+    ligand_atoms = list(artifact.get("ligand_atoms", []) or [])
+    matrix_map = artifact.get("ligand_atom_matrix") or {}
+    interaction_types = list(artifact.get("interaction_types", []) or matrix_map.keys())
+    if not entries or not ligand_atoms or not interaction_types:
+        return [], [], np.zeros((0, 0), dtype=float)
+
+    n_entries = max(1, len(entries))
+    columns: list[np.ndarray] = []
+    kept_types: list[str] = []
+    for interaction_type in interaction_types:
+        raw = matrix_map.get(interaction_type)
+        if raw is None:
+            continue
+        arr = np.asarray(raw, dtype=float)
+        if arr.ndim != 2 or arr.shape[0] != len(entries) or arr.shape[1] != len(ligand_atoms):
+            continue
+        pct = 100.0 * np.count_nonzero(arr > 0.0, axis=0).astype(float) / float(n_entries)
+        if np.any(pct > 0.0):
+            columns.append(pct)
+            kept_types.append(str(interaction_type))
+
+    if not columns:
+        return [], [], np.zeros((0, 0), dtype=float)
+    matrix = np.vstack(columns).T
+    keep_atom = np.sum(matrix, axis=1) > 0.0
+    filtered_atoms = [atom for atom, keep in zip(ligand_atoms, keep_atom) if bool(keep)]
+    return filtered_atoms, kept_types, matrix[keep_atom, :]
+
+
+def build_ligand_atom_entry_counts(
+    artifact: dict,
+    entry_name: str,
+) -> tuple[list[str], list[str], np.ndarray]:
+    """Return ligand atom x interaction counts for one entry."""
+    entries = list(artifact.get("entries", []) or [])
+    ligand_atoms = list(artifact.get("ligand_atoms", []) or [])
+    matrix_map = artifact.get("ligand_atom_matrix") or {}
+    interaction_types = list(artifact.get("interaction_types", []) or matrix_map.keys())
+    try:
+        entry_index = entries.index(entry_name)
+    except ValueError:
+        return [], [], np.zeros((0, 0), dtype=float)
+    if not ligand_atoms or not interaction_types:
+        return [], [], np.zeros((0, 0), dtype=float)
+
+    columns: list[np.ndarray] = []
+    kept_types: list[str] = []
+    for interaction_type in interaction_types:
+        raw = matrix_map.get(interaction_type)
+        if raw is None:
+            continue
+        arr = np.asarray(raw, dtype=float)
+        if arr.ndim != 2 or arr.shape[0] <= entry_index or arr.shape[1] != len(ligand_atoms):
+            continue
+        counts = np.asarray(arr[entry_index, :], dtype=float)
+        if np.any(counts > 0.0):
+            columns.append(counts)
+            kept_types.append(str(interaction_type))
+
+    if not columns:
+        return [], [], np.zeros((0, 0), dtype=float)
+    matrix = np.vstack(columns).T
+    keep_atom = np.sum(matrix, axis=1) > 0.0
+    filtered_atoms = [atom for atom, keep in zip(ligand_atoms, keep_atom) if bool(keep)]
+    return filtered_atoms, kept_types, matrix[keep_atom, :]
 
 
 def format_residue_label(value: str | None) -> str:
@@ -963,7 +1259,7 @@ def _otsu_threshold(values: list[float]) -> tuple[float, str]:
         return 100.0, "no_positive_values"
     unique = np.unique(arr)
     if unique.size == 1:
-        return float(unique[0]), "otsu_single_value"
+        return float(unique[0]), "otsu"
 
     candidates = (unique[:-1] + unique[1:]) / 2.0
     best_threshold = float(candidates[0])
@@ -991,6 +1287,399 @@ def _threshold_with_otsu_fallback(
         return threshold, source, zscores
     otsu_threshold, otsu_source = _otsu_threshold(values)
     return otsu_threshold, otsu_source, zscores
+
+
+def _feature_has_class_collision(feature: dict) -> bool:
+    breakdown = dict(feature.get("class_breakdown", {}) or {})
+    non_unreliable = [
+        class_name
+        for class_name in breakdown
+        if str(class_name) not in {"", CLASS_UNRELIABLE, CLASS_UNRELIABLE_BY_CLASS}
+    ]
+    return (
+        int(feature.get("collision_hits", 0) or 0) > 0
+        or int(feature.get("raw_collision_hits", 0) or 0) > 0
+        or len(non_unreliable) > 1
+        or CLASS_COLLISION in breakdown
+    )
+
+
+def _assign_feature_classes(features: list[dict], use_otsu_threshold: bool = True) -> dict:
+    collision_features = [feature for feature in features if _feature_has_class_collision(feature)]
+    collision_object_ids = {id(feature) for feature in collision_features}
+    single_features = [feature for feature in features if id(feature) not in collision_object_ids]
+    threshold_features = [
+        feature
+        for feature in features
+        if int(feature.get("molecule_hits", 0) or 0) > 0
+        and float(feature.get("top_class_pct", 0.0) or 0.0) > 0.0
+        and str(feature.get("top_class", "") or "") != CLASS_UNRELIABLE
+    ]
+
+    for feature in single_features:
+        reliable = (
+            int(feature.get("molecule_hits", 0) or 0) > 0
+            and str(feature.get("top_class", "") or "") != CLASS_UNRELIABLE
+        )
+        feature["class_collision"] = False
+        feature["zscore"] = 0.0
+        feature["reliable"] = bool(reliable)
+        feature["assigned_class"] = (
+            str(feature.get("top_class", "") or CLASS_UNRELIABLE_BY_CLASS)
+            if reliable
+            else CLASS_UNRELIABLE_BY_CLASS
+        )
+        feature["class_assignment_source"] = "single_class" if reliable else CLASS_UNRELIABLE_BY_CLASS
+
+    values = [float(feature.get("top_class_pct", 0.0) or 0.0) for feature in threshold_features]
+    threshold_pct = 100.0
+    threshold_source = "single_class_only"
+    zscores: list[float] = []
+    if threshold_features:
+        threshold_pct, threshold_source, zscores = _threshold_with_otsu_fallback(
+            values,
+            use_otsu_threshold=use_otsu_threshold,
+        )
+    for feature, zscore in zip(threshold_features, zscores):
+        feature["zscore"] = float(zscore)
+
+    for feature in collision_features:
+        prevalence = float(feature.get("top_class_pct", 0.0) or 0.0)
+        reliable = (
+            threshold_source in {"zscore_gt_1", "otsu", "otsu_single_value"}
+            and int(feature.get("molecule_hits", 0) or 0) > 0
+            and prevalence >= threshold_pct
+            and str(feature.get("top_class", "") or "") != CLASS_UNRELIABLE
+        )
+        feature["class_collision"] = True
+        feature["reliable"] = bool(reliable)
+        feature["assigned_class"] = (
+            str(feature.get("top_class", "") or CLASS_UNRELIABLE_BY_CLASS)
+            if reliable
+            else CLASS_UNRELIABLE_BY_CLASS
+        )
+        feature["class_assignment_source"] = threshold_source if reliable else CLASS_UNRELIABLE_BY_CLASS
+
+    return {
+        "threshold_pct": float(threshold_pct),
+        "threshold_source": threshold_source,
+        "collision_count": len(collision_features),
+        "single_count": len(single_features),
+        "population_count": len(threshold_features),
+    }
+
+
+LEGACY_FP_CLASS_LEVELS = {
+    CLASS_L0_LIGAND: "0",
+    CLASS_L0_PROTEIN: "0",
+    CLASS_INTRALIGAND: "0",
+    CLASS_INTRAPROTEIN: "0",
+    CLASS_NONCOVALENT: "0",
+    CLASS_UPPER_LIGAND: "1",
+    CLASS_UPPER_PROTEIN: "1",
+}
+
+
+def _legacy_level_breakdown_from_feature(feature: dict) -> dict[str, int]:
+    class_breakdown = feature.get("class_breakdown")
+    if not isinstance(class_breakdown, dict):
+        class_breakdown = normalize_fp_breakdown(feature.get("nature_breakdown"))
+    inferred: dict[str, int] = {}
+    unknown_count = 0
+    for raw_class, raw_count in (class_breakdown or {}).items():
+        try:
+            count = int(raw_count)
+        except Exception:
+            continue
+        if count <= 0:
+            continue
+        class_name = normalize_fp_class_name(str(raw_class))
+        level = LEGACY_FP_CLASS_LEVELS.get(class_name)
+        if level is None:
+            match = re.search(r"\blevel\s*(-?\d+)\b", str(raw_class), flags=re.IGNORECASE)
+            if match:
+                level = match.group(1)
+        if level is None:
+            unknown_count += count
+            continue
+        inferred[level] = inferred.get(level, 0) + count
+    if unknown_count > 0:
+        return {}
+    return inferred
+
+
+def _assign_feature_levels(
+    features: list[dict],
+    use_otsu_threshold: bool = False,
+) -> dict:
+    candidates: list[dict] = []
+    for feature in features:
+        feature["level_reliable"] = False
+        feature["assigned_level"] = str(feature.get("assigned_level", "") or "").strip()
+        feature["assigned_level_pct"] = float(feature.get("assigned_level_pct", 0.0) or 0.0)
+        feature["assigned_level_zscore"] = float(feature.get("assigned_level_zscore", 0.0) or 0.0)
+        feature["assigned_level_source"] = str(feature.get("assigned_level_source", "") or "").strip()
+        feature["feature_key"] = str(feature.get("feature_key", "") or "").strip()
+        if str(feature.get("assigned_class", "") or "") == CLASS_UNRELIABLE_BY_CLASS or not bool(feature.get("reliable", False)):
+            feature["assigned_level"] = ""
+            feature["assigned_level_source"] = "skipped_unreliable_class"
+            feature["assigned_level_label"] = CLASS_UNRELIABLE_BY_CLASS
+            continue
+        if feature["assigned_level"]:
+            feature["assigned_level_source"] = feature["assigned_level_source"] or "existing_matrix_or_artifact"
+            feature["feature_key"] = feature["feature_key"] or _feature_key(
+                feature.get("feature_id", 0),
+                feature["assigned_level"],
+            )
+            feature["level_reliable"] = True
+            feature["assigned_level_label"] = feature["assigned_level"]
+            continue
+
+        breakdown = _normalize_count_breakdown(feature.get("collision_level_breakdown"))
+        if not breakdown:
+            breakdown = _normalize_count_breakdown(feature.get("shell_level_breakdown"))
+        inferred_from_legacy_class = False
+        if not breakdown:
+            breakdown = _legacy_level_breakdown_from_feature(feature)
+            inferred_from_legacy_class = bool(breakdown)
+        if not breakdown:
+            feature["assigned_level_source"] = LEVEL_UNRELIABLE
+            feature["assigned_level_label"] = LEVEL_UNRELIABLE
+            continue
+        top_level, top_count = max(
+            sorted(breakdown.items()),
+            key=lambda item: (int(item[1]), -_feature_sort_key(item[0])[1], str(item[0])),
+        )
+        total = sum(breakdown.values())
+        top_pct = (100.0 * float(top_count) / float(total)) if total else 0.0
+        feature["top_level"] = str(top_level)
+        feature["top_level_pct"] = float(top_pct)
+        if len(breakdown) == 1:
+            feature["assigned_level"] = str(top_level)
+            feature["assigned_level_pct"] = 100.0
+            feature["assigned_level_source"] = "legacy_class_inference" if inferred_from_legacy_class else "single_level"
+            feature["level_reliable"] = True
+            feature["assigned_level_label"] = feature["assigned_level"]
+            continue
+        candidates.append(feature)
+
+    threshold_features = [
+        feature
+        for feature in features
+        if str(feature.get("assigned_class", "") or "") != CLASS_UNRELIABLE_BY_CLASS
+        and bool(feature.get("reliable", False))
+        and float(feature.get("top_level_pct", 0.0) or 0.0) > 0.0
+    ]
+    values = [float(feature.get("top_level_pct", 0.0) or 0.0) for feature in threshold_features]
+    threshold_pct, threshold_source, zscores = _threshold_with_otsu_fallback(values, use_otsu_threshold)
+    for feature, zscore in zip(threshold_features, zscores):
+        feature["assigned_level_zscore"] = float(zscore)
+    for feature in candidates:
+        if threshold_source in {"zscore_gt_1", "otsu", "otsu_single_value"} and float(feature.get("top_level_pct", 0.0) or 0.0) >= threshold_pct:
+            feature["assigned_level"] = str(feature.get("top_level", "") or "")
+            feature["assigned_level_pct"] = float(feature.get("top_level_pct", 0.0) or 0.0)
+            feature["assigned_level_source"] = threshold_source
+            feature["level_reliable"] = True
+            feature["assigned_level_label"] = feature["assigned_level"]
+        else:
+            feature["assigned_level"] = ""
+            feature["assigned_level_pct"] = float(feature.get("top_level_pct", 0.0) or 0.0)
+            feature["assigned_level_source"] = LEVEL_UNRELIABLE
+            feature["assigned_level_label"] = LEVEL_UNRELIABLE
+
+    assigned = 0
+    undetermined = 0
+    skipped_by_class = 0
+    unreliable_by_level = 0
+    level_counts: dict[str, int] = {}
+    for feature in features:
+        assigned_level = str(feature.get("assigned_level", "") or "").strip()
+        if assigned_level:
+            feature["feature_key"] = _feature_key(feature.get("feature_id", 0), assigned_level)
+            assigned += 1
+            level_counts[assigned_level] = level_counts.get(assigned_level, 0) + 1
+        else:
+            feature["feature_key"] = ""
+            if str(feature.get("assigned_level_source", "") or "") == "skipped_unreliable_class":
+                skipped_by_class += 1
+            else:
+                unreliable_by_level += 1
+            undetermined += 1
+    return {
+        "threshold_pct": float(threshold_pct if candidates else 100.0),
+        "threshold_source": threshold_source if candidates else "single_level_only",
+        "assigned_count": int(assigned),
+        "undetermined_count": int(undetermined),
+        "skipped_by_unreliable_class_count": int(skipped_by_class),
+        "unreliable_by_level_count": int(unreliable_by_level),
+        "population_count": int(len(threshold_features)),
+        "level_counts": level_counts,
+    }
+
+
+def _apply_per_level_importance_models(
+    features: list[dict],
+    labels: list[str],
+    matrix: np.ndarray,
+    feature_lookup: dict[object, int],
+    label_path: Path | None,
+    labels_id_column: str | None,
+    labels_column: str | None,
+    task_kind_preference: str | None,
+    algorithm_preference: str,
+    random_seed: int,
+    use_otsu_threshold: bool,
+) -> dict:
+    for feature in features:
+        feature["importance_score"] = 0.0
+        feature["importance_pct"] = 0.0
+        feature["importance_rank"] = 0
+        feature["importance_level_rank"] = 0
+        feature["importance_zscore"] = 0.0
+        feature["importance_pvalue"] = _importance_p_value(0.0)
+        feature["importance_selected"] = False
+        feature["importance_selection_source"] = ""
+
+    eligible = [
+        feature for feature in features
+        if bool(feature.get("importance_eligible", False))
+        and str(feature.get("assigned_level", "") or "").strip()
+        and feature.get("matrix_key") in feature_lookup
+    ]
+    levels: dict[str, list[dict]] = {}
+    for feature in eligible:
+        levels.setdefault(str(feature.get("assigned_level")), []).append(feature)
+
+    level_models: dict[str, dict] = {}
+    model_notes: list[str] = []
+    model_names: list[str] = []
+    label_source = "derived_clusters"
+    label_kind = "classification"
+    cluster_count = 0
+    matched_molecules = 0
+    label_warning = ""
+
+    if len(labels) < 2 or not eligible:
+        return {
+            "level_models": {},
+            "model_name": "Unavailable",
+            "model_note": "Sao necessarios pelo menos dois ligantes e uma feature com nivel assinado para calcular importancias.",
+            "label_source": label_source,
+            "label_kind": label_kind,
+            "cluster_count": 0,
+            "matched_molecules": 0,
+            "label_warning": "",
+            "importance_mean": 0.0,
+            "importance_std": 0.0,
+        }
+
+    for level in sorted(levels, key=_feature_sort_key):
+        level_features = levels[level]
+        X = np.asarray([matrix[:, feature_lookup[feature["matrix_key"]]] for feature in level_features], dtype=float).T
+        X_train, y, current_clusters, current_label_source, current_warning, current_label_kind, current_matched = _resolve_training_labels(
+            labels,
+            X,
+            label_path,
+            labels_id_column=labels_id_column,
+            labels_column=labels_column,
+            task_kind_preference=task_kind_preference,
+        )
+        label_source = current_label_source
+        label_kind = current_label_kind
+        cluster_count = max(cluster_count, int(current_clusters))
+        matched_molecules = max(matched_molecules, int(current_matched))
+        if current_warning:
+            label_warning = current_warning
+        summary = {
+            "level": str(level),
+            "eligible_count": len(level_features),
+            "selected_count": 0,
+            "model_name": "Unavailable",
+            "model_note": "",
+            "importance_threshold_source": "pvalue_lt_0.01",
+        }
+        if len(set(np.asarray(y).tolist())) < 2:
+            summary["model_note"] = "Nivel sem pelo menos duas classes/grupos distintos."
+            level_models[str(level)] = summary
+            continue
+        scores, level_model_name, level_note = _compute_feature_importances(
+            X_train,
+            y,
+            task_kind=current_label_kind,
+            algorithm_preference=algorithm_preference,
+            random_seed=random_seed,
+        )
+        summary["model_name"] = level_model_name
+        summary["model_note"] = level_note
+        model_names.append(level_model_name)
+        max_score = float(np.max(scores)) if scores.size else 0.0
+        for rank, (feature, score) in enumerate(
+            sorted(zip(level_features, scores.tolist()), key=lambda item: (-item[1], int(item[0].get("feature_id", 0) or 0))),
+            start=1,
+        ):
+            feature["importance_score"] = float(score)
+            feature["importance_pct"] = (100.0 * float(score) / max_score) if max_score > 1e-12 else 0.0
+            feature["importance_rank"] = rank
+            feature["importance_level_rank"] = rank
+            feature["importance_model_level"] = str(level)
+
+        score_values = [float(feature.get("importance_score", 0.0) or 0.0) for feature in level_features]
+        level_mean = float(np.mean(score_values)) if score_values else 0.0
+        level_std = float(np.std(score_values)) if score_values else 0.0
+        for feature in level_features:
+            score = float(feature.get("importance_score", 0.0) or 0.0)
+            feature["importance_zscore"] = (score - level_mean) / level_std if level_std > 1e-12 else 0.0
+            feature["importance_pvalue"] = _importance_p_value(feature.get("importance_zscore", 0.0) or 0.0)
+            if float(feature.get("importance_pvalue", 1.0) or 1.0) < 0.01:
+                feature["importance_selected"] = True
+                feature["importance_selection_source"] = "pvalue_lt_0.01"
+
+        selected_count = sum(1 for feature in level_features if feature.get("importance_selected"))
+        if selected_count == 0 and use_otsu_threshold:
+            score_threshold, score_source, _score_zscores = _threshold_with_otsu_fallback(score_values, use_otsu_threshold=True)
+            if score_source in {"zscore_gt_1", "otsu", "otsu_single_value"}:
+                for feature in level_features:
+                    if float(feature.get("importance_score", 0.0) or 0.0) >= score_threshold:
+                        feature["importance_selected"] = True
+                        feature["importance_selection_source"] = score_source
+                selected_count = sum(1 for feature in level_features if feature.get("importance_selected"))
+                summary["importance_threshold_source"] = score_source
+                summary["importance_threshold"] = float(score_threshold)
+        summary["selected_count"] = int(selected_count)
+        summary["importance_mean"] = float(level_mean)
+        summary["importance_std"] = float(level_std)
+        level_models[str(level)] = summary
+        model_notes.append(f"L{level}: {level_model_name} ({len(level_features)} features, {selected_count} selecionadas)")
+
+    importance_scores = [float(feature.get("importance_score", 0.0) or 0.0) for feature in eligible]
+    model_name = "Unavailable"
+    if model_names:
+        unique_names = sorted(set(model_names))
+        model_name = unique_names[0] if len(unique_names) == 1 else "Modelos por nivel"
+    source_text = (
+        f"rótulos externos de '{Path(label_path).name}'"
+        if label_source == "external_csv" and label_path
+        else "grupos derivados dos fingerprints"
+    )
+    model_note = (
+        f"Importancias calculadas por nivel usando {source_text}. "
+        + ("; ".join(model_notes) if model_notes else "Nenhum nivel treinavel.")
+        + f" Features elegiveis para importancia: {len(eligible)}."
+    )
+    if label_warning:
+        model_note += " " + label_warning
+    return {
+        "level_models": level_models,
+        "model_name": model_name,
+        "model_note": model_note,
+        "label_source": label_source,
+        "label_kind": label_kind,
+        "cluster_count": int(cluster_count),
+        "matched_molecules": int(matched_molecules),
+        "label_warning": label_warning,
+        "importance_mean": float(np.mean(importance_scores)) if importance_scores else 0.0,
+        "importance_std": float(np.std(importance_scores)) if importance_scores else 0.0,
+    }
 
 
 def _gumbel_tail_p_value(zscore: float) -> float:
@@ -1114,11 +1803,11 @@ def load_external_fp_labels(
     return mapping
 
 
-def load_ifp_sparse_matrix(path: str | Path) -> tuple[list[str], list[int], np.ndarray]:
+def load_ifp_sparse_matrix(path: str | Path) -> tuple[list[str], list[int | str], np.ndarray]:
     path = Path(path)
     labels: list[str] = []
-    rows: list[dict[int, float]] = []
-    feature_ids: set[int] = set()
+    rows: list[dict[int | str, float]] = []
+    feature_ids: set[int | str] = set()
 
     with path.open("r", encoding="utf-8", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -1129,7 +1818,7 @@ def load_ifp_sparse_matrix(path: str | Path) -> tuple[list[str], list[int], np.n
 
             raw_bits = [token.strip() for token in str(record.get("on_bits") or "").split("\t") if token.strip()]
             raw_counts = [token.strip() for token in str(record.get("count") or "").split("\t") if token.strip()]
-            bits = [int(token) for token in raw_bits]
+            bits = [_parse_ifp_feature_token(token) for token in raw_bits]
 
             if raw_counts and len(raw_counts) != len(bits):
                 raise ValueError(
@@ -1137,14 +1826,14 @@ def load_ifp_sparse_matrix(path: str | Path) -> tuple[list[str], list[int], np.n
                 )
 
             counts = [float(token) for token in raw_counts] if raw_counts else [1.0] * len(bits)
-            row_map: dict[int, float] = {}
+            row_map: dict[int | str, float] = {}
             for bit, count in zip(bits, counts):
                 row_map[bit] = row_map.get(bit, 0.0) + count
             labels.append(label)
             rows.append(row_map)
             feature_ids.update(row_map)
 
-    ordered_features = sorted(feature_ids)
+    ordered_features = sorted(feature_ids, key=_feature_sort_key)
     matrix = np.zeros((len(labels), len(ordered_features)), dtype=float)
     feature_index = {feature_id: idx for idx, feature_id in enumerate(ordered_features)}
     for row_index, row_map in enumerate(rows):
@@ -1162,13 +1851,15 @@ def build_fp_analysis_dashboard(
     algorithm_preference: str = "gradient_boosting",
     task_kind_preference: str | None = None,
     use_otsu_threshold: bool = False,
+    random_seed: object | None = None,
 ) -> dict:
     source_file = resolve_ifp_source_file(workdir, artifact)
     if source_file is None:
         raise FileNotFoundError("Nenhum arquivo de fingerprint foi encontrado para esta analise.")
+    seed = resolve_fp_random_seed(workdir, artifact, random_seed)
 
     labels, feature_ids, matrix = load_ifp_sparse_matrix(source_file)
-    feature_lookup = {int(feature_id): col for col, feature_id in enumerate(feature_ids)}
+    feature_lookup = _build_feature_lookup(feature_ids)
 
     raw_features = artifact.get("features", []) or []
     enriched: list[dict] = []
@@ -1298,6 +1989,7 @@ def build_fp_analysis_dashboard(
                 X_train,
                 y,
                 prefer_extra_trees=(label_source != "external_csv"),
+                random_seed=seed,
             )
             if label_source == "external_csv":
                 model_note = (
@@ -1392,8 +2084,11 @@ def build_fp_analysis_dashboard(
         "ifp_type": artifact.get("ifp_type"),
         "ifp_label": artifact.get("ifp_label"),
         "source_file": str(source_file),
+        "assigned_matrix": assigned_matrix_info,
         "threshold_pct": float(threshold_pct),
         "threshold_source": threshold_source,
+        "level_assignment": level_assignment,
+        "level_models": level_models,
         "class_order": list(FP_CLASS_ORDER),
         "class_colors": dict(FP_CLASS_COLORS),
         "features": all_features,
@@ -1512,7 +2207,9 @@ def _compute_feature_importances(
     X: np.ndarray,
     y: np.ndarray,
     prefer_extra_trees: bool = False,
+    random_seed: object | None = None,
 ) -> tuple[np.ndarray, str, str]:
+    seed = _coerce_random_seed(random_seed)
     classes, y_encoded = np.unique(np.asarray(y), return_inverse=True)
     primary_error = None
     if not prefer_extra_trees:
@@ -1523,7 +2220,7 @@ def _compute_feature_importances(
                 n_estimators=200,
                 learning_rate=0.06,
                 max_depth=3,
-                random_state=0,
+                random_state=seed,
             )
             model.fit(X, y_encoded)
             scores = np.asarray(getattr(model, "feature_importances_", np.zeros(X.shape[1])), dtype=float)
@@ -1536,7 +2233,7 @@ def _compute_feature_importances(
 
         model = ExtraTreesClassifier(
             n_estimators=256,
-            random_state=0,
+            random_state=seed,
             class_weight="balanced",
         )
         model.fit(X, y_encoded)
@@ -1568,15 +2265,19 @@ def build_fp_analysis_dashboard(
     algorithm_preference: str = "gradient_boosting",
     task_kind_preference: str | None = None,
     use_otsu_threshold: bool = False,
+    random_seed: object | None = None,
 ) -> dict:
     source_file = resolve_ifp_source_file(workdir, artifact)
     if source_file is None:
         raise FileNotFoundError("Nenhum arquivo de fingerprint foi encontrado para esta analise.")
+    seed = resolve_fp_random_seed(workdir, artifact, random_seed)
 
     labels, feature_ids, matrix = load_ifp_sparse_matrix(source_file)
-    feature_lookup = {int(feature_id): col for col, feature_id in enumerate(feature_ids)}
+    feature_lookup = _build_feature_lookup(feature_ids)
+    existing_level_map = _feature_levels_from_ids(feature_ids)
     detail_artifact = load_fp_detail_artifact(workdir, artifact.get("ifp_type"))
     detail_lookup = (detail_artifact or {}).get("feature_details", {}) or {}
+    detail_warning = str((detail_artifact or {}).get("detail_warning", "") or "").strip()
 
     raw_features = artifact.get("features", []) or []
     enriched: list[dict] = []
@@ -1632,6 +2333,9 @@ def build_fp_analysis_dashboard(
                     for key, value in ((entry_info or {}).get("pair_counts") or {}).items()
                     if int(value) > 0
                 },
+                "shell_level_counts": _normalize_count_breakdown(
+                    (entry_info or {}).get("shell_level_counts")
+                ),
             }
             for entry_name, entry_info in (detail.get("entries") or {}).items()
         }
@@ -1650,6 +2354,23 @@ def build_fp_analysis_dashboard(
             for key, value in (detail.get("pair_counts") or {}).items()
             if int(value) > 0
         }
+        shell_level_breakdown = _normalize_count_breakdown(
+            row.get("shell_level_breakdown") or detail.get("shell_level_counts")
+        )
+        collision_level_breakdown = _normalize_count_breakdown(row.get("collision_level_breakdown"))
+        shell_levels = _sorted_level_values(row.get("shell_levels"), shell_level_breakdown)
+        collision_shell_levels = _sorted_level_values(
+            row.get("collision_shell_levels"),
+            collision_level_breakdown,
+        )
+        if not collision_shell_levels and int(row.get("collision_hits", 0) or 0) > 0:
+            collision_shell_levels = shell_levels
+        assigned_level = str(row.get("assigned_level", "") or "").strip()
+        if not assigned_level:
+            assigned_level = existing_level_map.get(feature_id, "")
+        feature_key = str(row.get("feature_key", "") or "").strip()
+        if assigned_level and not feature_key:
+            feature_key = _feature_key(feature_id, assigned_level)
         prevalence_values.append(top_pct)
         enriched.append(
             {
@@ -1659,9 +2380,22 @@ def build_fp_analysis_dashboard(
                 "top_class": top_class,
                 "top_class_pct": float(top_pct),
                 "collision_hits": int(row.get("collision_hits", 0) or 0),
+                "raw_collision_hits": int(row.get("raw_collision_hits", row.get("collision_hits", 0)) or 0),
                 "total_count": int(row.get("total_count", 0) or 0),
                 "class_breakdown": breakdown,
                 "class_percentages": class_percentages,
+                "shell_levels": shell_levels,
+                "shell_level_breakdown": shell_level_breakdown,
+                "collision_shell_levels": collision_shell_levels,
+                "collision_level_breakdown": collision_level_breakdown,
+                "assigned_level": assigned_level,
+                "assigned_level_pct": float(row.get("assigned_level_pct", 0.0) or 0.0),
+                "assigned_level_zscore": float(row.get("assigned_level_zscore", 0.0) or 0.0),
+                "assigned_level_source": str(
+                    row.get("assigned_level_source", "")
+                    or ("existing_matrix" if assigned_level else "")
+                ),
+                "feature_key": feature_key,
                 "missing_molecules": max(0, len(labels) - int(molecule_hits)),
                 "zscore": 0.0,
                 "assigned_class": CLASS_UNRELIABLE,
@@ -1709,46 +2443,62 @@ def build_fp_analysis_dashboard(
             "class_order": list(FP_CLASS_ORDER),
             "entry_labels": list(labels),
             "detail_available": bool(detail_artifact),
+            "detail_error": detail_warning
+            or (
+                ""
+                if detail_artifact
+                else "fp_detail nao disponivel; execute a analise no luna-env para extrair detalhes de interacao/residuo."
+            ),
+            "random_seed": int(seed),
         }
 
+    class_assignment = _assign_feature_classes(enriched, use_otsu_threshold=True)
+    threshold_pct = float(class_assignment.get("threshold_pct", 100.0) or 100.0)
+    threshold_source = str(class_assignment.get("threshold_source", "single_class_only") or "single_class_only")
     class_prevalence_population = np.asarray(
-        [float(value) for value in prevalence_values if float(value) > 0.0],
+        [
+            float(feature.get("top_class_pct", 0.0) or 0.0)
+            for feature in enriched
+            if int(feature.get("molecule_hits", 0) or 0) > 0
+            and float(feature.get("top_class_pct", 0.0) or 0.0) > 0.0
+            and str(feature.get("top_class", "") or "") != CLASS_UNRELIABLE
+        ],
         dtype=float,
     )
     class_prevalence_mean = float(class_prevalence_population.mean()) if class_prevalence_population.size else 0.0
     class_prevalence_std = float(class_prevalence_population.std()) if class_prevalence_population.size else 0.0
-    threshold_pct, threshold_source, prevalence_zscores = _threshold_with_otsu_fallback(
-        prevalence_values,
-        use_otsu_threshold=True,
-    )
-    for feature, zscore in zip(enriched, prevalence_zscores):
-        feature["zscore"] = float(zscore)
-        if threshold_source in {"zscore_gt_1", "otsu", "otsu_single_value"}:
-            reliable = (
-                int(feature.get("molecule_hits", 0) or 0) > 0
-                and float(feature.get("top_class_pct", 0.0) or 0.0) >= threshold_pct
-            )
-        else:
-            class_breakdown = dict(feature.get("class_breakdown", {}) or {})
-            reliable = (
-                int(feature.get("molecule_hits", 0) or 0) > 0
-                and len(class_breakdown) == 1
-                and str(feature.get("top_class", "") or "") != CLASS_UNRELIABLE
-            )
-        feature["reliable"] = bool(reliable)
-        feature["assigned_class"] = feature["top_class"] if reliable else CLASS_UNRELIABLE
 
+    level_use_otsu_threshold = True
+    importance_use_otsu_threshold = bool(
+        use_otsu_threshold
+        or artifact.get("use_otsu_threshold", False)
+    )
+    level_assignment = _assign_feature_levels(enriched, use_otsu_threshold=level_use_otsu_threshold)
+    assigned_matrix_info = _rewrite_ifp_csv_with_assigned_levels(source_file, enriched)
+    if assigned_matrix_info.get("rewritten"):
+        labels, feature_ids, matrix = load_ifp_sparse_matrix(source_file)
+        feature_lookup = _build_feature_lookup(feature_ids)
     fallback_importance_rule = threshold_source != "zscore_gt_1"
     for feature in enriched:
+        matrix_key = next(
+            (candidate for candidate in _feature_lookup_candidates(feature) if candidate in feature_lookup),
+            None,
+        )
+        feature["matrix_key"] = matrix_key
         importance_eligible = (
-            feature["feature_id"] in feature_lookup
+            matrix_key is not None
             and int(feature.get("molecule_hits", 0) or 0) > 0
             and bool(feature.get("reliable", False))
+            and bool(str(feature.get("assigned_level", "") or "").strip())
         )
         feature["importance_eligible"] = bool(importance_eligible)
 
     importance_features = [feature for feature in enriched if feature["importance_eligible"]]
-    importance_ids = [feature["feature_id"] for feature in importance_features if feature["feature_id"] in feature_lookup]
+    importance_ids = [
+        int(feature.get("feature_id", 0) or 0)
+        for feature in importance_features
+        if feature.get("matrix_key") is not None
+    ]
     importance_eligible_count = len(importance_features)
     model_name = "Unavailable"
     model_note = "Nao foi possivel calcular importancias."
@@ -1783,6 +2533,7 @@ def build_fp_analysis_dashboard(
                 y,
                 task_kind=label_kind,
                 algorithm_preference=algorithm_preference,
+                random_seed=seed,
             )
             if label_source == "external_csv":
                 model_note = (
@@ -1870,18 +2621,62 @@ def build_fp_analysis_dashboard(
             feature["importance_zscore"] = 0.0
         feature["importance_pvalue"] = _importance_p_value(feature.get("importance_zscore", 0.0) or 0.0)
 
+    per_level_importance = _apply_per_level_importance_models(
+        enriched,
+        labels,
+        matrix,
+        feature_lookup,
+        label_path,
+        labels_id_column,
+        labels_column,
+        task_kind_preference,
+        algorithm_preference,
+        int(seed),
+        importance_use_otsu_threshold,
+    )
+    level_models = per_level_importance.get("level_models", {})
+    model_name = str(per_level_importance.get("model_name", model_name) or model_name)
+    model_note = str(per_level_importance.get("model_note", model_note) or model_note)
+    label_source = str(per_level_importance.get("label_source", label_source) or label_source)
+    label_kind = str(per_level_importance.get("label_kind", label_kind) or label_kind)
+    cluster_count = int(per_level_importance.get("cluster_count", cluster_count) or cluster_count)
+    matched_molecules = int(per_level_importance.get("matched_molecules", matched_molecules) or matched_molecules)
+    importance_mean = float(per_level_importance.get("importance_mean", importance_mean) or 0.0)
+    importance_std = float(per_level_importance.get("importance_std", importance_std) or 0.0)
+    if fallback_importance_rule and "Otsu's Thresholding" not in model_note:
+        if threshold_source in {"otsu", "otsu_single_value"}:
+            model_note += (
+                " Como nenhum bit apresentou z-score de classe > 1, a atribuicao de classe "
+                "usou Otsu's Thresholding como limiar alternativo, e a analise de importancia "
+                "usou apenas as features confiaveis."
+            )
+        else:
+            model_note += (
+                " Como nenhum bit apresentou z-score de classe > 1, a atribuicao de classe foi "
+                "mantida apenas para bits com uma unica classe no nature_breakdown, e a analise "
+                "de importancia usou apenas as features confiaveis."
+            )
+
     important_features = sorted(
         [
             feature for feature in enriched
-            if float(feature.get("importance_pvalue", 1.0) or 1.0) < 0.01
+            if bool(feature.get("importance_selected", False))
         ],
         key=lambda row: (
+            _feature_sort_key(str(row.get("assigned_level", "") or "")),
             float(row.get("importance_pvalue", 1.0) or 1.0),
             -float(row.get("importance_score", 0.0) or 0.0),
             int(row.get("feature_id", 0) or 0),
         ),
     )
-    important_selection = "pvalue_lt_0.01"
+    important_selection = (
+        "per_level_pvalue_or_otsu"
+        if any(
+            str(feature.get("importance_selection_source", "") or "") in {"zscore_gt_1", "otsu", "otsu_single_value"}
+            for feature in enriched
+        )
+        else "pvalue_lt_0.01"
+    )
 
     class_counts: dict[str, int] = {}
     for feature in important_features:
@@ -1989,6 +2784,7 @@ def build_fp_analysis_dashboard(
         "source_file": str(source_file),
         "threshold_pct": float(threshold_pct),
         "threshold_source": threshold_source,
+        "class_assignment": class_assignment,
         "class_order": list(FP_CLASS_ORDER),
         "class_colors": dict(FP_CLASS_COLORS),
         "features": all_features,
@@ -2018,10 +2814,20 @@ def build_fp_analysis_dashboard(
         "pair_threshold_pct": float(pair_threshold_pct),
         "pair_threshold_source": pair_threshold_source,
         "detail_available": bool(detail_artifact),
+        "detail_error": detail_warning
+        or (
+            ""
+            if detail_artifact
+            else "fp_detail nao disponivel; sem detalhes de interacao/residuo para interacoes prevalentes e mapa de calor."
+        ),
+        "random_seed": int(seed),
         "important_selection": important_selection,
         "algorithm_preference": str(algorithm_preference or "gradient_boosting"),
         "task_kind_preference": str(task_kind_preference or ""),
-        "use_otsu_threshold": bool(use_otsu_threshold or threshold_source in {"otsu", "otsu_single_value"}),
+        "use_otsu_threshold": bool(level_use_otsu_threshold),
+        "assigned_matrix": assigned_matrix_info,
+        "level_assignment": level_assignment,
+        "level_models": level_models,
     }
 
 
@@ -2124,7 +2930,9 @@ def _compute_feature_importances(
     y: np.ndarray,
     task_kind: str = "classification",
     algorithm_preference: str = "gradient_boosting",
+    random_seed: object | None = None,
 ) -> tuple[np.ndarray, str, str]:
+    seed = _coerce_random_seed(random_seed)
     preference = str(algorithm_preference or "auto").strip().lower()
     if preference == "extra_trees":
         algorithm_order = ["extra_trees", "gradient_boosting"]
@@ -2142,7 +2950,7 @@ def _compute_feature_importances(
                         n_estimators=220,
                         learning_rate=0.05,
                         max_depth=3,
-                        random_state=0,
+                        random_state=seed,
                     )
                     model_label = "GradientBoosting"
                     class_label = "GradientBoostingRegressor"
@@ -2151,7 +2959,7 @@ def _compute_feature_importances(
 
                     model = ExtraTreesRegressor(
                         n_estimators=256,
-                        random_state=0,
+                        random_state=seed,
                     )
                     model_label = "ExtraTrees"
                     class_label = "ExtraTreesRegressor"
@@ -2193,7 +3001,7 @@ def _compute_feature_importances(
                     n_estimators=200,
                     learning_rate=0.06,
                     max_depth=3,
-                    random_state=0,
+                    random_state=seed,
                 )
                 model_label = "GradientBoosting"
                 class_label = "GradientBoostingClassifier"
@@ -2202,7 +3010,7 @@ def _compute_feature_importances(
 
                 model = ExtraTreesClassifier(
                     n_estimators=256,
-                    random_state=0,
+                    random_state=seed,
                     class_weight="balanced",
                 )
                 model_label = "ExtraTrees"

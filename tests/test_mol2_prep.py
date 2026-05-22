@@ -84,6 +84,15 @@ ATOM      4  O1  LIG L   1       4.000   0.000   0.000  1.00  0.00           O
 END
 """
 
+PDB_COMPLEX_WITH_WTM_WATER = """HEADER    TEST COMPLEX
+ATOM      1  N   GLY A   7       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  GLY A   7       1.000   0.000   0.000  1.00  0.00           C
+HETATM    3  O   WTM W  42       2.000   0.000   0.000  1.00  0.00           O
+HETATM    4  C1  LIG L   5       3.000   0.000   0.000  1.00  0.00           C
+HETATM    5  O1  LIG L   5       4.000   0.000   0.000  1.00  0.00           O
+END
+"""
+
 
 def _pdb_atom(
     serial: int,
@@ -246,6 +255,26 @@ class Mol2PrepTests(unittest.TestCase):
             self.assertNotIn(" LIG ", protein_text)
             self.assertEqual(parse_ligand_file(ligand_sdf), ["pose_19_LIG"])
             self.assertIn("M  END", ligand_text)
+            self.assertTrue(any("tratado como ligante" in msg for msg in result.errors))
+            log_text = Path(result.log_file).read_text(encoding="utf-8")
+            self.assertIn("tratado como ligante", log_text)
+
+    def test_split_complex_folder_treats_wtm_as_water_and_preserves_pdb_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            (src / "pose_wtm.pdb").write_text(PDB_COMPLEX_WITH_WTM_WATER, encoding="utf-8")
+
+            result = split_complex_folder(src)
+
+            self.assertEqual(result.water_molecules_detected, 1)
+            protein_text = (Path(result.protein_dir) / "pose_wtm.pdb").read_text(encoding="utf-8")
+            ligand_sdf = Path(result.ligand_dir) / "pose_wtm_ligand.sdf"
+            ligand_text = ligand_sdf.read_text(encoding="utf-8")
+            self.assertIn(" GLY A   7", protein_text)
+            self.assertIn(" WTM W  42", protein_text)
+            self.assertNotIn(" WTM ", ligand_text)
+            self.assertTrue(Path(result.log_file).exists())
 
     @unittest.skipIf(Chem is None, "RDKit is required to inspect SDF chemistry")
     def test_split_complex_folder_preserves_pdb_formal_charge_in_sdf(self) -> None:

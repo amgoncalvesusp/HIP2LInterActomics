@@ -12,12 +12,15 @@ from luna_gui.core.results_analysis import (
     CLASS_L0_LIGAND,
     CLASS_NONCOVALENT,
     CLASS_UNRELIABLE,
+    CLASS_UNRELIABLE_BY_CLASS,
     _gumbel_tail_p_value,
     _resolve_external_label_value,
     _tanimoto_similarity,
     build_complete_heatmap,
     build_complete_heatmap_layers,
     build_fp_analysis_dashboard,
+    build_ligand_atom_entry_counts,
+    build_ligand_atom_frame_percentages,
     build_trajectory_entry_counts,
     build_trajectory_frame_percentages,
     cluster_rows,
@@ -222,11 +225,26 @@ class ResultsAnalysisTests(unittest.TestCase):
         artifact = {
             "entries": ["frame1", "frame2", "frame3", "frame4"],
             "residues": ["A/ASP/1", "A/TYR/2", "A/GLY/3"],
+            "ligand_atoms": ["C1", "N2", "O3"],
             "interaction_types": ["Hydrogen bond", "Ionic"],
             "matrix": {
                 "Hydrogen bond": [
                     [1, 0, 0],
                     [0, 2, 0],
+                    [1, 0, 0],
+                    [0, 0, 0],
+                ],
+                "Ionic": [
+                    [0, 1, 0],
+                    [0, 0, 0],
+                    [1, 1, 0],
+                    [0, 0, 0],
+                ],
+            },
+            "ligand_atom_matrix": {
+                "Hydrogen bond": [
+                    [1, 0, 0],
+                    [0, 1, 0],
                     [1, 0, 0],
                     [0, 0, 0],
                 ],
@@ -246,6 +264,16 @@ class ResultsAnalysisTests(unittest.TestCase):
 
         residues, interaction_types, counts = build_trajectory_entry_counts(artifact, "frame3")
         self.assertEqual(residues, ["A/ASP/1", "A/TYR/2"])
+        self.assertEqual(interaction_types, ["Hydrogen bond", "Ionic"])
+        self.assertEqual(counts.tolist(), [[1.0, 1.0], [0.0, 1.0]])
+
+        atoms, interaction_types, percentages = build_ligand_atom_frame_percentages(artifact)
+        self.assertEqual(atoms, ["C1", "N2"])
+        self.assertEqual(interaction_types, ["Hydrogen bond", "Ionic"])
+        self.assertEqual(percentages.tolist(), [[50.0, 25.0], [25.0, 50.0]])
+
+        atoms, interaction_types, counts = build_ligand_atom_entry_counts(artifact, "frame3")
+        self.assertEqual(atoms, ["C1", "N2"])
         self.assertEqual(interaction_types, ["Hydrogen bond", "Ionic"])
         self.assertEqual(counts.tolist(), [[1.0, 1.0], [0.0, 1.0]])
 
@@ -397,6 +425,7 @@ class ResultsAnalysisTests(unittest.TestCase):
             "ligD,\"10\t30\t50\",\"1\t1\t1\"\n",
             encoding="utf-8",
         )
+        (fp_dir / "seed_ifp_E_importance.txt").write_text("77\n", encoding="utf-8")
         artifact = {
             "ifp_type": "EIFP",
             "ifp_label": "Extended",
@@ -411,6 +440,10 @@ class ResultsAnalysisTests(unittest.TestCase):
                         "Has noncovalent interactions with the protein": 1,
                         "Features with collision in the same complex": 1,
                     },
+                    "shell_levels": ["0", "2"],
+                    "shell_level_breakdown": {"0": 1, "2": 3},
+                    "collision_shell_levels": ["0", "2"],
+                    "collision_level_breakdown": {"0": 1, "2": 3},
                 },
                 {
                     "feature_id": 20,
@@ -463,16 +496,21 @@ class ResultsAnalysisTests(unittest.TestCase):
 
         dashboard = build_fp_analysis_dashboard(workdir, artifact)
 
-        self.assertEqual(dashboard["threshold_source"], "otsu")
-        self.assertAlmostEqual(dashboard["threshold_pct"], 75.0)
+        self.assertEqual(dashboard["threshold_source"], "zscore_gt_1")
+        self.assertAlmostEqual(dashboard["threshold_pct"], 100.0)
+        self.assertEqual(dashboard["class_assignment"]["collision_count"], 3)
         self.assertEqual(dashboard["total_molecules"], 4)
         self.assertEqual(dashboard["cluster_count"], 2)
         features = {row["feature_id"]: row for row in dashboard["features"]}
-        self.assertEqual(features[10]["assigned_class"], CLASS_UNRELIABLE)
+        self.assertEqual(features[10]["assigned_class"], CLASS_UNRELIABLE_BY_CLASS)
+        self.assertEqual(features[10]["shell_levels"], ["0", "2"])
+        self.assertEqual(features[10]["collision_shell_levels"], ["0", "2"])
+        self.assertEqual(features[10]["shell_level_breakdown"], {"0": 1, "2": 3})
+        self.assertEqual(features[10]["assigned_level_label"], CLASS_UNRELIABLE_BY_CLASS)
         self.assertEqual(features[20]["assigned_class"], CLASS_L0_LIGAND)
         self.assertEqual(features[30]["assigned_class"], CLASS_INTRAPROTEIN)
-        self.assertEqual(features[40]["assigned_class"], CLASS_UNRELIABLE)
-        self.assertEqual(features[50]["assigned_class"], CLASS_UNRELIABLE)
+        self.assertEqual(features[40]["assigned_class"], CLASS_UNRELIABLE_BY_CLASS)
+        self.assertEqual(features[50]["assigned_class"], CLASS_UNRELIABLE_BY_CLASS)
         self.assertGreaterEqual(features[60]["zscore"], 0.0)
         self.assertGreater(features[20]["importance_score"], 0.0)
         self.assertGreater(features[30]["importance_score"], 0.0)
@@ -485,6 +523,7 @@ class ResultsAnalysisTests(unittest.TestCase):
         self.assertEqual(dashboard["label_source"], "derived_clusters")
         self.assertIn(dashboard["model_name"], {"GradientBoosting", "ExtraTrees fallback"})
         self.assertEqual(dashboard["important_selection"], "pvalue_lt_0.01")
+        self.assertEqual(dashboard["random_seed"], 77)
 
     def test_build_fp_analysis_dashboard_uses_external_labels_csv_when_available(self) -> None:
         workdir = self.tmp_root / "fp_dashboard_labels_workdir"
@@ -634,7 +673,7 @@ class ResultsAnalysisTests(unittest.TestCase):
         self.assertEqual(features[10]["assigned_class"], CLASS_L0_LIGAND)
         self.assertEqual(features[20]["assigned_class"], CLASS_NONCOVALENT)
         self.assertEqual(features[30]["assigned_class"], CLASS_INTRAPROTEIN)
-        self.assertEqual(features[40]["assigned_class"], CLASS_UNRELIABLE)
+        self.assertEqual(features[40]["assigned_class"], CLASS_UNRELIABLE_BY_CLASS)
         self.assertTrue(features[10]["reliable"])
         self.assertTrue(features[10]["importance_eligible"])
         self.assertTrue(features[20]["importance_eligible"])

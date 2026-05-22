@@ -143,6 +143,50 @@ class EnvManagerTests(unittest.TestCase):
 
             self.assertEqual(found, str(hidden_exe))
 
+    def test_find_conda_accepts_linux_conda_exe_without_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home" / "laqmedsom"
+            conda_root = home / "softwares_laqmedsomm" / "anaconda3"
+            conda_exe = conda_root / "bin" / "conda"
+            gui_python = home / ".conda" / "envs" / "luna-gui" / "bin" / "python"
+            conda_exe.parent.mkdir(parents=True, exist_ok=True)
+            gui_python.parent.mkdir(parents=True, exist_ok=True)
+            conda_exe.write_text("", encoding="utf-8")
+            gui_python.write_text("", encoding="utf-8")
+
+            with mock.patch.dict(env_manager.os.environ, {"CONDA_EXE": str(conda_exe)}, clear=True):
+                with mock.patch.object(env_manager.sys, "platform", "linux"):
+                    with mock.patch.object(env_manager.Path, "home", return_value=home):
+                        with mock.patch.object(env_manager.sys, "executable", str(gui_python)):
+                            with mock.patch.object(env_manager.sys, "prefix", str(gui_python.parent.parent)):
+                                with mock.patch.object(env_manager.shutil, "which", return_value=None):
+                                    found = env_manager.find_conda()
+
+            self.assertEqual(found, str(conda_exe))
+
+    def test_find_conda_discovers_nested_linux_home_install(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home" / "laqmedsom"
+            conda_root = home / "softwares_laqmedsomm" / "anaconda3"
+            conda_exe = conda_root / "bin" / "conda"
+            unrelated = home / "plain-python" / "bin" / "python"
+            conda_exe.parent.mkdir(parents=True, exist_ok=True)
+            unrelated.parent.mkdir(parents=True, exist_ok=True)
+            conda_exe.write_text("", encoding="utf-8")
+            unrelated.write_text("", encoding="utf-8")
+
+            with mock.patch.dict(env_manager.os.environ, {}, clear=True):
+                with mock.patch.object(env_manager.sys, "platform", "linux"):
+                    with mock.patch.object(env_manager.Path, "home", return_value=home):
+                        with mock.patch.object(env_manager.sys, "executable", str(unrelated)):
+                            with mock.patch.object(env_manager.sys, "prefix", str(unrelated.parent.parent)):
+                                with mock.patch.object(env_manager.shutil, "which", return_value=None):
+                                    found = env_manager.find_conda()
+
+            self.assertEqual(found, str(conda_exe))
+
     def test_cleanup_partial_env_removes_incomplete_target_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

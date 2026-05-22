@@ -36,6 +36,7 @@ class ProjectConfig:
     ifp_length: int = 4096
     ifp_bit: bool = False         # False = count fingerprints
     ifp_output: str = ""          # default: <workdir>/results/fingerprints/ifp.csv
+    ifp_seed_file: str = ""       # optional file containing the random seed for FP analyses
     fp_labels_csv: str = ""       # optional supervised labels for FP analyses
     fp_labels_id_column: str = "" # optional column name containing ligand IDs
     fp_labels_column: str = ""    # column name containing labels/classes
@@ -95,6 +96,8 @@ class ProjectConfig:
         if self.fork_from:
             return True
         if self.ifp_type == IFP_ALL:
+            return True
+        if self.ifp_seed_file:
             return True
         if not self.add_h:
             return True

@@ -105,10 +105,10 @@ def _association_open(path: Path) -> str:
 
 
 def launch_pse_session(path: str | Path, py_exe: str | Path | None = None) -> str:
-    """Open a .pse file in PyMOL, falling back to the OS file association."""
+    """Open a PyMOL session/script file, falling back to the OS association."""
     pse_path = Path(path)
     if not pse_path.exists():
-        raise PymolLaunchError(f"Arquivo .pse nao encontrado:\n{pse_path}")
+        raise PymolLaunchError(f"Arquivo de sessao PyMOL nao encontrado:\n{pse_path}")
     if not pse_path.is_file():
         raise PymolLaunchError(f"O caminho selecionado nao e um arquivo:\n{pse_path}")
 
@@ -129,7 +129,7 @@ def launch_pse_session(path: str | Path, py_exe: str | Path | None = None) -> st
         return _association_open(pse_path)
     except Exception as exc:
         raise PymolLaunchError(
-            "Nao consegui abrir a sessao .pse. Instale/ative o PyMOL no ambiente "
+            "Nao consegui abrir a sessao PyMOL. Instale/ative o PyMOL no ambiente "
             "do LUNA ou associe arquivos .pse ao PyMOL no sistema.\n\n"
             f"Arquivo: {pse_path}\nErro original: {exc}"
         ) from exc

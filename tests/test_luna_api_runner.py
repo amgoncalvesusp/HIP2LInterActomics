@@ -5,13 +5,14 @@ import unittest
 import json
 from pathlib import Path
 
-from luna_gui.core.analysis_runtime import _FP_DETAIL_SCRIPT, _FP_SESSION_SCRIPT
+from luna_gui.core.analysis_runtime import _FP_DETAIL_SCRIPT, _FP_SESSION_SCRIPT, _clean_helper_text
 from luna_gui.core.luna_api_runner import (
     API_RUNNER_SCRIPT,
     build_entry_specs,
     ligand_mol_obj_type,
     protein_has_explicit_hydrogens,
     protein_is_gui_preprocessed,
+    read_ifp_seed_file,
     resolve_protein_processing_flags,
     should_use_api_runner,
     validate_entry_specs,
@@ -26,12 +27,24 @@ class LunaApiRunnerTests(unittest.TestCase):
     def test_project_config_uses_python_api_for_fork_and_multi_ifp(self) -> None:
         self.assertTrue(ProjectConfig(fork_from="D:/old_project").uses_python_api())
         self.assertTrue(ProjectConfig(ifp_type=IFP_ALL).uses_python_api())
+        self.assertTrue(ProjectConfig(ifp_seed_file="D:/seed.txt").uses_python_api())
         self.assertTrue(ProjectConfig(interaction_config_file="D:/config.cfg").uses_python_api())
         self.assertTrue(ProjectConfig(inter_max_distance_cap=4.5).uses_python_api())
 
     def test_api_runner_rebuilds_similarity_from_ifp_instead_of_using_luna_internal_queue(self) -> None:
         self.assertIn("proj.ifp_sim_matrix_output = None", API_RUNNER_SCRIPT)
         self.assertIn("_write_similarity_outputs_from_ifp(", API_RUNNER_SCRIPT)
+
+    def test_api_runner_saves_ifp_seed_files(self) -> None:
+        self.assertIn("seed_ifp_{suffix}_importance.txt", API_RUNNER_SCRIPT)
+        self.assertIn("_write_ifp_seed", API_RUNNER_SCRIPT)
+
+    def test_read_ifp_seed_file_reads_first_integer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "seed.txt"
+            path.write_text("seed = 123\n", encoding="utf-8")
+
+            self.assertEqual(read_ifp_seed_file(path), 123)
 
     def test_ligand_backend_uses_rdkit_for_sdf_and_openbabel_for_mol2(self) -> None:
         self.assertEqual(ligand_mol_obj_type("ligands.sdf"), "rdkit")
@@ -206,6 +219,8 @@ class LunaApiRunnerTests(unittest.TestCase):
             protein_file.write_text("HEADER\n", encoding="utf-8")
             ligand_file = root / "ligands.mol2"
             ligand_file.write_text("@<TRIPOS>MOLECULE\nligA\n", encoding="utf-8")
+            seed_file = root / "seed_ifp.txt"
+            seed_file.write_text("321\n", encoding="utf-8")
 
             cfg = ProjectConfig(
                 protein_file=str(protein_file),
@@ -216,6 +231,7 @@ class LunaApiRunnerTests(unittest.TestCase):
                 inter_max_distance_cap=4.5,
                 out_ifp=True,
                 ifp_type=IFP_ALL,
+                ifp_seed_file=str(seed_file),
                 sim_matrix=True,
             )
 
@@ -227,6 +243,8 @@ class LunaApiRunnerTests(unittest.TestCase):
             self.assertEqual(params["inter_max_distance_cap"], 4.5)
             self.assertTrue(params["add_h"])
             self.assertTrue(params["amend_mol"])
+            self.assertEqual(params["ifp_seed"], 321)
+            self.assertEqual(params["ifp_seed_file"], str(seed_file))
             self.assertEqual(params["ifp_types"], ["HIFP", "EIFP", "FIFP"])
             self.assertEqual(
                 params["ifp_outputs"],
@@ -459,6 +477,7 @@ class LunaApiRunnerTests(unittest.TestCase):
     def test_api_runner_keeps_water_mediated_protein_context(self) -> None:
         self.assertIn("_group_has_water_residue", API_RUNNER_SCRIPT)
         self.assertIn("_group_has_water_residue", _FP_DETAIL_SCRIPT)
+        self.assertIn('"WTM"', _FP_DETAIL_SCRIPT)
         self.assertIn("has_ligand_water", API_RUNNER_SCRIPT)
         self.assertIn("has_protein_water", API_RUNNER_SCRIPT)
         self.assertIn("has_water_mediated_protein_context", API_RUNNER_SCRIPT)
@@ -469,6 +488,28 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertIn("def _has_mixed_class_collision", API_RUNNER_SCRIPT)
         self.assertIn("raw_collision and _has_mixed_class_collision", API_RUNNER_SCRIPT)
         self.assertNotIn("_classify_shell_natures(shell, collision=collision)", API_RUNNER_SCRIPT)
+
+    def test_api_runner_exports_fp_shell_levels(self) -> None:
+        self.assertIn("def _shell_level_key", API_RUNNER_SCRIPT)
+        self.assertIn('"shell_levels"', API_RUNNER_SCRIPT)
+        self.assertIn('"shell_level_breakdown"', API_RUNNER_SCRIPT)
+        self.assertIn('"collision_shell_levels"', API_RUNNER_SCRIPT)
+        self.assertIn('"collision_level_breakdown"', API_RUNNER_SCRIPT)
+        self.assertIn('"raw_collision"', API_RUNNER_SCRIPT)
+
+    def test_helper_output_filter_keeps_real_errors(self) -> None:
+        noisy = (
+            "/home/user/.conda/envs/luna-env/lib/python3.9/site-packages/openbabel/__init__.py:14: "
+            'UserWarning: "import openbabel" is deprecated\n'
+            "Module 'simplejson' not available. Built-in module 'json' will be imported.\n"
+            "RuntimeError: real failure\n"
+        )
+
+        cleaned = _clean_helper_text(noisy)
+
+        self.assertNotIn("openbabel", cleaned)
+        self.assertNotIn("simplejson", cleaned)
+        self.assertIn("real failure", cleaned)
 
     def test_fp_session_helper_restores_entries_from_metadata(self) -> None:
         self.assertIn("_restore_entry", _FP_SESSION_SCRIPT)

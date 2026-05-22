@@ -16,6 +16,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 ENV_NAME="${HIP2LINTERACTOMICS_GUI_ENV:-${LUNA_GUI_ENV:-luna-gui}}"
 GUI_PYTHON="${HIP2LINTERACTOMICS_GUI_PYTHON:-${LUNA_GUI_PYTHON:-}}"
+CONDA_BIN="${HIP2LINTERACTOMICS_GUI_CONDA:-${LUNA_GUI_CONDA:-}}"
 
 if [[ -n "${GUI_PYTHON}" ]]; then
     if [[ ! -x "${GUI_PYTHON}" ]]; then
@@ -26,14 +27,28 @@ if [[ -n "${GUI_PYTHON}" ]]; then
     exec "${GUI_PYTHON}" "${REPO_ROOT}/run.py" "$@"
 fi
 
-if command -v conda >/dev/null 2>&1; then
+if [[ -n "${CONDA_BIN}" && ! -x "${CONDA_BIN}" ]]; then
+    echo "[ERRO] HIP2LINTERACTOMICS_GUI_CONDA aponta para um executavel inexistente:"
+    echo "       ${CONDA_BIN}"
+    exit 1
+fi
+
+if [[ -z "${CONDA_BIN}" ]] && command -v conda >/dev/null 2>&1; then
     CONDA_BIN="$(command -v conda)"
-else
+elif [[ -z "${CONDA_BIN}" ]]; then
     for candidate in \
         "$HOME/miniconda3/bin/conda" \
         "$HOME/anaconda3/bin/conda" \
+        "$HOME/miniforge3/bin/conda" \
+        "$HOME/mambaforge/bin/conda" \
+        "$HOME"/*/miniconda3/bin/conda \
+        "$HOME"/*/anaconda3/bin/conda \
+        "$HOME"/*/miniforge3/bin/conda \
+        "$HOME"/*/mambaforge/bin/conda \
         "/opt/miniconda3/bin/conda" \
-        "/opt/anaconda3/bin/conda"; do
+        "/opt/anaconda3/bin/conda" \
+        "/opt/miniforge3/bin/conda" \
+        "/opt/mambaforge/bin/conda"; do
         if [[ -x "$candidate" ]]; then
             CONDA_BIN="$candidate"
             break
@@ -57,6 +72,13 @@ fi
 
 # shellcheck disable=SC1090
 source "${CONDA_SH}"
+
+for candidate in "${CONDA_BASE}/bin/conda" "${CONDA_BASE}/condabin/conda" "${CONDA_BIN}"; do
+    if [[ -x "${candidate}" ]]; then
+        export HIP2LINTERACTOMICS_GUI_CONDA="${candidate}"
+        break
+    fi
+done
 
 if ! conda activate "${ENV_NAME}" >/dev/null 2>&1; then
     echo "[ERRO] env '${ENV_NAME}' não encontrado."

@@ -176,6 +176,9 @@ class MainWindow(QMainWindow):
             "<p>LUNA: <a href='https://luna-toolkit.readthedocs.io'>luna-toolkit.readthedocs.io</a></p>"
             f"<p><b>{citations_label}</b></p>"
             "<ol>"
+            "<li>Keiser, M. J.; Hert, J. In <i>Chemogenomics: Methods and Applications</i>; "
+            "Jacoby, E., Ed.; Methods in Molecular Biology; Humana Press: Totowa, NJ, 2009; "
+            "pp 195-205.</li>"
             "<li><i>Prioritizing Virtual Screening with Interpretable Interaction Fingerprints</i><br>"
             "Alexandre V. Fassio, Laura Shub, Luca Ponzoni, Jessica McKinley, Matthew J. O’Meara, "
             "Rafaela S. Ferreira, Michael J. Keiser, and Raquel C. de Melo Minardi<br>"
@@ -255,7 +258,9 @@ class MainWindow(QMainWindow):
         a.sp_length.setValue(self.cfg.ifp_length)
         a.cb_bit.setChecked(self.cfg.ifp_bit)
         a.fp_out_edit.setText(self.cfg.ifp_output)
-        a.fp_labels_box.setChecked(bool(self.cfg.fp_labels_csv))
+        if hasattr(a, "ifp_seed_edit"):
+            a.ifp_seed_edit.setText(getattr(self.cfg, "ifp_seed_file", "") or "")
+        a.fp_labels_box.setChecked(bool(self.cfg.fp_labels_csv) or bool(getattr(self.cfg, "ifp_seed_file", "")))
         a.fp_labels_edit.setText(self.cfg.fp_labels_csv)
         a.fp_label_id_column_edit.setText(getattr(self.cfg, "fp_labels_id_column", "") or "")
         a.fp_label_column_edit.setText(self.cfg.fp_labels_column)

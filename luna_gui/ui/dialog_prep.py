@@ -326,8 +326,11 @@ class DockingPrepDialog(QDialog):
         )
         self.log.appendPlainText(f"Proteínas → {r.protein_dir}")
         self.log.appendPlainText(f"Ligantes  → {r.ligand_dir}")
+        if getattr(r, "log_file", ""):
+            self.log.appendPlainText(f"Log de preparo -> {r.log_file}")
         for err in r.errors:
-            self.log.appendPlainText(f"[erro] {err}")
+            prefix = "[aviso]" if "tratado como" in err or "mantido" in err or "aviso" in err.lower() else "[erro]"
+            self.log.appendPlainText(f"{prefix} {err}")
 
         if r.ligands_written == 0:
             QMessageBox.warning(

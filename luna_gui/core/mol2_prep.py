@@ -26,17 +26,17 @@ _PROTEIN_RESIDUES: frozenset[str] = frozenset({
     "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
     "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
     # Histidine / cysteine protonation variants (common in GOLD/CHARMM)
-    "HSD", "HSE", "HSP", "HIE", "HID", "HIP", "CYX", "CYM",
+    "ASH", "GLH", "LYN", "HSD", "HSE", "HSP", "HIE", "HID", "HIP", "CYX", "CYM",
     # N/C terminus caps
     "ACE", "NME", "NHE",
     # Water / solvent
-    "HOH", "WAT", "TIP", "SOL", "T3P",
+    "HOH", "WAT", "WTM", "TIP", "SOL", "T3P",
     # Selenium / non-standard but common
-    "MSE", "SEC",
+    "MSE", "SEC", "PYL", "SEP", "TPO", "PTR", "CSO", "HYP",
 })
 
 _WATER_RESIDUES: frozenset[str] = frozenset({
-    "HOH", "WAT", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD",
+    "HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD",
 })
 
 _VALID_ELEMENTS: frozenset[str] = frozenset({
@@ -383,6 +383,7 @@ class PrepResult:
     protein_dir: str
     ligand_dir: str
     errors: list[str]
+    log_file: str = ""
 
 
 def split_docking_folder(
@@ -438,10 +439,20 @@ def split_docking_folder(
         if progress_cb is not None:
             progress_cb(nfiles, total_files, mol2.name, ok, error_message)
 
+    log_file = _write_prep_log(
+        out,
+        "MOL2",
+        nfiles,
+        nprot,
+        nlig,
+        nwater,
+        errors,
+    )
     return PrepResult(
         files_processed=nfiles, proteins_written=nprot, ligands_written=nlig,
         water_molecules_detected=nwater,
         protein_dir=str(prot_dir), ligand_dir=str(lig_dir), errors=errors,
+        log_file=str(log_file),
     )
 
 
@@ -528,8 +539,9 @@ def split_pdb_complex_folder(
         error_message = ""
         try:
             lines = pdb_file.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-            protein_lines, ligand_lines, water_count = _split_pdb_complex(lines)
+            protein_lines, ligand_lines, water_count, split_warnings = _split_pdb_complex(lines)
             nwater += water_count
+            conversion_warnings.extend(f"{pdb_file.name}: {warning}" for warning in split_warnings)
         except Exception as exc:
             ok = False
             error_message = str(exc)
@@ -554,6 +566,16 @@ def split_pdb_complex_folder(
         if progress_cb is not None:
             progress_cb(nfiles, total_files, pdb_file.name, ok, error_message)
 
+    all_messages = errors + conversion_warnings
+    log_file = _write_prep_log(
+        out,
+        "PDB/ENT",
+        nfiles,
+        nprot,
+        nlig,
+        nwater,
+        all_messages,
+    )
     return PrepResult(
         files_processed=nfiles,
         proteins_written=nprot,
@@ -561,20 +583,50 @@ def split_pdb_complex_folder(
         water_molecules_detected=nwater,
         protein_dir=str(prot_dir),
         ligand_dir=str(lig_dir),
-        errors=errors + conversion_warnings,
+        errors=all_messages,
+        log_file=str(log_file),
     )
 
 
-def _split_pdb_complex(lines: list[str]) -> tuple[list[str], list[str], int]:
+def _write_prep_log(
+    out_folder: Path,
+    input_format: str,
+    files_processed: int,
+    proteins_written: int,
+    ligands_written: int,
+    water_molecules_detected: int,
+    messages: list[str],
+) -> Path:
+    path = Path(out_folder) / "preprocess.log"
+    lines = [
+        "HIP2LInterActomics preprocessing log\n",
+        f"Formato: {input_format}\n",
+        f"Arquivos lidos: {files_processed}\n",
+        f"Proteinas escritas: {proteins_written}\n",
+        f"Ligantes escritos: {ligands_written}\n",
+        f"Aguas detectadas: {water_molecules_detected}\n",
+    ]
+    if messages:
+        lines.append("\nMensagens:\n")
+        lines.extend(f"- {message}\n" for message in messages)
+    else:
+        lines.append("\nMensagens: nenhuma\n")
+    path.write_text("".join(lines), encoding="utf-8")
+    return path
+
+
+def _split_pdb_complex(lines: list[str]) -> tuple[list[str], list[str], int, list[str]]:
     protein_lines: list[str] = []
     ligand_lines: list[str] = []
     waters: set[tuple[str, str, str, str]] = set()
     ligand_serials: set[int] = set()
+    warnings: set[str] = set()
 
     for raw_line in lines:
         if not (raw_line.startswith("ATOM") or raw_line.startswith("HETATM")):
             continue
         line = raw_line if raw_line.endswith("\n") else raw_line + "\n"
+        record = line[:6].strip().upper()
         resname = line[17:20].strip() if len(line) >= 20 else ""
         atom_name = line[12:16].strip() if len(line) >= 16 else ""
         element = line[76:78].strip() if len(line) >= 78 else ""
@@ -584,13 +636,26 @@ def _split_pdb_complex(lines: list[str]) -> tuple[list[str], list[str], int]:
             continue
         if is_water:
             waters.add(_pdb_water_key(line))
+            if record != "HETATM":
+                warnings.add(
+                    f"residuo de agua {resname or 'UNK'} encontrado como {record}; mantido junto da proteina."
+                )
             protein_lines.append(line)
             continue
-        if _is_protein_residue_name(resname):
+        is_protein_residue = _is_protein_residue_name(resname)
+        if is_protein_residue:
+            if record == "HETATM":
+                warnings.add(
+                    f"residuo de aminoacido especial {resname or 'UNK'} encontrado como HETATM; mantido na proteina."
+                )
             protein_lines.append(line)
             continue
         if _is_lone_pair(atom_name, element):
             continue
+        if record == "ATOM":
+            warnings.add(
+                f"residuo {resname or 'UNK'} encontrado como ATOM, mas nao e aminoacido/agua; tratado como ligante."
+            )
         if serial is not None:
             ligand_serials.add(serial)
         ligand_lines.append(line)
@@ -598,7 +663,7 @@ def _split_pdb_complex(lines: list[str]) -> tuple[list[str], list[str], int]:
     if ligand_serials:
         ligand_lines.extend(_ligand_conect_records(lines, ligand_serials))
 
-    return protein_lines, ligand_lines, len(waters)
+    return protein_lines, ligand_lines, len(waters), sorted(warnings)
 
 
 def _split_one(

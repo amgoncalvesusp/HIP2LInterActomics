@@ -48,6 +48,8 @@ from ..core.results_analysis import (
     INTERACTION_COLORS,
     build_complete_heatmap_layers,
     build_fp_analysis_dashboard,
+    build_ligand_atom_entry_counts,
+    build_ligand_atom_frame_percentages,
     build_trajectory_entry_counts,
     build_trajectory_frame_percentages,
     cluster_rows,
@@ -64,6 +66,7 @@ from ..core.results_analysis import (
     load_residue_matrix_artifact,
     normalize_fp_class_name,
     resolve_fp_labels_file,
+    resolve_fp_random_seed,
     trajectory_frame_number,
     _resolve_external_label_value,
 )
@@ -553,6 +556,36 @@ class ResultsTab(EnhancedResultsTab):
         return text or str(entry_name or "").strip()
 
     @staticmethod
+    def _format_shell_levels(values, breakdown=None) -> str:
+        source = []
+        if isinstance(values, (list, tuple, set)):
+            source.extend(values)
+        elif values is not None and str(values).strip():
+            source.append(values)
+        if not source and isinstance(breakdown, dict):
+            source.extend(breakdown.keys())
+        keys = {str(value).strip() for value in source if str(value).strip()}
+        ordered = sorted(
+            keys,
+            key=lambda value: (
+                not str(value).lstrip("-").isdigit(),
+                int(value) if str(value).lstrip("-").isdigit() else str(value),
+            ),
+        )
+        return ", ".join(ordered)
+
+    @staticmethod
+    def _fp_feature_label(feature: dict) -> str:
+        feature_key = str((feature or {}).get("feature_key", "") or "").strip()
+        if feature_key:
+            return feature_key
+        feature_id = str((feature or {}).get("feature_id", "") or "").strip()
+        assigned_level = str((feature or {}).get("assigned_level", "") or "").strip()
+        if feature_id and assigned_level:
+            return f"{feature_id}_{assigned_level}"
+        return feature_id
+
+    @staticmethod
     def _coerce_float(value: object) -> float | None:
         text = str(value or "").strip()
         if not text:
@@ -959,7 +992,7 @@ class ResultsTab(EnhancedResultsTab):
         layout.addWidget(self.fp_analysis_active_context)
 
         self.fp_analysis_table = QTableWidget()
-        self.fp_analysis_table.setColumnCount(11)
+        self.fp_analysis_table.setColumnCount(14)
         self.fp_analysis_table.setHorizontalHeaderLabels(
             [
                 "Feature",
@@ -972,6 +1005,9 @@ class ResultsTab(EnhancedResultsTab):
                 "Z-score Importance",
                 "p-value",
                 "Colisoes",
+                "Nivel assinado",
+                "Niveis shell",
+                "Niveis colisao",
                 "Perfil da base",
             ]
         )
@@ -1146,13 +1182,13 @@ class ResultsTab(EnhancedResultsTab):
             return
 
         result = load_residue_matrix_artifact(wd)
-        if result is None:
+        if result is None or not self._residue_matrix_has_ligand_atoms(result):
             if not self.py_exe:
                 QMessageBox.warning(self, "luna-env", "LUNA nao detectado. Veja a aba Setup.")
                 return
             self.hm_status.setText("Processando...")
             self.hm_status.repaint()
-            result = run_residue_matrix(self.py_exe, str(wd))
+            result = run_residue_matrix(self.py_exe, str(wd), require_ligand_atoms=True)
 
         if "error" in result:
             self.hm_status.setText("Erro")
@@ -1462,7 +1498,7 @@ class ResultsTab(EnhancedResultsTab):
 
     def _render_ligand_stats_chart(self, result: dict) -> None:
         self.st_fig.clear()
-        artifact = self._ensure_trajectory_matrix(allow_compute=True)
+        artifact = self._ensure_trajectory_matrix(allow_compute=True, require_ligand_atoms=False)
         if artifact is None:
             ax = self.st_fig.add_subplot(111)
             ax.text(
@@ -1504,19 +1540,54 @@ class ResultsTab(EnhancedResultsTab):
     def _is_trajectory_mode(self) -> bool:
         return bool(getattr(self.cfg, "trajectory_analysis", False))
 
-    def _ensure_trajectory_matrix(self, allow_compute: bool = True) -> dict | None:
+    @staticmethod
+    def _residue_matrix_has_ligand_atoms(artifact: dict | None) -> bool:
+        if not isinstance(artifact, dict):
+            return False
+        return bool(artifact.get("ligand_atoms")) and isinstance(artifact.get("ligand_atom_matrix"), dict)
+
+    def _ligand_atom_map_path(self) -> Path | None:
+        wd = self._current_wd()
+        if wd is None:
+            return None
+        for relative in (
+            "results/ligand_atom_map.png",
+            "results/ligand_atom_map.jpg",
+            "results/ligand_atom_map.jpeg",
+        ):
+            path = wd / relative
+            if path.exists():
+                return path
+        return None
+
+    def _ensure_trajectory_matrix(self, allow_compute: bool = True, require_ligand_atoms: bool = True) -> dict | None:
         if getattr(self, "_residue_matrix", None):
-            return self._residue_matrix
+            if (
+                not allow_compute
+                or not require_ligand_atoms
+                or self._residue_matrix_has_ligand_atoms(self._residue_matrix)
+            ):
+                return self._residue_matrix
         wd = self._current_wd()
         if not wd:
             return None
         cached = load_residue_matrix_artifact(wd)
         if cached is not None:
+            if (
+                allow_compute
+                and require_ligand_atoms
+                and self.py_exe
+                and not self._residue_matrix_has_ligand_atoms(cached)
+            ):
+                result = run_residue_matrix(self.py_exe, str(wd), require_ligand_atoms=True)
+                if "error" not in result:
+                    self._residue_matrix = result
+                    return result
             self._residue_matrix = cached
             return cached
         if not allow_compute or not self.py_exe:
             return None
-        result = run_residue_matrix(self.py_exe, str(wd))
+        result = run_residue_matrix(self.py_exe, str(wd), require_ligand_atoms=require_ligand_atoms)
         if "error" in result:
             return None
         self._residue_matrix = result
@@ -1544,6 +1615,7 @@ class ResultsTab(EnhancedResultsTab):
 
         if scope == "__all__":
             residues, interaction_types, matrix = build_trajectory_frame_percentages(artifact)
+            atoms, atom_interaction_types, atom_matrix = build_ligand_atom_frame_percentages(artifact)
             self._render_trajectory_stacked_bars(
                 residues,
                 interaction_types,
@@ -1551,9 +1623,13 @@ class ResultsTab(EnhancedResultsTab):
                 title="Interações por aminoácido ao longo da trajetória",
                 ylabel="% de frames (entradas)",
                 percent_values=True,
+                ligand_atoms=atoms,
+                ligand_interaction_types=atom_interaction_types,
+                ligand_matrix=atom_matrix,
             )
         else:
             residues, interaction_types, matrix = build_trajectory_entry_counts(artifact, str(scope))
+            atoms, atom_interaction_types, atom_matrix = build_ligand_atom_entry_counts(artifact, str(scope))
             self._render_trajectory_stacked_bars(
                 residues,
                 interaction_types,
@@ -1561,7 +1637,266 @@ class ResultsTab(EnhancedResultsTab):
                 title=f"Interações por aminoácido - frame {self._display_ligand_name(str(scope))}",
                 ylabel="Número de interações no frame",
                 percent_values=False,
+                ligand_atoms=atoms,
+                ligand_interaction_types=atom_interaction_types,
+                ligand_matrix=atom_matrix,
             )
+
+    def _render_trajectory_dual_stacked_bars(
+        self,
+        residues: list[str],
+        interaction_types: list[str],
+        matrix: np.ndarray,
+        title: str,
+        ylabel: str,
+        percent_values: bool,
+        ligand_atoms: list[str],
+        ligand_interaction_types: list[str],
+        ligand_matrix: np.ndarray,
+        ligand_title: str,
+    ) -> None:
+        residue_matrix = np.asarray(matrix, dtype=float) if matrix is not None else np.zeros((0, 0), dtype=float)
+        atom_matrix = np.asarray(ligand_matrix, dtype=float)
+        has_residue_axis = bool(residues and interaction_types and residue_matrix.size)
+        has_ligand_axis = bool(ligand_atoms and ligand_interaction_types and atom_matrix.size)
+        if not has_residue_axis and not has_ligand_axis:
+            ax = self.st_fig.add_subplot(111)
+            ax.text(0.5, 0.5, "Sem interacoes para esta visao.", ha="center", va="center")
+            self.st_fig.tight_layout()
+            self.st_canvas.draw()
+            return
+
+        display_residues = self._residue_xticklabels(residues) if has_residue_axis else []
+        display_atoms = [str(atom) for atom in ligand_atoms] if has_ligand_axis else []
+        atom_map_path = self._ligand_atom_map_path() if has_ligand_axis and self._is_trajectory_mode() else None
+        atom_map_image = None
+        if atom_map_path is not None:
+            try:
+                import matplotlib.image as mpimg
+
+                atom_map_image = mpimg.imread(atom_map_path)
+            except Exception:
+                atom_map_image = None
+        has_atom_map = atom_map_image is not None
+        legend_labels: list[str] = []
+        for label in list(interaction_types or []) + list(ligand_interaction_types or []):
+            text = str(label)
+            if text and text not in legend_labels:
+                legend_labels.append(text)
+
+        longest_interaction_label = max((len(str(label)) for label in legend_labels), default=1)
+        longest_x_label = max((len(str(label)) for label in display_residues + display_atoms), default=1)
+        legend_cols = max(1, min(3, len(legend_labels) or 1))
+        legend_rows = max(1, math.ceil(max(1, len(legend_labels)) / legend_cols))
+        legend_col_width = max(2.8, 0.105 * float(longest_interaction_label))
+        total_x = len(display_residues) + len(display_atoms)
+        matrices_for_scale = [
+            np.asarray(candidate, dtype=float)
+            for candidate in (residue_matrix if has_residue_axis else None, atom_matrix if has_ligand_axis else None)
+            if candidate is not None and np.asarray(candidate).size
+        ]
+        positive_segments = [
+            float(value)
+            for candidate in matrices_for_scale
+            for value in np.asarray(candidate, dtype=float).ravel()
+            if float(value) > 0.0
+        ]
+        max_stack_value = max(
+            [
+                float(np.max(np.sum(candidate, axis=1)))
+                for candidate in matrices_for_scale
+                if candidate.ndim == 2 and candidate.size
+            ]
+            or [1.0]
+        )
+        min_label_segment = min(positive_segments) if positive_segments else 1.0
+        readable_segment = max(0.5 if percent_values else 1.0, min_label_segment)
+        target_label_px = 22.0 if percent_values else 18.0
+        figure_dpi = float(getattr(self.st_fig, "dpi", 100.0) or 100.0)
+        dynamic_label_height = (
+            (max_stack_value * 1.18 / max(readable_segment, 1e-6)) * target_label_px / figure_dpi
+        )
+        legend_gap_in = 2.0 / 2.54
+        legend_area_in = 0.42 * legend_rows + 0.38
+        x_label_area_in = min(3.2, 1.35 + 0.018 * float(longest_x_label))
+        width_in = max(
+            17.0,
+            3.8 + (0.48 * total_x),
+            1.8 + (legend_cols * legend_col_width),
+            6.5 + (0.04 * float(longest_x_label)),
+            20.0 if has_atom_map else 0.0,
+        )
+        height_in = max(
+            17.0,
+            10.0 + (0.18 * max(len(display_residues), len(display_atoms))) + legend_area_in + legend_gap_in,
+            dynamic_label_height + x_label_area_in + legend_area_in + legend_gap_in + 2.2,
+        )
+        self._resize_canvas(self.st_fig, self.st_canvas, width_in=width_in, height_in=height_in)
+        self.st_fig.clear()
+
+        def _draw_axis(
+            ax,
+            xlabels: list[str],
+            type_labels: list[str],
+            values_matrix: np.ndarray,
+            panel_title: str,
+            xlabel: str,
+        ) -> None:
+            if not xlabels or not type_labels or values_matrix.size == 0:
+                ax.text(0.5, 0.5, "Sem dados.", ha="center", va="center")
+                ax.set_axis_off()
+                return
+            x = np.arange(len(xlabels))
+            bottoms = np.zeros(len(xlabels), dtype=float)
+            for col_idx, interaction_type in enumerate(type_labels):
+                if interaction_type in self._stats_hidden_interactions:
+                    continue
+                if col_idx >= values_matrix.shape[1]:
+                    continue
+                values = np.asarray(values_matrix[:, col_idx], dtype=float)
+                if not np.any(values > 0.0):
+                    continue
+                bar_color = get_interaction_color(interaction_type)
+                bars = ax.bar(
+                    x,
+                    values,
+                    bottom=bottoms,
+                    label=interaction_type,
+                    color=bar_color,
+                    edgecolor="#17324d",
+                    linewidth=0.65,
+                    width=0.82,
+                )
+                label_color = self._stats_bar_label_color(bar_color)
+                label_fontsize = 7.0 if len(xlabels) > 32 else 7.8
+                for bar, value, base in zip(bars, values, bottoms):
+                    if value <= 0.0:
+                        continue
+                    if percent_values:
+                        text = f"{value:.1f}%" if value < 10.0 else f"{int(round(value))}%"
+                        min_visible = 0.5
+                    else:
+                        text = str(int(round(value)))
+                        min_visible = 1.0
+                    if value >= min_visible:
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2.0,
+                            base + (value / 2.0),
+                            text,
+                            ha="center",
+                            va="center",
+                            fontsize=label_fontsize,
+                            fontweight="bold",
+                            color=label_color,
+                            rotation=0,
+                        )
+                bottoms += values
+
+            ax.set_xticks(x)
+            x_label_fontsize = 9 if len(xlabels) <= 80 else 8
+            ax.set_xticklabels(xlabels, rotation=90, fontsize=x_label_fontsize)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_title(panel_title)
+            ax.tick_params(axis="x", pad=14)
+            ax.tick_params(axis="y", pad=14)
+            ax.set_ylim(0, max(1.0, float(np.max(bottoms)) * 1.12))
+            ax.grid(False)
+
+        def _draw_atom_map_axis(ax) -> None:
+            if atom_map_image is None:
+                ax.set_axis_off()
+                return
+            ax.imshow(atom_map_image)
+            ax.set_title("Estrutura 2D\nIDs dos atomos")
+            ax.set_axis_off()
+
+        if has_residue_axis and has_ligand_axis:
+            if has_atom_map:
+                axes = self.st_fig.subplots(
+                    1,
+                    3,
+                    gridspec_kw={
+                        "width_ratios": [
+                            max(1, len(display_residues)),
+                            max(1, len(display_atoms)),
+                            max(8, int(0.55 * max(1, len(display_atoms)))),
+                        ],
+                        "wspace": 0.25,
+                    },
+                )
+                ax_residue, ax_atom, ax_map = axes[0], axes[1], axes[2]
+            else:
+                axes = self.st_fig.subplots(
+                    1,
+                    2,
+                    gridspec_kw={
+                        "width_ratios": [max(1, len(display_residues)), max(1, len(display_atoms))],
+                        "wspace": 0.22,
+                    },
+                )
+                ax_residue, ax_atom = axes[0], axes[1]
+                ax_map = None
+            _draw_axis(ax_residue, display_residues, list(interaction_types), residue_matrix, title, "Aminoacidos")
+            _draw_axis(ax_atom, display_atoms, ligand_interaction_types, atom_matrix, ligand_title, "Atomos do ligante")
+            if ax_map is not None:
+                _draw_atom_map_axis(ax_map)
+        elif has_residue_axis:
+            ax_residue = self.st_fig.add_subplot(111)
+            _draw_axis(ax_residue, display_residues, list(interaction_types), residue_matrix, title, "Aminoacidos")
+        else:
+            if has_atom_map:
+                ax_atom, ax_map = self.st_fig.subplots(
+                    1,
+                    2,
+                    gridspec_kw={
+                        "width_ratios": [max(1, len(display_atoms)), max(8, int(0.55 * max(1, len(display_atoms))))],
+                        "wspace": 0.25,
+                    },
+                )
+            else:
+                ax_atom = self.st_fig.add_subplot(111)
+                ax_map = None
+            _draw_axis(ax_atom, display_atoms, ligand_interaction_types, atom_matrix, ligand_title, "Atomos do ligante")
+            if ax_map is not None:
+                _draw_atom_map_axis(ax_map)
+
+        legend_handles = [
+            Patch(
+                facecolor=get_interaction_color(label),
+                edgecolor="#17324d",
+                label=label,
+                alpha=0.28 if label in self._stats_hidden_interactions else 1.0,
+            )
+            for label in legend_labels
+        ]
+        legend = self.st_fig.legend(
+            handles=legend_handles,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.015),
+            ncol=legend_cols,
+            fontsize=8,
+            frameon=False,
+            title="Clique para ocultar/mostrar",
+            columnspacing=1.4,
+            handletextpad=0.7,
+            borderaxespad=0.0,
+        )
+        self._install_stats_legend_toggle(legend, list(legend_labels))
+        bottom_fraction = min(
+            0.82,
+            max(
+                0.34,
+                (x_label_area_in + legend_gap_in + legend_area_in) / max(height_in, 1.0),
+            ),
+        )
+        self.st_fig.subplots_adjust(
+            left=max(0.08, min(0.18, 0.065 + (0.004 * len(str(ylabel))))),
+            right=0.985,
+            top=0.90,
+            bottom=bottom_fraction,
+        )
+        self.st_canvas.draw()
 
     def _render_trajectory_stacked_bars(
         self,
@@ -1571,8 +1906,26 @@ class ResultsTab(EnhancedResultsTab):
         title: str,
         ylabel: str,
         percent_values: bool,
+        ligand_atoms: list[str] | None = None,
+        ligand_interaction_types: list[str] | None = None,
+        ligand_matrix: np.ndarray | None = None,
+        ligand_title: str | None = None,
     ) -> None:
         self.st_fig.clear()
+        if ligand_matrix is not None and ligand_atoms and ligand_interaction_types:
+            self._render_trajectory_dual_stacked_bars(
+                residues,
+                interaction_types,
+                matrix,
+                title,
+                ylabel,
+                percent_values,
+                list(ligand_atoms),
+                list(ligand_interaction_types),
+                np.asarray(ligand_matrix, dtype=float),
+                ligand_title or "Interacoes por atomo do ligante",
+            )
+            return
         ax = self.st_fig.add_subplot(111)
         if matrix.size == 0 or not residues or not interaction_types:
             ax.text(0.5, 0.5, "Sem interações para esta visão.", ha="center", va="center")
@@ -1908,17 +2261,6 @@ class ResultsTab(EnhancedResultsTab):
         task_kind_preference = str(getattr(self.cfg, "fp_label_task", "regression") or "regression")
         algorithm_preference = self._selected_fp_algorithm()
         use_otsu_threshold = bool(getattr(self.cfg, "fp_use_otsu_threshold", False))
-        cache_key = (
-            ifp_type,
-            f"{labels_csv}|{labels_id_column}|{labels_column}|{task_kind_preference}|"
-            f"{algorithm_preference}|otsu={int(use_otsu_threshold)}",
-        )
-        if cache_key in self._fp_dashboards:
-            cached = self._fp_dashboards[cache_key]
-            cached_model = str(cached.get("model_name", "") or "")
-            if cached_model != "Unavailable" and not cached_model.startswith("Fallback"):
-                return cached
-
         artifact = self._fp_artifacts.get(ifp_type)
         if artifact is None:
             return None
@@ -1927,8 +2269,32 @@ class ResultsTab(EnhancedResultsTab):
         if wd is None:
             return None
 
-        if self.py_exe and load_fp_detail_artifact(wd, ifp_type) is None:
-            run_fp_detail_analysis(self.py_exe, str(wd), str(ifp_type))
+        seed_override = ""
+        seed_file = str(getattr(self.cfg, "ifp_seed_file", "") or "").strip()
+        if seed_file:
+            try:
+                seed_path = Path(seed_file)
+                if seed_path.exists():
+                    seed_override = seed_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                seed_override = ""
+        random_seed = resolve_fp_random_seed(wd, artifact, seed_override)
+        cache_key = (
+            ifp_type,
+            f"{labels_csv}|{labels_id_column}|{labels_column}|{task_kind_preference}|"
+            f"{algorithm_preference}|otsu={int(use_otsu_threshold)}|seed={random_seed}",
+        )
+        if cache_key in self._fp_dashboards:
+            cached = self._fp_dashboards[cache_key]
+            cached_model = str(cached.get("model_name", "") or "")
+            if cached_model != "Unavailable" and not cached_model.startswith("Fallback"):
+                return cached
+
+        detail_error = ""
+        if load_fp_detail_artifact(wd, ifp_type) is None:
+            detail_result = run_fp_detail_analysis(self.py_exe or "", str(wd), str(ifp_type))
+            if isinstance(detail_result, dict) and detail_result.get("error"):
+                detail_error = str(detail_result.get("error") or "")
 
         local_dashboard = build_fp_analysis_dashboard(
             wd,
@@ -1939,6 +2305,7 @@ class ResultsTab(EnhancedResultsTab):
             algorithm_preference=algorithm_preference,
             task_kind_preference=task_kind_preference,
             use_otsu_threshold=use_otsu_threshold,
+            random_seed=random_seed,
         )
         dashboard = local_dashboard
         helper_dashboard = None
@@ -1955,6 +2322,7 @@ class ResultsTab(EnhancedResultsTab):
                 algorithm_preference=algorithm_preference,
                 task_kind_preference=task_kind_preference,
                 use_otsu_threshold=use_otsu_threshold,
+                random_seed=random_seed,
             )
             helper_model = str(helper_dashboard.get("model_name", "") or "")
             if "error" not in helper_dashboard and helper_model != "Unavailable" and not helper_model.startswith("Fallback"):
@@ -1973,6 +2341,8 @@ class ResultsTab(EnhancedResultsTab):
                 + (" " if str(dashboard.get("model_note", "") or "").strip() else "")
                 + f" Falha no helper do luna-env: {helper_error}"
             ).strip()
+        if detail_error and not dashboard.get("detail_available"):
+            dashboard["detail_error"] = detail_error
         self._fp_dashboards[cache_key] = dashboard
         return dashboard
 
@@ -2001,6 +2371,8 @@ class ResultsTab(EnhancedResultsTab):
                 cleaned = piece.strip()
                 if not cleaned:
                     continue
+                if "_" in cleaned:
+                    cleaned = cleaned.split("_", 1)[0]
                 try:
                     feature_id = int(float(cleaned))
                 except Exception:
@@ -2089,8 +2461,10 @@ class ResultsTab(EnhancedResultsTab):
                 feature
                 for feature in list(dashboard.get("features", []) or [])
                 if float(feature.get("importance_pvalue", 1.0) or 1.0) < cutoff
+                or bool(feature.get("importance_selected", False))
             ],
             key=lambda row: (
+                str(row.get("assigned_level", "") or ""),
                 float(row.get("importance_pvalue", 1.0) or 1.0),
                 -float(row.get("importance_score", 0.0) or 0.0),
                 int(row.get("feature_id", 0) or 0),
@@ -2190,38 +2564,61 @@ class ResultsTab(EnhancedResultsTab):
             )
             or 0
         )
+        random_seed = int(dashboard.get("random_seed", 0) or 0)
+        detail_note = ""
+        if not dashboard.get("detail_available"):
+            detail_note = str(dashboard.get("detail_error", "") or "").strip()
         selection_mode = str(filtered_dashboard.get("important_selection", "") or "")
-        selection_text = (
-            f"selecao manual ({len(important)} de {len(filtered_dashboard.get('manual_feature_ids', []) or [])} IDs encontrados)"
-            if selection_mode == "manual"
-            else f"selecionadas por p < {pvalue_cutoff:.2f}"
+        if selection_mode == "manual":
+            selection_text = (
+                f"selecao manual ({len(important)} de {len(filtered_dashboard.get('manual_feature_ids', []) or [])} IDs encontrados)"
+            )
+        elif selection_mode == "per_level_pvalue_or_otsu":
+            selection_text = f"selecionadas por modelo por nivel (p < {pvalue_cutoff:.2f} ou Otsu)"
+        else:
+            selection_text = f"selecionadas por p < {pvalue_cutoff:.2f}"
+        level_assignment = dashboard.get("level_assignment") or {}
+        assigned_matrix = dashboard.get("assigned_matrix") or {}
+        assigned_count = int(level_assignment.get("assigned_count", 0) or 0)
+        undetermined_count = int(level_assignment.get("undetermined_count", 0) or 0)
+        assigned_matrix_note = (
+            " | matriz FP regravada com niveis"
+            if bool(assigned_matrix.get("rewritten", False))
+            else ""
         )
         self.fp_analysis_status.setText(
             f"{dashboard.get('total_molecules', 0)} moleculas - {len(features)} features"
         )
         self.fp_analysis_summary.setText(
-            f"Limiar de atribuicao: {threshold_pct:.2f}% | "
+            f"Limiar de atribuicao da classe: {threshold_pct:.2f}% | "
             f"fonte: {threshold_source or 'z-score'}"
             + (" (Otsu habilitado)" if use_otsu_threshold else "")
             + " | "
-            f"Features confiaveis: {reliable_count}/{len(features)} | "
-            f"Elegiveis para importancia: {importance_eligible_count}/{len(features)} | "
+            f"Features confiaveis por classe: {reliable_count}/{len(features)} | "
+            f"Features confiaveis por nivel: {assigned_count}/{len(features)}"
+            + (f" ({undetermined_count} indeterminados)" if undetermined_count else "")
+            + assigned_matrix_note
+            + " | "
+            f"Features elegiveis para importancia: {importance_eligible_count}/{len(features)} | "
             f"Features importantes: {len(important)} | "
             f"Rotulos: {'CSV externo' if label_source == 'external_csv' else 'fallback automatico'}"
             + (f" [ID: {labels_id_column}]" if label_source == 'external_csv' and labels_id_column else "")
             + (f" ({labels_column})" if label_source == 'external_csv' and labels_column else "")
             + (f" | pareadas: {matched_molecules}" if label_source == "external_csv" else "")
             + f" | tarefa: {'regressao' if label_kind == 'regression' else 'classificacao'}"
+            + f" | seed: {random_seed}"
+            + (f" | detalhe FP: indisponivel ({detail_note})" if detail_note else "")
             + f" | {selection_text} | "
             + f"Algoritmo: {algorithm_preference} | "
             + f"Modelo: {model_name}. {model_note}"
         )
         self.fp_analysis_formula.setText(
-            "p-value da importancia: p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), "
+            "Equacao de Keiser and Hert [1] para transformar os s-score dos coeficientes de importancias em p-values: "
+            "p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), "
             "onde z e o Z-score Importance mostrado na tabela para a feature. "
             "A coluna 'Cobertura (%)' segue o bit na base inteira, mas os percentuais do perfil "
             "da base usam apenas as ocorrencias classificadas do bit. "
-            f"Os graficos abaixo usam {selection_text}."
+            f"Os graficos abaixo usam {selection_text}; os modelos estocasticos usam seed {random_seed}."
         )
         interaction_rule = (
             f"limiar do par interacao/residuo = {pair_threshold_pct:.2f}% "
@@ -2241,12 +2638,15 @@ class ResultsTab(EnhancedResultsTab):
         )
         self.fp_analysis_method.setText(
             f"Configuracao atual: cutoff p-value = {pvalue_cutoff:.2f}; "
-            f"tarefa = {task_kind_preference}; algoritmo solicitado = {algorithm_preference}; modelo usado = {model_name}. "
+            f"tarefa = {task_kind_preference}; algoritmo solicitado = {algorithm_preference}; modelo usado = {model_name}; seed = {random_seed}. "
             f"Z-score de classe: media = {class_zscore_mean:.4f}, desvio = {class_zscore_std:.4f}. "
             f"Z-score Importance: media = {importance_zscore_mean:.4f}, desvio = {importance_zscore_std:.4f}. "
+            f"Os modelos de importancia sao ajustados separadamente por nivel assinado; fingerprints sem nivel "
+            f"assinado ficam fora do treino e da importancia. "
             f"Interacao prevalente: para cada feature importante, calcula-se a frequencia percentual "
             f"do par tipo de interacao/residuo nos shells reais do LUNA. O residuo so aparece no grafico "
             f"quando o par exato passa o {interaction_rule}."
+            + (f" Sem fp_detail, estes dois graficos nao recebem contagens de interacao/residuo: {detail_note}" if detail_note else "")
         )
         self.fp_analysis_table.setSortingEnabled(False)
         self.fp_analysis_table.setRowCount(len(features))
@@ -2263,6 +2663,16 @@ class ResultsTab(EnhancedResultsTab):
             if missing_molecules > 0:
                 profile_parts.append(f"Sem ocorrencia na base: {missing_molecules}")
             profile = "; ".join(profile_parts)
+            shell_levels = self._format_shell_levels(
+                feature.get("shell_levels"),
+                feature.get("shell_level_breakdown"),
+            )
+            collision_levels = self._format_shell_levels(
+                feature.get("collision_shell_levels"),
+                feature.get("collision_level_breakdown"),
+            )
+            assigned_level = str(feature.get("assigned_level", "") or "").strip()
+            assigned_level_display = assigned_level or str(feature.get("assigned_level_label", "") or "").strip()
             items = [
                 _sortable_item(str(feature_id), feature_id),
                 _sortable_item(str(feature.get("molecule_hits", 0)), int(feature.get("molecule_hits", 0) or 0)),
@@ -2274,6 +2684,9 @@ class ResultsTab(EnhancedResultsTab):
                 _sortable_item(f"{float(feature.get('importance_zscore', 0.0)):.3f}", float(feature.get("importance_zscore", 0.0) or 0.0)),
                 _sortable_item(f"{float(feature.get('importance_pvalue', 1.0)):.6f}", float(feature.get("importance_pvalue", 1.0) or 1.0)),
                 _sortable_item(str(feature.get("collision_hits", 0)), int(feature.get("collision_hits", 0) or 0)),
+                _sortable_item(assigned_level_display or "-", assigned_level_display),
+                _sortable_item(shell_levels or "-", shell_levels),
+                _sortable_item(collision_levels or "-", collision_levels),
                 _sortable_item(profile, profile),
             ]
             for col_index, item in enumerate(items):
@@ -2401,7 +2814,7 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_xlabel("Assignment frequency of each class (%)")
         ax.set_ylabel("Feature id")
         ax.set_yticks(y_pos)
-        ax.set_yticklabels([str(feature.get("feature_id", "")) for feature in features])
+        ax.set_yticklabels([self._fp_feature_label(feature) for feature in features])
         ax.invert_yaxis()
         ax.set_title("Frequencia de atribuicao de classes nas features importantes")
         handles, labels_text = ax.get_legend_handles_labels()
@@ -2447,7 +2860,7 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_xlabel("% Fingerprints containing the feature")
         ax.set_ylabel("Feature id")
         ax.set_yticks(y_pos)
-        ax.set_yticklabels([str(feature.get("feature_id", "")) for feature in features])
+        ax.set_yticklabels([self._fp_feature_label(feature) for feature in features])
         ax.invert_yaxis()
         ax.set_title("Cobertura das features importantes e importancia do modelo")
 
@@ -2501,7 +2914,7 @@ class ResultsTab(EnhancedResultsTab):
         norm = BoundaryNorm(range(len(colors) + 1), cmap.N)
         im = ax.imshow(matrix, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
         ax.set_xticks(list(range(len(features))))
-        ax.set_xticklabels([str(feature.get("feature_id", "")) for feature in features], rotation=90, fontsize=7)
+        ax.set_xticklabels([self._fp_feature_label(feature) for feature in features], rotation=90, fontsize=7)
         _apply_tick_labels(
             ax,
             [self._display_ligand_name(entry) for entry in entries],
@@ -2591,7 +3004,7 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_xlabel("Assignment frequency of each interaction (%)")
         ax.set_ylabel("Feature id")
         ax.set_yticks(y_pos)
-        ax.set_yticklabels([str(feature.get("feature_id", "")) for feature in features])
+        ax.set_yticklabels([self._fp_feature_label(feature) for feature in features])
         ax.invert_yaxis()
         ax.set_title("Frequencia de atribuicao da interacao prevalente nas features importantes")
         handles, labels_text = ax.get_legend_handles_labels()
@@ -2640,7 +3053,13 @@ class ResultsTab(EnhancedResultsTab):
         ax = self.fp_interaction_fig.add_subplot(111)
 
         if not all_features:
-            ax.text(0.5, 0.5, "Sem interacoes prevalentes confiaveis nas features importantes.", ha="center", va="center")
+            reason = str(dashboard.get("detail_error", "") or "").strip()
+            if not reason and not dashboard.get("detail_available"):
+                reason = "O artefato fp_detail nao esta disponivel para este IFP."
+            message = "Sem interacoes prevalentes confiaveis nas features importantes."
+            if reason:
+                message += "\n" + textwrap.fill(reason, width=80)
+            ax.text(0.5, 0.5, message, ha="center", va="center")
             self.fp_interaction_fig.tight_layout()
             self.fp_interaction_canvas.draw()
             return
@@ -2655,7 +3074,7 @@ class ResultsTab(EnhancedResultsTab):
         ]
         bars = ax.bar(x, heights, color=colors) if features else []
         ax.set_xticks(x)
-        ax.set_xticklabels([str(feature.get("feature_id", "")) for feature in features], rotation=45, ha="right")
+        ax.set_xticklabels([self._fp_feature_label(feature) for feature in features], rotation=45, ha="right")
         ax.set_ylabel("Numero de ligantes")
         ax.set_xlabel("Feature id")
         ax.set_title("Interacao e residuo prevalentes nas features importantes")
@@ -2723,7 +3142,13 @@ class ResultsTab(EnhancedResultsTab):
         ax = self.fp_interaction_heatmap_fig.add_subplot(111)
 
         if not features or not entries:
-            ax.text(0.5, 0.5, "Sem interacoes prevalentes para gerar o heatmap.", ha="center", va="center")
+            reason = str(dashboard.get("detail_error", "") or "").strip()
+            if not reason and not dashboard.get("detail_available"):
+                reason = "O artefato fp_detail nao esta disponivel para este IFP."
+            message = "Sem interacoes prevalentes para gerar o heatmap."
+            if reason:
+                message += "\n" + textwrap.fill(reason, width=80)
+            ax.text(0.5, 0.5, message, ha="center", va="center")
             self.fp_interaction_heatmap_fig.tight_layout()
             self.fp_interaction_heatmap_canvas.draw()
             return
@@ -2751,7 +3176,7 @@ class ResultsTab(EnhancedResultsTab):
         norm = BoundaryNorm(range(len(colors) + 1), cmap.N)
         im = ax.imshow(matrix, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
         ax.set_xticks(list(range(len(features))))
-        ax.set_xticklabels([str(feature.get("feature_id", "")) for feature in features], rotation=90, fontsize=7)
+        ax.set_xticklabels([self._fp_feature_label(feature) for feature in features], rotation=90, fontsize=7)
         _apply_tick_labels(
             ax,
             [self._display_ligand_name(entry) for entry in entries],
@@ -2803,7 +3228,8 @@ class ResultsTab(EnhancedResultsTab):
                     row.get("dominant_nature")
                     or next(iter(row.get("nature_tags", []) or []), "feature")
                 )
-                label = f"{feature_id} - {dominant_nature}"
+                levels = self._format_shell_levels(row.get("shell_levels"), row.get("shell_level_breakdown"))
+                label = f"{feature_id} - {dominant_nature}" + (f" | L{levels}" if levels else "")
                 self.cb_fp_session_feature.addItem(label, feature_id)
         idx = self.cb_fp_session_feature.findData(current)
         self.cb_fp_session_feature.setCurrentIndex(idx if idx >= 0 else 0)
@@ -2852,9 +3278,16 @@ class ResultsTab(EnhancedResultsTab):
 
         natures = ", ".join(row.get("nature_tags", []))
         original = ", ".join(str(value) for value in row.get("original_features", []))
+        levels = self._format_shell_levels(row.get("shell_levels"), row.get("shell_level_breakdown"))
+        collision_levels = self._format_shell_levels(
+            row.get("collision_shell_levels"),
+            row.get("collision_level_breakdown"),
+        )
         self.fp_session_info.setText(
             f"Feature {feature_id} em {entry_name}. Natureza: {natures or '-'}"
             + (f" | Shells originais: {original}" if original else "")
+            + (f" | Niveis shell: {levels}" if levels else "")
+            + (f" | Niveis em colisao: {collision_levels}" if collision_levels else "")
         )
 
     def _sync_fp_session_from_table(self) -> None:
@@ -2925,8 +3358,12 @@ class ResultsTab(EnhancedResultsTab):
             QMessageBox.critical(self, "Erro ao gerar sessao", result["error"])
             return
 
+        out_path = Path(str(result.get("output") or out_path))
         self._generated_fp_session = str(out_path)
-        self.fp_session_status.setText(f"Sessao salva em {out_path.name}")
+        if str(result.get("fallback", "")) == "pml":
+            self.fp_session_status.setText(f"Fallback PML salvo em {out_path.name}")
+        else:
+            self.fp_session_status.setText(f"Sessao salva em {out_path.name}")
         self._load_existing_fp_sessions(wd)
         self._select_fp_session(str(out_path))
 
@@ -2935,7 +3372,8 @@ class ResultsTab(EnhancedResultsTab):
         fp_pse_root = wd / "results" / "fingerprints" / "pse"
         if not fp_pse_root.exists():
             return
-        for path in sorted(fp_pse_root.glob("**/*.pse")):
+        paths = sorted(list(fp_pse_root.glob("**/*.pse")) + list(fp_pse_root.glob("**/*.pml")))
+        for path in paths:
             item = QListWidgetItem(path.name)
             item.setData(Qt.ItemDataRole.UserRole, str(path))
             self.fp_session_list.addItem(item)

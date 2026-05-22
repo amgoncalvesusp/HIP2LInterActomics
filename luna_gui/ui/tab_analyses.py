@@ -126,23 +126,33 @@ class AnalysesTab(QWidget):
         btn_fp = QPushButton("...")
         btn_fp.clicked.connect(lambda: self._pick_save(self.fp_out_edit, "fingerprints.csv"))
         row = QHBoxLayout(); row.addWidget(self.fp_out_edit); row.addWidget(btn_fp)
+        self.ifp_seed_edit = QLineEdit()
+        self.ifp_seed_edit.setPlaceholderText("(opcional: arquivo .txt com um inteiro; padrao = 0)")
+        self.ifp_seed_edit.setToolTip(
+            "Carrega um seed para as etapas estocasticas de importancia dos fingerprints. "
+            "Se vazio, a GUI usa seed 0 e salva seed_ifp_H/E/F_importance.txt nos resultados."
+        )
+        btn_ifp_seed = QPushButton("...")
+        btn_ifp_seed.clicked.connect(self._pick_ifp_seed)
+        seed_row = QHBoxLayout(); seed_row.addWidget(self.ifp_seed_edit); seed_row.addWidget(btn_ifp_seed)
         fp_form.addRow("Saída IFP:", self._wrap(row))
 
         self.fp_labels_box = QGroupBox("Rótulos para importância de fingerprints")
         self.fp_labels_box.setCheckable(True)
         self.fp_labels_box.setChecked(False)
         self.fp_labels_box.setToolTip(
-            "Carrega um CSV supervisionado para usar os rótulos das moléculas "
-            "no cálculo de importância das features de fingerprint."
+            "Configura rótulos supervisionados e seed para o cálculo de importância "
+            "das features de fingerprint."
         )
         fp_labels_form = QFormLayout(self.fp_labels_box)
         fp_labels_help = QLabel(
-            "Se marcado, a aba FP análises usa este CSV para treinar a importância das features. "
-            "Informe o arquivo, a coluna do ID do ligante e a coluna que contém os rótulos/classes."
+            "Se um CSV for informado, a aba FP análises usa estes rótulos para treinar a importância "
+            "das features. O seed controla apenas os modelos estocásticos da importância."
         )
         fp_labels_help.setWordWrap(True)
         fp_labels_help.setProperty("muted", True)
         fp_labels_form.addRow(fp_labels_help)
+        fp_labels_form.addRow("Seed da importância:", self._wrap(seed_row))
 
         self.fp_labels_edit = QLineEdit()
         self.fp_labels_edit.setPlaceholderText("(opcional: CSV/TSV com ligand_id + coluna de rótulo)")
@@ -252,6 +262,10 @@ class AnalysesTab(QWidget):
         pse_f_layout.addWidget(QLabel(
             "Se marcado, LUNA gera sessões PyMOL contendo apenas os tipos selecionados."
         ))
+        self.cb_pse_select_all = QCheckBox("Selecionar/desselecionar todas")
+        self.cb_pse_select_all.setToolTip("Marca ou desmarca todos os tipos de interacao do filtro PSE.")
+        self.cb_pse_select_all.toggled.connect(self._set_all_pse_interaction_types)
+        pse_f_layout.addWidget(self.cb_pse_select_all)
         self.pse_types_list = QListWidget()
         self.pse_types_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self.pse_types_list.setMaximumHeight(140)
@@ -261,6 +275,7 @@ class AnalysesTab(QWidget):
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(Qt.CheckState.Unchecked)
             self.pse_types_list.addItem(it)
+        self.pse_types_list.itemChanged.connect(self._sync_pse_select_all_checkbox)
         pse_f_layout.addWidget(self.pse_types_list)
         # ----- Advanced (T2.5 + T2.6) -----
         self.adv_box = QGroupBox(
@@ -374,6 +389,30 @@ class AnalysesTab(QWidget):
     def _wrap(self, sub) -> QWidget:
         w = QWidget(); w.setLayout(sub); return w
 
+    def _set_all_pse_interaction_types(self, checked: bool) -> None:
+        if not hasattr(self, "pse_types_list"):
+            return
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self.pse_types_list.blockSignals(True)
+        try:
+            for i in range(self.pse_types_list.count()):
+                self.pse_types_list.item(i).setCheckState(state)
+        finally:
+            self.pse_types_list.blockSignals(False)
+
+    def _sync_pse_select_all_checkbox(self) -> None:
+        if not hasattr(self, "cb_pse_select_all"):
+            return
+        total = self.pse_types_list.count()
+        checked = sum(
+            1
+            for i in range(total)
+            if self.pse_types_list.item(i).checkState() == Qt.CheckState.Checked
+        )
+        self.cb_pse_select_all.blockSignals(True)
+        self.cb_pse_select_all.setChecked(total > 0 and checked == total)
+        self.cb_pse_select_all.blockSignals(False)
+
     def _pick_save(self, edit: QLineEdit, default_name: str) -> None:
         f, _ = QFileDialog.getSaveFileName(self, "Salvar como", default_name, "CSV (*.csv)")
         if f:
@@ -393,6 +432,16 @@ class AnalysesTab(QWidget):
         )
         if f:
             self.fp_labels_edit.setText(f)
+
+    def _pick_ifp_seed(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(
+            self,
+            "Arquivo seed IFP",
+            "",
+            "Texto (*.txt);;Todos (*)",
+        )
+        if f:
+            self.ifp_seed_edit.setText(f)
 
     def _pick_fbm(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, "Arquivo de binding modes", "",
@@ -461,6 +510,7 @@ class AnalysesTab(QWidget):
         c.ifp_length = self.sp_length.value()
         c.ifp_bit = self.cb_bit.isChecked()
         c.ifp_output = self.fp_out_edit.text().strip()
+        c.ifp_seed_file = self.ifp_seed_edit.text().strip()
         c.fp_labels_csv = self.fp_labels_edit.text().strip() if self.fp_labels_box.isChecked() else ""
         c.fp_labels_id_column = self.fp_label_id_column_edit.text().strip() if self.fp_labels_box.isChecked() else ""
         c.fp_labels_column = self.fp_label_column_edit.text().strip() if self.fp_labels_box.isChecked() else ""
