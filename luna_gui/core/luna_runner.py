@@ -2,8 +2,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from .project import ProjectConfig
+
+
+def safe_nproc(value: int | None) -> int:
+    """Return a LUNA-safe nproc value for the current platform."""
+    nproc = max(1, int(value or 1))
+    if sys.platform == "win32":
+        return 1
+    return nproc
 
 
 def build_command(
@@ -67,7 +76,7 @@ def build_command(
 
     # Always pass nproc explicitly — LUNA's default is -1 (all cores),
     # which breaks on Windows due to a multiprocessing pickling bug.
-    cmd += ["--nproc", str(max(1, cfg.nproc or 1))]
+    cmd += ["--nproc", str(safe_nproc(cfg.nproc))]
 
     return cmd
 

@@ -165,6 +165,7 @@ def _conda_executables_for_root(root: Path) -> list[Path]:
 def _common_conda_roots() -> list[Path]:
     home = Path.home()
     roots = [
+        home / ".hip2linteractomics" / "miniforge3",
         home / ".conda",
         home / "miniconda3",
         home / "anaconda3",

@@ -37,6 +37,7 @@ if [[ -z "${CONDA_BIN}" ]] && command -v conda >/dev/null 2>&1; then
     CONDA_BIN="$(command -v conda)"
 elif [[ -z "${CONDA_BIN}" ]]; then
     for candidate in \
+        "$HOME/.hip2linteractomics/miniforge3/bin/conda" \
         "$HOME/miniconda3/bin/conda" \
         "$HOME/anaconda3/bin/conda" \
         "$HOME/miniforge3/bin/conda" \

@@ -1,0 +1,87 @@
+name: hip2linteractomics
+base: core22
+version: "0.1"
+summary: GUI for LUNA protein-ligand interaction analysis
+description: |
+  HIP2LInterActomics is a PyQt GUI and terminal workflow for LUNA-based
+  protein-ligand interaction analysis, fingerprints, similarity matrices,
+  PyMOL sessions and reports.
+
+  The snap packages the GUI and launchers for Linux. The heavy LUNA runtime
+  remains in the dedicated conda environment luna-env, which can be created
+  from the application's setup tab or with dist/linux/install_hip2linteractomics.sh.
+
+grade: devel
+confinement: classic
+
+architectures:
+  - build-on: amd64
+
+apps:
+  hip2linteractomics:
+    command: bin/hip2linteractomics-snap-launcher
+    desktop: app/dist/linux/hip2linteractomics.desktop
+    environment:
+      PYTHONNOUSERSITE: "1"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      MPLCONFIGDIR: "$SNAP_USER_COMMON/matplotlib"
+      HIP2LINTERACTOMICS_SNAP: "1"
+    plugs:
+      - desktop
+      - desktop-legacy
+      - home
+      - network
+      - network-bind
+      - opengl
+      - removable-media
+      - wayland
+      - x11
+
+parts:
+  hip2linteractomics:
+    plugin: nil
+    source: .
+    build-packages:
+      - python3
+    stage-packages:
+      - libdbus-1-3
+      - libegl1
+      - libfontconfig1
+      - libfreetype6
+      - libgl1
+      - libx11-6
+      - libx11-xcb1
+      - libxcb-cursor0
+      - libxcb-icccm4
+      - libxcb-image0
+      - libxcb-keysyms1
+      - libxcb-randr0
+      - libxcb-render-util0
+      - libxcb-shape0
+      - libxcb-sync1
+      - libxcb-xfixes0
+      - libxcb-xinerama0
+      - libxkbcommon-x11-0
+      - python3
+      - python3-matplotlib
+      - python3-numpy
+      - python3-pyqt6
+      - python3-scipy
+      - python3-sklearn
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/app" "$CRAFT_PART_INSTALL/bin"
+      cp -a \
+        LICENSE \
+        README.md \
+        dist \
+        hipplinteractomics_terminal.py \
+        luna_gui \
+        requirements.txt \
+        run.py \
+        "$CRAFT_PART_INSTALL/app/"
+      install -Dm755 snap/local/hip2linteractomics-snap-launcher.sh \
+        "$CRAFT_PART_INSTALL/bin/hip2linteractomics-snap-launcher"
+      install -Dm644 snap/local/hip2linteractomics.desktop \
+        "$CRAFT_PART_INSTALL/app/dist/linux/hip2linteractomics.desktop"

@@ -32,6 +32,7 @@ if not defined PYTHON_EXE (
 
 if not defined PYTHON_EXE (
     for %%P in (
+        "%USERPROFILE%\.hip2linteractomics\miniforge3\envs\luna-gui\python.exe"
         "%USERPROFILE%\.conda\envs\luna-gui\python.exe"
         "%USERPROFILE%\miniconda3\envs\luna-gui\python.exe"
         "%USERPROFILE%\anaconda3\envs\luna-gui\python.exe"

@@ -1,28 +1,54 @@
-HIP²LInterActomics — Distribuição Windows
-================================
+HIP2LInterActomics - Distribuicao Windows
+========================================
 
-Conteúdo:
-  run_gui.bat  — launcher que isola o PATH e chama o Python correto do env luna-gui
+Conteudo
+--------
 
-Instalação (uma única vez):
-  1) Instale o Miniconda: https://docs.conda.io/en/latest/miniconda.html
-  2) Abra um PowerShell / Prompt e rode:
-       conda create -n luna-gui python=3.11 -y
-       conda activate luna-gui
-       pip install -r ..\..\requirements.txt
-  3) O launcher tenta detectar o python.exe do env luna-gui automaticamente.
-     Se precisar forçar outro caminho, defina a variável:
-       set LUNA_GUI_PYTHON=C:\caminho\para\python.exe
+  install_hip2linteractomics.ps1  Instalador para maquina Windows nova
+  install_hip2linteractomics.bat  Wrapper para executar o PowerShell installer
+  run_gui.bat                     Launcher da GUI
 
-Uso:
-  Duplo-clique em run_gui.bat  — ou rode pelo terminal:
-       .\run_gui.bat
+Instalacao Recomendada
+----------------------
 
-A primeira vez que abrir, vá à aba "1. Setup" e clique em
-"Instalar LUNA" para criar o ambiente luna-env (onde o LUNA de
-fato roda; é separado do luna-gui).
+Abra PowerShell ou Anaconda Prompt na raiz do repositorio e rode:
 
-Limitações conhecidas no Windows:
-  - nproc (paralelização) fica travado em 1 devido a um bug do
-    LUNA no modo spawn do multiprocessing do Windows. Para rodar
-    milhares de ligantes em paralelo, use Linux ou WSL2.
+  .\dist\windows\install_hip2linteractomics.ps1
+
+Se a politica de execucao bloquear scripts, use:
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\dist\windows\install_hip2linteractomics.ps1
+
+O instalador:
+
+  - detecta Conda/Miniforge/Miniconda;
+  - instala Miniforge em %USERPROFILE%\.hip2linteractomics\miniforge3 se Conda nao existir;
+  - cria ou atualiza luna-gui;
+  - cria ou atualiza luna-env;
+  - instala LUNA, RDKit, Open Babel, PyMOL e dependencias analiticas;
+  - aplica o patch de compatibilidade usado pela GUI;
+  - cria um atalho HIP2LInterActomics.cmd na area de trabalho.
+
+Uso
+---
+
+  .\dist\windows\run_gui.bat
+
+Snap No Windows
+---------------
+
+O formato .snap nao e um instalador nativo do Windows. Para Windows, use o
+instalador PowerShell acima. Se voce precisa do pacote .snap ou de paralelismo
+real com nproc > 1, use Linux ou WSL2.
+
+Paralelismo No Windows
+----------------------
+
+No Windows nativo, o LUNA usa multiprocessing em modo spawn. Esse modo causa
+falhas conhecidas em fluxos internos do LUNA quando nproc > 1. Por estabilidade,
+a GUI e o script terminal limitam nproc para 1 no Windows nativo.
+
+Para usar varios nucleos:
+
+  - rode a versao Linux em uma maquina Linux;
+  - ou use WSL2/Ubuntu e execute o instalador Linux.

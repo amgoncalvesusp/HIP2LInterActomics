@@ -324,6 +324,13 @@ def run_from_config(config_path: Path, dry_run: bool = False) -> int:
     cfg = ProjectConfig(**project_data)
     _resolve_selected_ligands(cfg, terminal_data)
     cfg.force_python_api = True
+    safe_nproc = luna_runner.safe_nproc(cfg.nproc)
+    if cfg.nproc != safe_nproc:
+        print(
+            "[terminal] Aviso: no Windows nativo o LUNA foi limitado para nproc=1. "
+            "Use Linux ou WSL2 para paralelismo real."
+        )
+        cfg.nproc = safe_nproc
 
     py_exe = _resolve_luna_python(terminal_data)
     if not em.luna_installed(py_exe):

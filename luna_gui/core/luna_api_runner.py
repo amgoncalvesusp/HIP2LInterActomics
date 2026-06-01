@@ -11,6 +11,7 @@ import json
 import re
 from pathlib import Path
 
+from .luna_runner import safe_nproc
 from .project import ProjectConfig, resolve_ifp_output_paths, resolve_sim_matrix_output_paths
 
 
@@ -1896,7 +1897,7 @@ def write_params(workdir: str | Path, cfg: ProjectConfig, entries: list[str]) ->
         "entry_specs": entry_specs,
         "fork_from": cfg.fork_from,
         "overwrite": cfg.overwrite,
-        "nproc": max(1, cfg.nproc or 1),
+        "nproc": safe_nproc(cfg.nproc),
         "add_h": protein_flags["add_h"],
         "ph": protein_flags["ph"],
         "amend_mol": protein_flags["amend_mol"],

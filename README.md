@@ -35,14 +35,56 @@ O programa transforma arquivos estruturais em tabelas, mapas de calor, fingerpri
 luna_gui/
   luna_gui/                         Código-fonte da interface e dos runtimes
   tests/                            Testes automatizados principais
+  dist/conda/                       Especificações dos ambientes luna-gui/luna-env
+  dist/linux/install_hip2linteractomics.sh  Instalador Linux completo
   dist/linux/run_gui.sh             Launcher Linux
+  dist/linux/build_snap.sh          Build do pacote .snap em Linux
+  dist/windows/install_hip2linteractomics.ps1  Instalador Windows completo
   dist/windows/run_gui.bat          Launcher Windows
+  snap/snapcraft.yaml               Receita Snapcraft Linux
   hipplinteractomics_terminal.py    Execução completa por arquivo de configuração
   requirements.txt                  Dependências da GUI
   run.py                            Launcher simples: python run.py
 ```
 
 Pastas de resultados, workdirs de teste e arquivos temporários gerados durante análises podem ser grandes e não devem ser versionados.
+
+## Instalação Automática
+
+Para uma máquina nova, prefira os instaladores completos. Eles detectam Conda,
+instalam Miniforge quando necessário, criam os ambientes `luna-gui` e
+`luna-env`, instalam LUNA/RDKit/Open Babel/PyMOL e aplicam o patch de
+compatibilidade do projeto.
+
+### Linux
+
+```bash
+chmod +x dist/linux/install_hip2linteractomics.sh
+./dist/linux/install_hip2linteractomics.sh
+./dist/linux/run_gui.sh
+```
+
+### Windows
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\dist\windows\install_hip2linteractomics.ps1
+.\dist\windows\run_gui.bat
+```
+
+### Pacote Snap Linux
+
+`.snap` é um formato Linux. Ele não é o instalador apropriado para Windows.
+Para gerar o Snap em uma máquina Linux com Snapcraft:
+
+```bash
+sudo snap install snapcraft --classic
+./dist/linux/build_snap.sh
+sudo snap install ./hip2linteractomics_0.1_amd64.snap --classic --dangerous
+hip2linteractomics
+```
+
+No Windows, use o instalador PowerShell acima. Se precisar de paralelismo real
+com `nproc > 1`, use Linux ou WSL2.
 
 ## Instalação Rápida
 
@@ -247,7 +289,10 @@ Instale as dependências gráficas do sistema e confirme que a sessão X11/Wayla
 
 ### Paralelização No Windows
 
-No Windows, alguns fluxos do LUNA têm limitações com `multiprocessing` em modo `spawn`. Para bibliotecas muito grandes, prefira Linux ou WSL2 e aumente `nproc` na aba `4. Executar`.
+No Windows nativo, o LUNA usa `multiprocessing` em modo `spawn`, que falha em
+fluxos internos quando `nproc > 1`. Por estabilidade, a GUI e o script terminal
+limitam `nproc` para `1` no Windows. Para bibliotecas grandes e uso real de
+vários núcleos, rode a versão Linux em uma máquina Linux ou no WSL2.
 
 ### Projetos Antigos
 

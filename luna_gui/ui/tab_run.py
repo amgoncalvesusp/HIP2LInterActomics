@@ -42,15 +42,16 @@ class RunTab(QWidget):
         opt_box = QGroupBox("Opções de execução")
         form = QFormLayout(opt_box)
         self.sp_nproc = QSpinBox()
-        self.sp_nproc.setRange(1, max(1, (os.cpu_count() or 1)))
+        max_nproc = 1 if sys.platform == "win32" else max(1, (os.cpu_count() or 1))
+        self.sp_nproc.setRange(1, max_nproc)
         # Default to 1 on Windows: LUNA's multiprocessing mode fails on spawn
         # ("cannot pickle '_thread.lock' object"). Linux/Mac use fork and are fine.
         default_np = 1 if sys.platform == "win32" else max(1, (os.cpu_count() or 2) // 2)
         self.sp_nproc.setValue(default_np)
         if sys.platform == "win32":
             self.sp_nproc.setToolTip(
-                "No Windows, recomenda-se 1 — LUNA tem um bug de pickling "
-                "com multiprocessing (spawn) que quebra com nproc > 1."
+                "No Windows nativo, o LUNA roda com nproc=1. Para paralelismo real, "
+                "use Linux ou WSL2, onde o multiprocessing usa fork."
             )
         else:
             self.sp_nproc.setToolTip("Define quantos núcleos de CPU o LUNA pode usar na execução.")
@@ -108,7 +109,7 @@ class RunTab(QWidget):
         if self.collect_callback:
             self.collect_callback()
 
-        self.cfg.nproc = self.sp_nproc.value()
+        self.cfg.nproc = luna_runner.safe_nproc(self.sp_nproc.value())
         self.cfg.overwrite = self.cb_overwrite.isChecked()
 
         errs = luna_runner.validate(self.cfg)
