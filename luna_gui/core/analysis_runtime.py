@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 import signal
 import subprocess
+import tempfile
 from pathlib import Path
 
 from . import analysis_helper
-from .env_manager import python_process_env
+from .env_manager import python_prefix, python_process_env
+from .pymol_launcher import iter_pymol_candidates
 
 IFP_SUFFIX_TO_TYPE = {"E": "EIFP", "H": "HIFP", "F": "FIFP"}
 
@@ -69,8 +71,9 @@ def _helper_failure(result: subprocess.CompletedProcess, prefix: str = "Helper f
         status = f"sinal {signum} ({signal_name})"
         if signum == 11:
             detail += (
-                "\nO helper caiu dentro de uma biblioteca nativa, provavelmente PyMOL/OpenGL. "
-                "Quando possivel, a GUI gera um fallback .pml para abrir no PyMOL."
+                "\nO helper caiu dentro de uma biblioteca nativa durante a geração PSE "
+                "do LUNA/PyMOL. Corrija a dependência nativa indicada pelo "
+                "stderr/ambiente do luna-env."
             )
     else:
         status = f"exit {code}"
@@ -180,8 +183,13 @@ def _build_shell_level_only_fp_detail(wd: Path, ifp_type: str, output_path: Path
     return payload
 
 _FP_SESSION_SCRIPT = r"""
-import gzip, json, os, pickle, re, sys, warnings
+import faulthandler, gzip, json, os, pickle, re, sys, warnings
 from pathlib import Path
+
+try:
+    faulthandler.enable(file=sys.stderr, all_threads=True)
+except Exception:
+    pass
 
 warnings.filterwarnings("ignore", message=r'.*"import openbabel".*')
 
@@ -250,249 +258,331 @@ def _restore_entry(meta):
     )
 
 
-workdir = Path(sys.argv[1])
-ifp_type = sys.argv[2]
-entry_name = sys.argv[3]
-feature_id = int(sys.argv[4])
-output_path = Path(sys.argv[5])
+def _entry_key(entry):
+    try:
+        return entry.to_string()
+    except Exception:
+        return str(entry)
+
+
+def _entry_matches(entry, requested):
+    key = _entry_key(entry)
+    requested = str(requested or "").strip()
+    values = {key, key.replace("/", "_"), key.replace(":", "_")}
+    if requested in values:
+        return True
+    for value in list(values):
+        values.add(value.split(":", 1)[0])
+        values.add(value.split(":", 1)[-1])
+    return requested in values or requested.replace("/", "_").replace(":", "_") in values
+
+
+def _load_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _load_project(workdir):
+    candidates = sorted(Path(workdir).glob("project_v*.pkl.gz"), reverse=True)
+    if not candidates:
+        raise RuntimeError(f"Nenhum project_v*.pkl.gz encontrado em {workdir}.")
+    errors = []
+    for candidate in candidates:
+        try:
+            with gzip.open(candidate, "rb") as fh:
+                return pickle.load(fh), candidate
+        except Exception as exc:
+            errors.append(f"{candidate.name}: {type(exc).__name__}: {exc}")
+    raise RuntimeError("Falha ao reabrir projeto LUNA: " + "; ".join(errors[:3]))
+
+
+def _apply_ifp_settings(proj, params, ifp_type):
+    from luna.interaction.fp.type import IFPType
+
+    if params:
+        if "ifp_levels" in params:
+            proj.ifp_num_levels = params.get("ifp_levels")
+        if "ifp_radius" in params:
+            proj.ifp_radius_step = params.get("ifp_radius")
+        if "ifp_length" in params:
+            proj.ifp_length = params.get("ifp_length")
+        if "ifp_bit" in params:
+            proj.ifp_count = not params.get("ifp_bit", False)
+    proj.ifp_type = getattr(IFPType, ifp_type)
+
+
+def _trace_feature_shells(shell_manager, feature_id, ifp_length, ifp_count):
+    unique_shells = not bool(ifp_count)
+    fp = shell_manager.to_fingerprint(
+        fold_to_length=int(ifp_length),
+        unique_shells=unique_shells,
+        count_fp=bool(ifp_count),
+    )
+    shells = []
+    for _ori_feature, found_shells in shell_manager.trace_back_feature(
+        int(feature_id),
+        fp,
+        unique_shells=unique_shells,
+    ):
+        shells.extend(found_shells)
+    return shells
+
+
+def _regenerate_shells_from_project(workdir, ifp_type, entry_name, feature_id):
+    from luna.interaction.fp.shell import ShellGenerator
+
+    params = _load_json(Path(workdir) / "_luna_api_params.json")
+    project, project_path = _load_project(workdir)
+    _apply_ifp_settings(project, params, ifp_type)
+    matched_entry = None
+    for candidate in list(getattr(project, "entries", []) or []):
+        if _entry_matches(candidate, entry_name):
+            matched_entry = candidate
+            break
+    if matched_entry is None:
+        raise RuntimeError(f"Entry {entry_name} nao encontrada no projeto {project_path.name}.")
+
+    entry_results = project.get_entry_results(matched_entry)
+    atm_grps_mngr = entry_results.atm_grps_mngr
+    shell_generator = ShellGenerator(
+        project.ifp_num_levels,
+        project.ifp_radius_step,
+        diff_comp_classes=getattr(project, "ifp_diff_comp_classes", True),
+        ifp_type=project.ifp_type,
+    )
+    shell_manager = shell_generator.create_shells(atm_grps_mngr)
+    shells = _trace_feature_shells(
+        shell_manager,
+        feature_id,
+        project.ifp_length,
+        project.ifp_count,
+    )
+    if not shells:
+        raise RuntimeError(f"Nenhum shell regenerado para o fingerprint {feature_id} em {entry_name}.")
+    pdb_dir = (
+        params.get("pdb_dir")
+        or getattr(matched_entry, "pdb_file", "")
+        or str(Path(workdir) / "pdbs")
+    )
+    return matched_entry, shells, pdb_dir, f"live_project:{project_path.name}"
+
+
+def _load_cached_shell_payload(workdir, ifp_type, entry_name, feature_id):
+    suffix = {"EIFP": "E", "HIFP": "H", "FIFP": "F"}.get(ifp_type)
+    if suffix is None:
+        raise RuntimeError(f"Tipo IFP invalido: {ifp_type}")
+    payload_path = Path(workdir) / "results" / "fingerprints" / "_shells" / suffix / f"{_safe_name(entry_name)}.pkl.gz"
+    if not payload_path.exists():
+        raise RuntimeError(f"Shell artifact nao encontrado: {payload_path}")
+    with gzip.open(payload_path, "rb") as fh:
+        payload = pickle.load(fh)
+
+    if "entry_meta" in payload and "feature_shells" in payload:
+        entry = _restore_entry(payload["entry_meta"])
+        shells = payload.get("feature_shells", {}).get(str(feature_id)) or []
+    else:
+        entry = payload["entry"]
+        shells = _trace_feature_shells(
+            payload["shell_manager"],
+            feature_id,
+            payload["ifp_length"],
+            payload["ifp_count"],
+        )
+    if not shells:
+        raise RuntimeError(f"Nenhum shell foi encontrado no cache para o fingerprint {feature_id} em {entry_name}.")
+    return entry, shells, payload["pdb_dir"], f"cached_payload:{payload_path.name}"
+
+
+def _coords_from_value(value):
+    try:
+        if callable(value):
+            value = value()
+    except Exception:
+        return None
+    try:
+        coords = list(value)
+        if len(coords) >= 3:
+            return [float(coords[0]), float(coords[1]), float(coords[2])]
+    except Exception:
+        pass
+    for names in (("x", "y", "z"), ("X", "Y", "Z")):
+        try:
+            return [float(getattr(value, name)) for name in names]
+        except Exception:
+            pass
+    return None
+
+
+def _atom_coords(atom):
+    for attr in ("coord", "coords", "coordinate", "coordinates"):
+        coords = _coords_from_value(getattr(atom, attr, None))
+        if coords is not None:
+            return coords
+    try:
+        return _coords_from_value(atom.get_coord())
+    except Exception:
+        return None
+
+
+def _shell_center(shell):
+    group = getattr(shell, "central_atm_grp", None)
+    for attr in ("centroid", "center", "coord", "coords"):
+        coords = _coords_from_value(getattr(group, attr, None))
+        if coords is not None:
+            return coords
+    atom_coords = []
+    for atom in list(getattr(group, "atoms", []) or []):
+        coords = _atom_coords(atom)
+        if coords is not None:
+            atom_coords.append(coords)
+    if atom_coords:
+        total = len(atom_coords)
+        return [
+            sum(coords[index] for coords in atom_coords) / total
+            for index in range(3)
+        ]
+    return None
+
+
+def _add_shell_number_labels(shells, feature_id, output_path):
+    try:
+        from pymol import cmd
+    except Exception as exc:
+        _stage(f"rotulos de shells ignorados: pymol.cmd indisponivel ({type(exc).__name__}: {exc})")
+        return 0
+
+    try:
+        existing_objects = list(cmd.get_object_list("all") or [])
+    except Exception:
+        existing_objects = []
+    if not existing_objects and Path(output_path).exists():
+        try:
+            cmd.load(str(output_path))
+        except Exception as exc:
+            _stage(f"rotulos de shells ignorados: nao foi possivel recarregar PSE ({type(exc).__name__}: {exc})")
+            return 0
+
+    group_name = f"hip2l_fp_{int(feature_id)}_shell_numbers"
+    label_objects = []
+    for shell_index, shell in enumerate(list(shells or []), start=1):
+        center = _shell_center(shell)
+        if center is None:
+            continue
+        level = _shell_level_key(shell)
+        name = f"{group_name}_S{shell_index:03d}_L{_safe_name(level)}"
+        label = f"Shell {shell_index} | L{level}"
+        try:
+            cmd.pseudoatom(name, pos=center, label=label)
+            cmd.show("spheres", name)
+            cmd.show("labels", name)
+            cmd.set("sphere_scale", 0.28, name)
+            cmd.set("sphere_transparency", 0.25, name)
+            cmd.set("label_size", 16, name)
+            cmd.set("label_color", "black", name)
+            cmd.color("yellow", name)
+            label_objects.append(name)
+        except Exception as exc:
+            _stage(f"rotulo do shell {shell_index} ignorado ({type(exc).__name__}: {exc})")
+    if label_objects:
+        try:
+            cmd.group(group_name, " ".join(label_objects))
+            cmd.save(str(output_path))
+        except Exception as exc:
+            _stage(f"rotulos de shells criados, mas nao foi possivel salvar PSE atualizado ({type(exc).__name__}: {exc})")
+            return 0
+    return len(label_objects)
+
+
+def _load_runtime_args():
+    raw = os.environ.get("HIP2L_FP_SESSION_ARGS")
+    if raw:
+        return json.loads(raw)
+    return {
+        "workdir": sys.argv[1],
+        "ifp_type": sys.argv[2],
+        "entry_name": sys.argv[3],
+        "feature_id": int(sys.argv[4]),
+        "output_path": sys.argv[5],
+    }
+
+
+runtime_args = _load_runtime_args()
+workdir = Path(runtime_args["workdir"])
+ifp_type = str(runtime_args["ifp_type"])
+entry_name = str(runtime_args["entry_name"])
+feature_id = int(runtime_args["feature_id"])
+output_path = Path(runtime_args["output_path"])
 
 suffix = {"EIFP": "E", "HIFP": "H", "FIFP": "F"}.get(ifp_type)
 if suffix is None:
     print(json.dumps({"error": f"Tipo IFP inv\u00e1lido: {ifp_type}"}))
     sys.exit(0)
 
-payload_path = workdir / "results" / "fingerprints" / "_shells" / suffix / f"{_safe_name(entry_name)}.pkl.gz"
-if not payload_path.exists():
-    print(json.dumps({"error": f"Shell artifact n\u00e3o encontrado: {payload_path}"}))
-    sys.exit(0)
-
-with gzip.open(payload_path, "rb") as fh:
-    payload = pickle.load(fh)
-
-if "entry_meta" in payload and "feature_shells" in payload:
-    entry = _restore_entry(payload["entry_meta"])
-    shells = payload.get("feature_shells", {}).get(str(feature_id)) or []
-else:
-    sm = payload["shell_manager"]
-    entry = payload["entry"]
-    ifp_length = int(payload["ifp_length"])
-    ifp_count = bool(payload["ifp_count"])
-    unique_shells = not ifp_count
-    fp = sm.to_fingerprint(
-        fold_to_length=ifp_length,
-        unique_shells=unique_shells,
-        count_fp=ifp_count,
+source = ""
+live_error = ""
+try:
+    entry, shells, pdb_source, source = _regenerate_shells_from_project(
+        workdir,
+        ifp_type,
+        entry_name,
+        feature_id,
     )
-
-    recovered = list(sm.trace_back_feature(feature_id, fp, unique_shells=unique_shells))
-    shells = []
-    for _ori_feature, found_shells in recovered:
-        shells.extend(found_shells)
+except Exception as exc:
+    live_error = f"{type(exc).__name__}: {exc}"
+    _stage(f"regeneracao live falhou; tentando cache legado: {live_error}")
+    try:
+        entry, shells, pdb_source, source = _load_cached_shell_payload(
+            workdir,
+            ifp_type,
+            entry_name,
+            feature_id,
+        )
+    except Exception as cache_exc:
+        print(json.dumps({
+            "error": (
+                "Nao foi possivel regenerar shells pelo projeto LUNA nem recuperar shells do cache. "
+                f"Regeneracao live: {live_error}. Cache: {type(cache_exc).__name__}: {cache_exc}"
+            )
+        }))
+        sys.exit(0)
 
 if not shells:
     print(json.dumps({"error": f"Nenhum shell foi encontrado para o fingerprint {feature_id} em {entry_name}."}))
     sys.exit(0)
 
 output_path.parent.mkdir(parents=True, exist_ok=True)
-_stage(f"shells recuperados: {len(shells)}; iniciando PyMOL headless")
+_stage(f"shells recuperados: {len(shells)} ({source}); preparando ShellViewer do LUNA")
 os.environ.setdefault("PYMOL_HEADLESS", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+os.environ.setdefault("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe")
+os.environ.setdefault("MPLBACKEND", "Agg")
 try:
-    import pymol
-    try:
-        pymol.finish_launching(["pymol", "-cq"])
-    except Exception:
-        pass
     from luna.interaction.fp.view import ShellViewer
 except Exception as exc:
-    print(json.dumps({"error": f"Nao foi possivel iniciar PyMOL no helper ({type(exc).__name__}: {exc})."}))
+    print(json.dumps({"error": f"Nao foi possivel carregar ShellViewer/PyMOL do LUNA ({type(exc).__name__}: {exc})."}))
     sys.exit(0)
 
-_stage("PyMOL iniciado; salvando sessao PSE")
-viewer = ShellViewer()
-viewer.new_session([(entry, shells, payload["pdb_dir"])], str(output_path))
+_stage("ShellViewer carregado; salvando sessao PSE")
+try:
+    viewer = ShellViewer()
+    viewer.new_session([(entry, shells, pdb_source)], str(output_path))
+except Exception as exc:
+    print(json.dumps({"error": f"LUNA ShellViewer falhou ao salvar a sessao PSE ({type(exc).__name__}: {exc})."}))
+    sys.exit(0)
+if not output_path.exists():
+    print(json.dumps({"error": f"LUNA ShellViewer terminou sem criar a sessao PSE: {output_path}"}))
+    sys.exit(0)
+shell_label_count = _add_shell_number_labels(shells, feature_id, output_path)
 print(json.dumps({
     "ok": True,
     "output": str(output_path),
     "shells": len(shells),
     "shell_levels": _sorted_level_keys(_shell_level_key(shell) for shell in shells),
-}))
-"""
-
-_FP_SESSION_PML_FALLBACK_SCRIPT = r"""
-import gzip, json, pickle, re, sys
-from pathlib import Path
-
-
-def _safe_name(value):
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "entry"
-
-
-def _pml_path(value):
-    return str(value).replace("\\", "/").replace('"', '\\"')
-
-
-def _pml_name(value):
-    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_")
-    return name or "obj"
-
-
-def _coords(value):
-    try:
-        vals = list(value)
-        if len(vals) >= 3:
-            return [float(vals[0]), float(vals[1]), float(vals[2])]
-    except Exception:
-        return None
-    return None
-
-
-def _centroid(group):
-    return _coords(getattr(group, "centroid", None))
-
-
-def _shell_level_key(shell):
-    value = getattr(shell, "level", None)
-    try:
-        return str(int(value))
-    except Exception:
-        return str(value if value is not None else "unknown")
-
-
-def _sorted_level_keys(values):
-    keys = {str(value) for value in (values or []) if str(value).strip()}
-    return sorted(
-        keys,
-        key=lambda value: (
-            not str(value).lstrip("-").isdigit(),
-            int(value) if str(value).lstrip("-").isdigit() else str(value),
-        ),
-    )
-
-
-def _candidate_pdb_file(payload, entry, entry_meta):
-    pdb_dir = Path(str(payload.get("pdb_dir") or ""))
-    if pdb_dir.is_file():
-        return pdb_dir
-    pdb_id = str((entry_meta or {}).get("pdb_id") or getattr(entry, "pdb_id", "") or "").strip()
-    candidates = []
-    if pdb_id:
-        candidates.extend([pdb_dir / f"{pdb_id}.pdb", pdb_dir / f"{pdb_id.lower()}.pdb"])
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def _trace_shells_from_legacy_payload(payload, feature_id):
-    sm = payload["shell_manager"]
-    ifp_length = int(payload["ifp_length"])
-    ifp_count = bool(payload["ifp_count"])
-    unique_shells = not ifp_count
-    fp = sm.to_fingerprint(
-        fold_to_length=ifp_length,
-        unique_shells=unique_shells,
-        count_fp=ifp_count,
-    )
-    shells = []
-    for _ori_feature, found_shells in sm.trace_back_feature(feature_id, fp, unique_shells=unique_shells):
-        shells.extend(found_shells)
-    return shells
-
-
-workdir = Path(sys.argv[1])
-ifp_type = sys.argv[2]
-entry_name = sys.argv[3]
-feature_id = int(sys.argv[4])
-requested_output = Path(sys.argv[5])
-
-suffix = {"EIFP": "E", "HIFP": "H", "FIFP": "F"}.get(ifp_type)
-if suffix is None:
-    print(json.dumps({"error": f"Tipo IFP invalido: {ifp_type}"}))
-    sys.exit(0)
-
-payload_path = workdir / "results" / "fingerprints" / "_shells" / suffix / f"{_safe_name(entry_name)}.pkl.gz"
-if not payload_path.exists():
-    print(json.dumps({"error": f"Shell artifact nao encontrado: {payload_path}"}))
-    sys.exit(0)
-
-with gzip.open(payload_path, "rb") as fh:
-    payload = pickle.load(fh)
-
-entry_meta = payload.get("entry_meta") or {}
-entry = payload.get("entry")
-if "entry_meta" in payload and "feature_shells" in payload:
-    shells = payload.get("feature_shells", {}).get(str(feature_id)) or []
-else:
-    shells = _trace_shells_from_legacy_payload(payload, feature_id)
-
-if not shells:
-    print(json.dumps({"error": f"Nenhum shell foi encontrado para o fingerprint {feature_id} em {entry_name}."}))
-    sys.exit(0)
-
-pml_path = requested_output.with_suffix(".pml")
-pml_path.parent.mkdir(parents=True, exist_ok=True)
-base_obj = _pml_name(f"{entry_name}_feature_{feature_id}")
-pdb_file = _candidate_pdb_file(payload, entry, entry_meta)
-
-lines = [
-    "reinitialize",
-    "bg_color white",
-    "set ray_opaque_background, off",
-]
-if pdb_file is not None:
-    lines.extend([
-        f'load "{_pml_path(pdb_file)}", {base_obj}.complex',
-        f"hide everything, {base_obj}.complex",
-        f"show cartoon, {base_obj}.complex and polymer",
-        f"show sticks, {base_obj}.complex and organic",
-        f"show sticks, {base_obj}.complex and hetatm",
-        f"color gray70, {base_obj}.complex and polymer",
-        f"color orange, {base_obj}.complex and organic",
-    ])
-
-for index, shell in enumerate(shells):
-    center = _centroid(getattr(shell, "central_atm_grp", None))
-    if center is None:
-        continue
-    level = _shell_level_key(shell)
-    radius = float(getattr(shell, "radius", 1.0) or 1.0)
-    sphere = f"{base_obj}.fp_{feature_id}_shell_{index}_L{_pml_name(level)}"
-    lines.extend([
-        f"pseudoatom {sphere}, pos=[{center[0]:.6f},{center[1]:.6f},{center[2]:.6f}], label=\"FP {feature_id} L{level}\"",
-        f"show spheres, {sphere}",
-        f"set sphere_scale, {radius:.6f}, {sphere}",
-        f"set sphere_transparency, 0.82, {sphere}",
-        f"color red, {sphere}",
-    ])
-    for inter_index, interaction in enumerate(list(getattr(shell, "interactions", []) or [])):
-        src = _centroid(getattr(interaction, "src_grp", None))
-        trgt = _centroid(getattr(interaction, "trgt_grp", None))
-        if src is None or trgt is None:
-            continue
-        src_name = f"{sphere}_i{inter_index}_a"
-        trgt_name = f"{sphere}_i{inter_index}_b"
-        dist_name = f"{sphere}_i{inter_index}"
-        lines.extend([
-            f"pseudoatom {src_name}, pos=[{src[0]:.6f},{src[1]:.6f},{src[2]:.6f}]",
-            f"pseudoatom {trgt_name}, pos=[{trgt[0]:.6f},{trgt[1]:.6f},{trgt[2]:.6f}]",
-            f"distance {dist_name}, {src_name}, {trgt_name}",
-            f"hide labels, {dist_name}",
-            f"color yellow, {dist_name}",
-        ])
-
-lines.extend([
-    "zoom",
-    f"# Fallback PML gerado porque a criacao automatica de PSE com PyMOL falhou.",
-])
-pml_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-print(json.dumps({
-    "ok": True,
-    "output": str(pml_path),
-    "fallback": "pml",
-    "shells": len(shells),
-    "shell_levels": _sorted_level_keys(_shell_level_key(shell) for shell in shells),
+    "shell_labels": shell_label_count,
+    "source": source,
 }))
 """
 
@@ -722,8 +812,6 @@ print(json.dumps(dashboard, ensure_ascii=False))
 _PSE_FILTER_SCRIPT = r"""
 import ast, configparser, fnmatch, gzip, json, pickle, re, shutil, sys
 from pathlib import Path
-
-from luna.interaction.view import InteractionViewer
 
 
 def _safe_name(value):
@@ -979,6 +1067,15 @@ if not rules:
     print(json.dumps({"error": "O arquivo .cfg nao contem regras."}))
     sys.exit(0)
 
+print(json.dumps(_copy_cached_pse_sessions(
+    workdir,
+    rules,
+    output_dir,
+    "Filtragem segura: a GUI nao abriu PyMOL/OpenGL dentro do helper; foram usados "
+    "residue_matrix.json e sessoes .pse ja existentes para evitar SIGSEGV.",
+), ensure_ascii=False))
+sys.exit(0)
+
 project, error = _load_project(workdir)
 if error:
     print(json.dumps(_copy_cached_pse_sessions(workdir, rules, output_dir, error), ensure_ascii=False))
@@ -1059,51 +1156,32 @@ def _fp_session_env(py_exe: str) -> dict[str, str]:
     env.setdefault("PYMOL_HEADLESS", "1")
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
     env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+    env.setdefault("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe")
+    env.setdefault("MPLBACKEND", "Agg")
     return env
 
 
-def _generate_fp_session_pml_fallback(
-    py_exe: str,
-    workdir: str,
-    ifp_type: str,
-    entry_name: str,
-    feature_id: int,
-    output_path: str,
-    original_error: str,
-    timeout: int,
-) -> dict:
+def _path_is_inside(child: Path, parent: Path) -> bool:
     try:
-        fallback = subprocess.run(
-            [
-                py_exe,
-                "-c",
-                _FP_SESSION_PML_FALLBACK_SCRIPT,
-                workdir,
-                ifp_type,
-                entry_name,
-                str(int(feature_id)),
-                output_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=_fp_session_env(py_exe),
-        )
-    except subprocess.TimeoutExpired:
-        return {"error": original_error}
-    except Exception:
-        return {"error": original_error}
+        child_resolved = child.resolve()
+        parent_resolved = parent.resolve()
+    except OSError:
+        return False
+    return child_resolved == parent_resolved or parent_resolved in child_resolved.parents
 
-    if fallback.returncode != 0:
-        return {"error": original_error}
+
+def _find_env_pymol_executable(py_exe: str) -> Path | None:
     try:
-        parsed = _helper_json_from_stdout(fallback.stdout)
+        prefix = python_prefix(py_exe)
     except Exception:
-        return {"error": original_error}
-    if isinstance(parsed, dict) and parsed.get("ok"):
-        parsed["warning"] = original_error
-        return parsed
-    return {"error": original_error}
+        return None
+    for candidate in iter_pymol_candidates(py_exe):
+        try:
+            if candidate.exists() and candidate.is_file() and _path_is_inside(candidate, prefix):
+                return candidate
+        except OSError:
+            continue
+    return None
 
 
 def generate_fp_session(
@@ -1115,62 +1193,67 @@ def generate_fp_session(
     output_path: str,
     timeout: int = 600,
 ) -> dict:
-    """Generate a PyMOL session for one fingerprint feature using cached shells."""
+    """Generate a PyMOL PSE session for one fingerprint feature using LUNA shells."""
     if not py_exe or not Path(py_exe).exists():
         return {"error": "Python do luna-env n\u00e3o encontrado."}
     if not Path(workdir).exists():
         return {"error": f"Workdir n\u00e3o existe: {workdir}"}
 
+    payload = json.dumps(
+        {
+            "workdir": str(workdir),
+            "ifp_type": str(ifp_type),
+            "entry_name": str(entry_name),
+            "feature_id": int(feature_id),
+            "output_path": str(output_path),
+        },
+        ensure_ascii=False,
+    )
+    env = _fp_session_env(py_exe)
+    env["HIP2L_FP_SESSION_ARGS"] = payload
+    pymol_exe = _find_env_pymol_executable(py_exe)
+
     try:
-        result = subprocess.run(
-            [
-                py_exe,
-                "-c",
-                _FP_SESSION_SCRIPT,
-                workdir,
-                ifp_type,
-                entry_name,
-                str(int(feature_id)),
-                output_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=_fp_session_env(py_exe),
-        )
+        if pymol_exe is not None:
+            with tempfile.TemporaryDirectory(prefix="hip2l_fp_session_") as tmp_dir:
+                script_path = Path(tmp_dir) / "generate_fp_session.py"
+                script_path.write_text(_FP_SESSION_SCRIPT, encoding="utf-8")
+                result = subprocess.run(
+                    [str(pymol_exe), "-cq", "-r", str(script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    env=env,
+                )
+        else:
+            result = subprocess.run(
+                [
+                    py_exe,
+                    "-c",
+                    _FP_SESSION_SCRIPT,
+                    workdir,
+                    ifp_type,
+                    entry_name,
+                    str(int(feature_id)),
+                    output_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+            )
     except subprocess.TimeoutExpired:
-        return {"error": "A gera\u00e7\u00e3o da sess\u00e3o de fingerprint excedeu o tempo limite."}
+        return {"error": "A geração da sessão de fingerprint excedeu o tempo limite."}
     except Exception as exc:
         return {"error": str(exc)}
 
     if result.returncode != 0:
-        failure = _helper_failure(result)
-        return _generate_fp_session_pml_fallback(
-            py_exe,
-            workdir,
-            ifp_type,
-            entry_name,
-            int(feature_id),
-            output_path,
-            str(failure.get("error") or ""),
-            timeout,
-        )
+        prefix = "Helper PyMOL/LUNA falhou" if pymol_exe is not None else "Helper LUNA/PyMOL falhou"
+        return _helper_failure(result, prefix=prefix)
     try:
-        parsed = _helper_json_from_stdout(result.stdout)
+        return _helper_json_from_stdout(result.stdout)
     except Exception:
         return _helper_invalid_output(result)
-    if isinstance(parsed, dict) and parsed.get("error") and "PyMOL" in str(parsed.get("error")):
-        return _generate_fp_session_pml_fallback(
-            py_exe,
-            workdir,
-            ifp_type,
-            entry_name,
-            int(feature_id),
-            output_path,
-            str(parsed.get("error") or ""),
-            timeout,
-        )
-    return parsed
 
 
 def run_fp_detail_analysis(

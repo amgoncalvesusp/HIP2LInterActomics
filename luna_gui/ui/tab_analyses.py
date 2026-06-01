@@ -1,6 +1,10 @@
 """Analyses tab — pick which LUNA outputs to generate and tune parameters."""
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -8,8 +12,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPushButton, QFileDialog,
     QListWidget, QListWidgetItem, QLabel, QScrollArea, QMessageBox,
 )
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import Qt
 
 from ..core.project import IFP_ALL, ProjectConfig
 
@@ -127,9 +130,9 @@ class AnalysesTab(QWidget):
         btn_fp.clicked.connect(lambda: self._pick_save(self.fp_out_edit, "fingerprints.csv"))
         row = QHBoxLayout(); row.addWidget(self.fp_out_edit); row.addWidget(btn_fp)
         self.ifp_seed_edit = QLineEdit()
-        self.ifp_seed_edit.setPlaceholderText("(opcional: arquivo .txt com um inteiro; padrao = 0)")
+        self.ifp_seed_edit.setPlaceholderText("(opcional: arquivo .txt com um inteiro; padrão = 0)")
         self.ifp_seed_edit.setToolTip(
-            "Carrega um seed para as etapas estocasticas de importancia dos fingerprints. "
+            "Carrega um seed para as etapas estocásticas de importância dos fingerprints. "
             "Se vazio, a GUI usa seed 0 e salva seed_ifp_H/E/F_importance.txt nos resultados."
         )
         btn_ifp_seed = QPushButton("...")
@@ -186,11 +189,11 @@ class AnalysesTab(QWidget):
             "Define como a coluna de rótulo será interpretada no cálculo de importância."
         )
         fp_labels_form.addRow("Tarefa:", self.cb_fp_label_task)
-        self.cb_fp_use_otsu = QCheckBox("Aplicar Otsu tambem a interacoes/residuos")
+        self.cb_fp_use_otsu = QCheckBox("Aplicar Otsu também a interações/resíduos")
         self.cb_fp_use_otsu.setToolTip(
-            "A atribuicao de classe das features de FP usa Otsu automaticamente quando "
-            "nenhum bit tem z-score > 1. Marque esta opcao para aplicar o mesmo fallback "
-            "tambem aos limiares de interacao, residuo e par interacao-residuo."
+            "A atribuição de classe das features de FP usa Otsu automaticamente quando "
+            "nenhum bit tem z-score > 1. Marque esta opção para aplicar o mesmo fallback "
+            "também aos limiares de interação, resíduo e par interação-resíduo."
         )
         fp_labels_form.addRow(self.cb_fp_use_otsu)
         # ----- Similarity matrix -----
@@ -207,7 +210,7 @@ class AnalysesTab(QWidget):
         sm_help.setProperty("muted", True)
         sm_form.addRow(sm_help)
         self.sm_out_edit = QLineEdit()
-        self.sm_out_edit.setPlaceholderText("(padrao: <workdir>/sim_matrix_<tipo>.csv)")
+        self.sm_out_edit.setPlaceholderText("(padrão: <workdir>/sim_matrix_<tipo>.csv)")
         self.sm_out_edit.setToolTip("Caminho opcional para salvar o CSV da matriz de similaridade.")
         btn_sm = QPushButton("...")
         btn_sm.clicked.connect(lambda: self._pick_save(self.sm_out_edit, "sim_matrix_E.csv"))
@@ -263,7 +266,7 @@ class AnalysesTab(QWidget):
             "Se marcado, LUNA gera sessões PyMOL contendo apenas os tipos selecionados."
         ))
         self.cb_pse_select_all = QCheckBox("Selecionar/desselecionar todas")
-        self.cb_pse_select_all.setToolTip("Marca ou desmarca todos os tipos de interacao do filtro PSE.")
+        self.cb_pse_select_all.setToolTip("Marca ou desmarca todos os tipos de interação do filtro PSE.")
         self.cb_pse_select_all.toggled.connect(self._set_all_pse_interaction_types)
         pse_f_layout.addWidget(self.cb_pse_select_all)
         self.pse_types_list = QListWidget()
@@ -386,8 +389,39 @@ class AnalysesTab(QWidget):
 
         layout.addStretch()
 
+        for group in (
+            self.sm_box,
+            self.fp_labels_box,
+            self.fbm_box,
+            self.pse_filter_box,
+            self.inter_cfg_box,
+        ):
+            self._make_collapsible(group, group.isChecked())
+
     def _wrap(self, sub) -> QWidget:
         w = QWidget(); w.setLayout(sub); return w
+
+    def _set_layout_visible(self, layout, visible: bool) -> None:
+        if layout is None:
+            return
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            widget = item.widget()
+            child_layout = item.layout()
+            if widget is not None:
+                widget.setVisible(visible)
+            if child_layout is not None:
+                self._set_layout_visible(child_layout, visible)
+
+    def _make_collapsible(self, group: QGroupBox, checked: bool = False) -> None:
+        group.setCheckable(True)
+
+        def apply(visible: bool) -> None:
+            self._set_layout_visible(group.layout(), visible)
+
+        group.toggled.connect(apply)
+        group.setChecked(bool(checked))
+        apply(group.isChecked())
 
     def _set_all_pse_interaction_types(self, checked: bool) -> None:
         if not hasattr(self, "pse_types_list"):
@@ -479,7 +513,60 @@ class AnalysesTab(QWidget):
                 f"Não foi possível localizar o exemplo padrão do LUNA.\n\nEsperado em:\n{path}",
             )
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        try:
+            self._open_text_file(path)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Não foi possível abrir",
+                f"O exemplo existe, mas o sistema não informou um aplicativo para abrir o arquivo.\n\n"
+                f"Arquivo:\n{path}\n\nErro:\n{exc}",
+            )
+
+    def _open_text_file(self, path: Path) -> None:
+        if sys.platform == "win32":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+            return
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)], start_new_session=True)
+            return
+
+        if str(path).startswith("/mnt/") and shutil.which("cmd.exe"):
+            try:
+                converted = subprocess.run(
+                    ["wslpath", "-w", str(path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                win_path = converted.stdout.strip() if converted.returncode == 0 else str(path)
+                subprocess.Popen(["cmd.exe", "/c", "start", "", win_path], start_new_session=True)
+                return
+            except Exception:
+                pass
+
+        commands = []
+        for opener in ("xdg-open", "gio", "kde-open", "gnome-open"):
+            resolved = shutil.which(opener)
+            if not resolved:
+                continue
+            if opener == "gio":
+                commands.append([resolved, "open", str(path)])
+            else:
+                commands.append([resolved, str(path)])
+        editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+        if editor:
+            commands.append([editor, str(path)])
+        resolved_editor = shutil.which("sensible-editor")
+        if resolved_editor:
+            commands.append([resolved_editor, str(path)])
+        for command in commands:
+            try:
+                subprocess.Popen(command, start_new_session=True)
+                return
+            except Exception:
+                continue
+        raise RuntimeError("nenhum lançador/editor foi encontrado")
 
     def _open_fbm_editor(self) -> None:
         from .binding_modes_editor import BindingModesEditor

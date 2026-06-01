@@ -106,7 +106,7 @@ class ResultsTab(QWidget):
         # --- Heatmap per interaction type (T1.4) ---
         hm_w = QWidget(); hm_l = QVBoxLayout(hm_w)
         hm_ctrl = QHBoxLayout()
-        btn_hm = QPushButton("Calcular heatmap (usa luna-env)")
+        btn_hm = QPushButton("Calcular mapa de calor (usa luna-env)")
         btn_hm.clicked.connect(self.compute_residue_matrix)
         hm_ctrl.addWidget(btn_hm)
         hm_ctrl.addWidget(QLabel("Tipo:"))
@@ -123,7 +123,7 @@ class ResultsTab(QWidget):
         else:
             hm_l.addWidget(QLabel("matplotlib não está instalado."))
         self._residue_matrix: dict = {}
-        self.inner.addTab(hm_w, "Heatmap por tipo")
+        self.inner.addTab(hm_w, "Mapa de calor por tipo")
 
         # --- PyMOL sessions ---
         pse_w = QWidget(); pse_l = QVBoxLayout(pse_w)

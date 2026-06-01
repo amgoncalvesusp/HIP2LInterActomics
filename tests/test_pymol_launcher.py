@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+from luna_gui.core import analysis_runtime
 from luna_gui.core import pymol_launcher
 
 
@@ -70,3 +71,50 @@ def test_launch_pse_uses_luna_env_for_env_owned_pymol(tmp_path, monkeypatch):
     assert env is not None
     path_parts = [os.path.normcase(part) for part in env["PATH"].split(os.pathsep)]
     assert os.path.normcase(str(bin_dir)) in path_parts
+
+
+def test_fp_session_uses_env_owned_pymol_as_interpreter(tmp_path, monkeypatch):
+    monkeypatch.setattr(pymol_launcher.shutil, "which", lambda _name: None)
+    prefix = tmp_path / "luna-env"
+    if sys.platform == "win32":
+        bin_dir = prefix / "Scripts"
+        py_exe = prefix / "python.exe"
+        pymol_exe = bin_dir / "pymol.exe"
+    else:
+        bin_dir = prefix / "bin"
+        py_exe = bin_dir / "python"
+        pymol_exe = bin_dir / "pymol"
+    bin_dir.mkdir(parents=True)
+    py_exe.write_text("", encoding="utf-8")
+    pymol_exe.write_text("", encoding="utf-8")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    output = workdir / "out.pse"
+
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout, env):
+        calls.append((args, env))
+        return analysis_runtime.subprocess.CompletedProcess(
+            args,
+            0,
+            stdout='{"ok": true, "output": "' + str(output).replace("\\", "\\\\") + '"}\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr(analysis_runtime.subprocess, "run", fake_run)
+
+    result = analysis_runtime.generate_fp_session(
+        str(py_exe),
+        str(workdir),
+        "EIFP",
+        "entry:lig",
+        123,
+        str(output),
+    )
+
+    assert result["ok"] is True
+    assert calls
+    assert calls[0][0][:3] == [str(pymol_exe), "-cq", "-r"]
+    assert calls[0][0][3].endswith("generate_fp_session.py")
+    assert "HIP2L_FP_SESSION_ARGS" in calls[0][1]

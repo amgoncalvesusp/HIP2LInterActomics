@@ -6,6 +6,7 @@ import math
 import shutil
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -225,13 +226,13 @@ class ResultsTab(QWidget):
         residue_help.setProperty("muted", True)
         hm_layout.addWidget(residue_help)
         hm_ctrl = QHBoxLayout()
-        btn_hm = QPushButton("Calcular heatmap (usa luna-env)")
+        btn_hm = QPushButton("Calcular mapa de calor (usa luna-env)")
         btn_hm.setToolTip("Calcula a matriz resíduo × ligante a partir dos resultados do projeto.")
         btn_hm.clicked.connect(self.compute_residue_matrix)
         hm_ctrl.addWidget(btn_hm)
         hm_ctrl.addWidget(QLabel("Tipo:"))
         self.cb_itype = QComboBox()
-        self.cb_itype.setToolTip("Escolhe qual classe de interação será exibida no heatmap.")
+        self.cb_itype.setToolTip("Escolhe qual classe de interação será exibida no mapa de calor.")
         self.cb_itype.currentIndexChanged.connect(self._render_residue_heatmap)
         hm_ctrl.addWidget(self.cb_itype, 1)
         self.hm_status = QLabel("—")
@@ -244,7 +245,7 @@ class ResultsTab(QWidget):
             hm_layout.addWidget(self.hm_canvas, 1)
         else:
             hm_layout.addWidget(QLabel("matplotlib não está instalado."))
-        self.inner.addTab(self.residue_tab, "Heatmap por tipo")
+        self.inner.addTab(self.residue_tab, "Mapa de calor por tipo")
 
         self.cluster_tab = QWidget()
         cluster_layout = QVBoxLayout(self.cluster_tab)
@@ -774,7 +775,13 @@ class ResultsTab(QWidget):
         ax_heat.set_title("Matriz reordenada por cluster")
         _apply_tick_labels(ax_heat, result.ordered_labels, axis="both", ligand_axis=True)
         self.cluster_fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
-        self.cluster_fig.tight_layout()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="This figure includes Axes that are not compatible with tight_layout",
+                category=UserWarning,
+            )
+            self.cluster_fig.tight_layout()
         self.cluster_canvas.draw()
 
     def _populate_cluster_table(self, result) -> None:

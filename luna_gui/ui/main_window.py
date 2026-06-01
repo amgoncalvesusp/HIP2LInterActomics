@@ -66,6 +66,19 @@ class MainWindow(QMainWindow):
         # Wire: history reload
         self.tab_history.project_loaded.connect(self._apply_loaded_cfg)
 
+    def closeEvent(self, event) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Fechar aplicativo",
+            "Deseja realmente fechar o HIP²LInterActomics?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            event.accept()
+        else:
+            event.ignore()
+
     def _build_menu(self) -> None:
         bar = self.menuBar()
         m_file = bar.addMenu("&Arquivo")

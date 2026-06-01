@@ -238,7 +238,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "similaridade, sessões PyMOL ou filtros específicos."
     ): {
         "en": "Here you choose which outputs LUNA will generate. If unsure, keep the defaults and enable only what you plan to inspect later: fingerprints, similarity, PyMOL sessions or specific filters.",
-        "es": "Aquí eliges qué salidas generará LUNA. Si tienes dudas, deja los valores por defecto y activa solo lo que quieras inspeccionar después: fingerprints, similaridad, sesiones PyMOL o filtros específicos.",
+        "es": "Aquí eliges qué salidas generará LUNA. Si tienes dudas, deja los valores por defecto y activa solo lo que quieras inspeccionar después: fingerprints, similitud, sesiones PyMOL o filtros específicos.",
     },
     "Preparação de hidrogênios": {"en": "Hydrogen preparation", "es": "Preparación de hidrógenos"},
     (
@@ -261,13 +261,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Todos (H + E + F)": {"en": "All (H + E + F)", "es": "Todos (H + E + F)"},
     "Tipo:": {"en": "Type:", "es": "Tipo:"},
     "Saída IFP:": {"en": "IFP output:", "es": "Salida IFP:"},
-    "Rótulos para importância de fingerprints": {"en": "Labels for fingerprint importance", "es": "Rótulos para importancia de fingerprints"},
+    "Rótulos para importância de fingerprints": {"en": "Labels for fingerprint importance", "es": "Etiquetas para importancia de fingerprints"},
     (
         "Se marcado, a aba FP análises usa este CSV para treinar a importância das features. "
         "Informe o arquivo, a coluna do ID do ligante e a coluna que contém os rótulos/classes."
     ): {
         "en": "When checked, the FP analyses tab uses this CSV to train feature importance. Provide the file, the ligand ID column and the column containing labels/classes.",
-        "es": "Cuando está marcado, la pestaña de análisis FP usa este CSV para entrenar la importancia de las features. Indica el archivo, la columna del ID del ligando y la columna con rótulos/clases.",
+        "es": "Cuando está marcado, la pestaña de análisis FP usa este CSV para entrenar la importancia de las features. Indica el archivo, la columna del ID del ligando y la columna con etiquetas/clases.",
     },
     "Arquivo CSV:": {"en": "CSV file:", "es": "Archivo CSV:"},
     "Coluna do ligand_id:": {"en": "ligand_id column:", "es": "Columna ligand_id:"},
@@ -275,14 +275,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Tarefa:": {"en": "Task:", "es": "Tarea:"},
     "Regressão": {"en": "Regression", "es": "Regresión"},
     "Classificação": {"en": "Classification", "es": "Clasificación"},
-    "Aplicar Otsu tambem a interacoes/residuos": {"en": "Apply Otsu also to interactions/residues", "es": "Aplicar Otsu también a interacciones/residuos"},
-    "Matriz de similaridade (Tanimoto)": {"en": "Similarity matrix (Tanimoto)", "es": "Matriz de similaridad (Tanimoto)"},
+    "Aplicar Otsu tambem a interacoes/residuos": {"pt": "Aplicar Otsu também a interações/resíduos", "en": "Apply Otsu also to interactions/residues", "es": "Aplicar Otsu también a interacciones/residuos"},
+    "Matriz de similaridade (Tanimoto)": {"en": "Similarity matrix (Tanimoto)", "es": "Matriz de similitud (Tanimoto)"},
     (
         "A matriz de similaridade ajuda a ver quais ligantes se comportam de forma parecida. "
         "Ela também alimenta os gráficos e clusters da aba de resultados."
     ): {
         "en": "The similarity matrix helps identify ligands with similar interaction behavior. It also feeds charts and clusters in the results tab.",
-        "es": "La matriz de similaridad ayuda a ver qué ligandos se comportan de forma parecida. También alimenta los gráficos y clusters de la pestaña de resultados.",
+        "es": "La matriz de similitud ayuda a ver qué ligandos se comportan de forma parecida. También alimenta los gráficos y clusters de la pestaña de resultados.",
     },
     "Saída:": {"en": "Output:", "es": "Salida:"},
     "Exportar sessões PyMOL (.pse)": {"en": "Export PyMOL sessions (.pse)", "es": "Exportar sesiones PyMOL (.pse)"},
@@ -366,7 +366,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "visualizar tabelas e gráficos, exportar figuras e agrupar ligantes por similaridade."
     ): {
         "en": "Use this tab to review what LUNA generated. You can load an existing workdir, inspect tables and charts, export figures and cluster ligands by similarity.",
-        "es": "Usa esta pestaña para revisar lo que LUNA generó. Puedes cargar un workdir existente, visualizar tablas y gráficos, exportar figuras y agrupar ligandos por similaridad.",
+        "es": "Usa esta pestaña para revisar lo que LUNA generó. Puedes cargar un workdir existente, visualizar tablas y gráficos, exportar figuras y agrupar ligandos por similitud.",
     },
     "Workdir:": {"en": "Workdir:", "es": "Workdir:"},
     "(usa o workdir do projeto atual)": {"en": "(uses the current project workdir)", "es": "(usa el workdir del proyecto actual)"},
@@ -382,7 +382,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Linhas a exibir:": {"en": "Rows to show:", "es": "Filas a mostrar:"},
     "Mapa de calor da similaridade entre ligantes. Valores mais altos indicam fingerprints mais parecidos.": {
         "en": "Heatmap of ligand similarity. Higher values indicate more similar fingerprints.",
-        "es": "Mapa de calor de la similaridad entre ligandos. Valores más altos indican fingerprints más parecidos.",
+        "es": "Mapa de calor de la similitud entre ligandos. Valores más altos indican fingerprints más parecidos.",
     },
     "Estatísticas": {"en": "Statistics", "es": "Estadísticas"},
     "Resume quantas interações de cada tipo aparecem no conjunto analisado. É uma visão global do perfil químico observado.": {
@@ -391,6 +391,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "Calcular estatísticas (usa luna-env)": {"en": "Calculate statistics (uses luna-env)", "es": "Calcular estadísticas (usa luna-env)"},
     "Heatmap por tipo": {"pt": "Mapa de calor por tipo", "en": "Heatmap by type", "es": "Mapa de calor por tipo"},
+    "Mapa de calor por tipo": {"en": "Heatmap by type", "es": "Mapa de calor por tipo"},
     "Mostra, para um tipo de interação escolhido, quais resíduos da proteína aparecem associados aos ligantes.": {
         "en": "Shows, for the selected interaction type, which protein residues are associated with ligands.",
         "es": "Muestra, para un tipo de interacción elegido, qué residuos de la proteína aparecen asociados a los ligandos.",
@@ -401,7 +402,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Atualizar clusters": {"en": "Update clusters", "es": "Actualizar clusters"},
     "Agrupa ligantes com base na matriz de similaridade. O dendrograma mostra a relação hierárquica, e a tabela lista o cluster atribuído a cada ligante.": {
         "en": "Clusters ligands based on the similarity matrix. The dendrogram shows the hierarchical relationship, and the table lists the cluster assigned to each ligand.",
-        "es": "Agrupa ligandos con base en la matriz de similaridad. El dendrograma muestra la relación jerárquica y la tabla lista el cluster atribuido a cada ligando.",
+        "es": "Agrupa ligandos con base en la matriz de similitud. El dendrograma muestra la relación jerárquica y la tabla lista el cluster atribuido a cada ligando.",
     },
     "Exportar clusters CSV": {"en": "Export clusters CSV", "es": "Exportar clusters CSV"},
     "Abrir no PyMOL": {"en": "Open in PyMOL", "es": "Abrir en PyMOL"},
@@ -409,12 +410,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Lists the PyMOL sessions exported by LUNA. Open a file to visually inspect interactions and poses.",
         "es": "Lista las sesiones PyMOL exportadas por LUNA. Abre un archivo para inspeccionar visualmente interacciones y poses.",
     },
-    "Sessões PyMOL": {"en": "PyMOL sessions", "es": "Sesiones PyMOL"},
-    "Estatisticas": {"en": "Statistics", "es": "Estadísticas"},
+    "Sessões PyMOL": {"pt": "Triagem virtual racional", "en": "Rational virtual screening", "es": "Cribado virtual racional"},
+    "Estatisticas": {"pt": "Estatísticas", "en": "Statistics", "es": "Estadísticas"},
+    "Estatísticas": {"en": "Statistics", "es": "Estadísticas"},
     "Heatmap completo ligantes x residuos": {"pt": "Mapa de calor completo ligantes x resíduos", "en": "Complete ligand x residue heatmap", "es": "Mapa de calor completo ligandos x residuos"},
-    "Sessoes em PyMOL": {"en": "PyMOL sessions", "es": "Sesiones en PyMOL"},
-    "FP analises": {"en": "FP analyses", "es": "Análisis FP"},
-    "FP sessao em PyMOL": {"en": "FP PyMOL session", "es": "Sesión FP en PyMOL"},
+    "Sessoes em PyMOL": {"pt": "Triagem virtual racional", "en": "Rational virtual screening", "es": "Cribado virtual racional"},
+    "Triagem virtual racional": {"en": "Rational virtual screening", "es": "Cribado virtual racional"},
+    "FP analises": {"pt": "Análises FP", "en": "FP analyses", "es": "Análisis FP"},
+    "Análises FP": {"en": "FP analyses", "es": "Análisis FP"},
+    "FP sessao em PyMOL": {"pt": "Sessão FP em PyMOL", "en": "FP PyMOL session", "es": "Sesión FP en PyMOL"},
+    "Sessão FP em PyMOL": {"en": "FP PyMOL session", "es": "Sesión FP en PyMOL"},
+    "Descrição do método classificação e seleção": {
+        "en": "Classification and selection method description",
+        "es": "Descripción del método de clasificación y selección",
+    },
+    "Descrição do método: classificação e seleção": {
+        "en": "Classification and selection method description",
+        "es": "Descripción del método: clasificación y selección",
+    },
     "Filtragens dinâmicas por binding modes": {"en": "Dynamic filtering by binding modes", "es": "Filtrados dinámicos por binding modes"},
     (
         "Gera novas sessões PyMOL em uma subpasta separada usando regras .cfg de binding modes. "
@@ -449,6 +462,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Usar linhas selecionadas": {"en": "Use selected rows", "es": "Usar filas seleccionadas"},
     "Restabelecer calculado": {"en": "Restore calculated", "es": "Restablecer calculado"},
     "Atualizar heatmaps": {"pt": "Atualizar mapas de calor", "en": "Update heatmaps", "es": "Actualizar mapas de calor"},
+    "Atualizar mapas de calor": {"en": "Update heatmaps", "es": "Actualizar mapas de calor"},
     (
         "Mostra, em cada par ligante x residuo, todas as interacoes presentes em faixas coloridas. "
         "As cores indicam a classe da interacao, nao a contagem."
@@ -456,7 +470,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Shows all interactions present in each ligand x residue pair as colored bands. Colors indicate interaction class, not count.",
         "es": "Muestra, en cada par ligando x residuo, todas las interacciones presentes como franjas de color. Los colores indican la clase de interacción, no el conteo.",
     },
-    "Carregar analises de FP": {"en": "Load FP analyses", "es": "Cargar análisis FP"},
+    "Carregar analises de FP": {"pt": "Carregar análises de FP", "en": "Load FP analyses", "es": "Cargar análisis FP"},
+    "Carregar análises de FP": {"en": "Load FP analyses", "es": "Cargar análisis FP"},
     (
         "Classifica os fingerprints com base nos shells reais do LUNA, "
         "atribui classes confiaveis via limiar por z-score e mostra as features mais relevantes."
@@ -467,15 +482,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Algoritmo:": {"en": "Algorithm:", "es": "Algoritmo:"},
     "Corte p-value:": {"en": "p-value cutoff:", "es": "Corte p-value:"},
     "Classes importantes": {"en": "Important classes", "es": "Clases importantes"},
-    "Frequencia por classe": {"en": "Frequency by class", "es": "Frecuencia por clase"},
-    "Cobertura e importancia": {"en": "Coverage and importance", "es": "Cobertura e importancia"},
+    "Frequencia por classe": {"pt": "Frequência por classe", "en": "Frequency by class", "es": "Frecuencia por clase"},
+    "Frequência por classe": {"en": "Frequency by class", "es": "Frecuencia por clase"},
+    "Cobertura e importancia": {"pt": "Cobertura e importância", "en": "Coverage and importance", "es": "Cobertura e importancia"},
+    "Cobertura e importância": {"en": "Coverage and importance", "es": "Cobertura e importancia"},
     "Heatmap importância": {"pt": "Mapa de calor de importância", "en": "Importance heatmap", "es": "Mapa de calor de importancia"},
-    "Frequencia interacoes": {"en": "Interaction frequency", "es": "Frecuencia de interacciones"},
+    "Mapa de calor de importância": {"en": "Importance heatmap", "es": "Mapa de calor de importancia"},
+    "Frequencia interacoes": {"pt": "Frequência de interações", "en": "Interaction frequency", "es": "Frecuencia de interacciones"},
+    "Frequência de interações": {"en": "Interaction frequency", "es": "Frecuencia de interacciones"},
     "Interações prevalentes": {"en": "Prevalent interactions", "es": "Interacciones prevalentes"},
     "Heatmap interações": {"pt": "Mapa de calor de interações", "en": "Interaction heatmap", "es": "Mapa de calor de interacciones"},
+    "Mapa de calor de interações": {"en": "Interaction heatmap", "es": "Mapa de calor de interacciones"},
     "Fingerprint:": {"en": "Fingerprint:", "es": "Fingerprint:"},
-    "Molecula:": {"en": "Molecule:", "es": "Molécula:"},
-    "Gerar sessao": {"en": "Generate session", "es": "Generar sesión"},
+    "Molecula:": {"pt": "Molécula:", "en": "Molecule:", "es": "Molécula:"},
+    "Molécula:": {"en": "Molecule:", "es": "Molécula:"},
+    "Gerar sessao": {"pt": "Gerar sessão", "en": "Generate session", "es": "Generar sesión"},
+    "Gerar sessão": {"en": "Generate session", "es": "Generar sesión"},
     (
         "Gera uma sessao PyMOL para o fingerprint escolhido, recuperando os shells "
         "que originaram aquele bit para um ligante especifico."
@@ -483,18 +505,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Generates a PyMOL session for the selected fingerprint, recovering the shells that originated that bit for a specific ligand.",
         "es": "Genera una sesión PyMOL para el fingerprint elegido, recuperando los shells que originaron ese bit para un ligando específico.",
     },
-    "Abrir sessao": {"en": "Open session", "es": "Abrir sesión"},
+    "Abrir sessao": {"pt": "Abrir sessão", "en": "Open session", "es": "Abrir sesión"},
+    "Abrir sessão": {"en": "Open session", "es": "Abrir sesión"},
 
     # Tables.
     "Feature": {"en": "Feature", "es": "Feature"},
-    "Moleculas": {"en": "Molecules", "es": "Moléculas"},
+    "Moleculas": {"pt": "Moléculas", "en": "Molecules", "es": "Moléculas"},
+    "Moléculas": {"en": "Molecules", "es": "Moléculas"},
     "Cobertura (%)": {"en": "Coverage (%)", "es": "Cobertura (%)"},
     "Classe prevalente (%)": {"en": "Prevalent class (%)", "es": "Clase prevalente (%)"},
     "Z-score classe": {"en": "Class z-score", "es": "Z-score clase"},
-    "Classe atribuida": {"en": "Assigned class", "es": "Clase asignada"},
-    "Importancia": {"en": "Importance", "es": "Importancia"},
+    "Classe atribuida": {"pt": "Classe atribuída", "en": "Assigned class", "es": "Clase asignada"},
+    "Classe atribuída": {"en": "Assigned class", "es": "Clase asignada"},
+    "Importancia": {"pt": "Importância", "en": "Importance", "es": "Importancia"},
+    "Importância": {"en": "Importance", "es": "Importancia"},
     "Z-score Importance": {"en": "Importance z-score", "es": "Z-score importancia"},
-    "Colisoes": {"en": "Collisions", "es": "Colisiones"},
+    "Colisoes": {"pt": "Colisões", "en": "Collisions", "es": "Colisiones"},
+    "Colisões": {"en": "Collisions", "es": "Colisiones"},
     "Perfil da base": {"en": "Dataset profile", "es": "Perfil de la base"},
     "Ligante": {"en": "Ligand", "es": "Ligando"},
     "Ordem": {"en": "Order", "es": "Orden"},
@@ -505,6 +532,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "accept_only (lista)": {"en": "accept_only (list)", "es": "accept_only (lista)"},
     "+ Adicionar tipo": {"en": "+ Add type", "es": "+ Agregar tipo"},
     "− Remover linha": {"en": "- Remove row", "es": "- Remover fila"},
+    "- Remover linha": {"en": "- Remove row", "es": "- Remover fila"},
     "Carregar .cfg": {"en": "Load .cfg", "es": "Cargar .cfg"},
     "Salvar .cfg": {"en": "Save .cfg", "es": "Guardar .cfg"},
     "Preparar arquivos de complexos": {"en": "Prepare complex files", "es": "Preparar archivos de complejos"},
@@ -521,7 +549,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Aguardando execução.": {"en": "Waiting to run.", "es": "Esperando ejecución."},
 
     # Plot text.
-    "Similaridade de Tanimoto": {"en": "Tanimoto similarity", "es": "Similaridad de Tanimoto"},
+    "Similaridade de Tanimoto": {"en": "Tanimoto similarity", "es": "Similitud de Tanimoto"},
     "Sem dados de interação": {"en": "No interaction data", "es": "Sin datos de interacción"},
     "Sem interações para esta visão.": {"en": "No interactions for this view.", "es": "Sin interacciones para esta vista."},
     "Aminoácidos": {"en": "Amino acids", "es": "Aminoácidos"},
@@ -536,30 +564,49 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Total neste ligante": {"en": "Total for this ligand", "es": "Total en este ligando"},
     "Contagem por tipo de interação": {"en": "Count by interaction type", "es": "Conteo por tipo de interacción"},
     "Interações por tipo": {"en": "Interactions by type", "es": "Interacciones por tipo"},
-    "Tipos de interacao por par ligante x residuo": {"en": "Interaction types by ligand x residue pair", "es": "Tipos de interacción por par ligando x residuo"},
+    "Tipos de interacao por par ligante x residuo": {"pt": "Tipos de interação por par ligante x resíduo", "en": "Interaction types by ligand x residue pair", "es": "Tipos de interacción por par ligando x residuo"},
+    "Tipos de interação por par ligante x resíduo": {"en": "Interaction types by ligand x residue pair", "es": "Tipos de interacción por par ligando x residuo"},
     "Clique para ocultar/mostrar": {"en": "Click to hide/show", "es": "Click para ocultar/mostrar"},
-    "Sem matriz de residuos disponivel": {"en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
-    "Sem matriz completa disponivel": {"en": "No complete matrix available", "es": "Sin matriz completa disponible"},
+    "Sem matriz de residuos disponivel": {"pt": "Sem matriz de resíduos disponível", "en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
+    "Sem matriz de resíduos disponível": {"en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
+    "Sem matriz completa disponivel": {"pt": "Sem matriz completa disponível", "en": "No complete matrix available", "es": "Sin matriz completa disponible"},
+    "Sem matriz completa disponível": {"en": "No complete matrix available", "es": "Sin matriz completa disponible"},
     "Sem dados de interacao para o heatmap completo": {"pt": "Sem dados de interação para o mapa de calor completo", "en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el mapa de calor completo"},
     "Sem features importantes para resumir.": {"en": "No important features to summarize.", "es": "Sin features importantes para resumir."},
     "Sem features importantes para plotar.": {"en": "No important features to plot.", "es": "Sin features importantes para graficar."},
     "Sem features importantes para gerar o heatmap.": {"pt": "Sem features importantes para gerar o mapa de calor.", "en": "No important features to generate the heatmap.", "es": "Sin features importantes para generar el mapa de calor."},
-    "Sem interacoes prevalentes confiaveis nas features importantes.": {"en": "No reliable prevalent interactions among important features.", "es": "Sin interacciones prevalentes confiables en las features importantes."},
-    "Todas as interacoes estao ocultas pela legenda.": {"en": "All interactions are hidden by the legend.", "es": "Todas las interacciones están ocultas por la leyenda."},
+    "Sem features importantes para gerar o mapa de calor.": {"en": "No important features to generate the heatmap.", "es": "Sin features importantes para generar el mapa de calor."},
+    "Sem interacoes prevalentes confiaveis nas features importantes.": {"pt": "Sem interações prevalentes confiáveis nas features importantes.", "en": "No reliable prevalent interactions among important features.", "es": "Sin interacciones prevalentes confiables en las features importantes."},
+    "Sem interações prevalentes confiáveis nas features importantes.": {"en": "No reliable prevalent interactions among important features.", "es": "Sin interacciones prevalentes confiables en las features importantes."},
+    "Todas as interacoes estao ocultas pela legenda.": {"pt": "Todas as interações estão ocultas pela legenda.", "en": "All interactions are hidden by the legend.", "es": "Todas las interacciones están ocultas por la leyenda."},
+    "Todas as interações estão ocultas pela legenda.": {"en": "All interactions are hidden by the legend.", "es": "Todas las interacciones están ocultas por la leyenda."},
     "Sem interacoes prevalentes para gerar o heatmap.": {"pt": "Sem interações prevalentes para gerar o mapa de calor.", "en": "No prevalent interactions to generate the heatmap.", "es": "Sin interacciones prevalentes para generar el mapa de calor."},
-    "% Important features": {"en": "% Important features", "es": "% Features importantes"},
-    "Distribuicao das classes entre as features mais importantes": {"en": "Class distribution among the most important features", "es": "Distribución de clases entre las features más importantes"},
-    "Assignment frequency of each class (%)": {"en": "Assignment frequency of each class (%)", "es": "Frecuencia de asignación de cada clase (%)"},
-    "Feature id": {"en": "Feature id", "es": "ID de feature"},
-    "Frequencia de atribuicao de classes nas features importantes": {"en": "Class assignment frequency in important features", "es": "Frecuencia de asignación de clases en features importantes"},
-    "% Fingerprints containing the feature": {"en": "% Fingerprints containing the feature", "es": "% Fingerprints que contienen la feature"},
-    "Cobertura das features importantes e importancia do modelo": {"en": "Important feature coverage and model importance", "es": "Cobertura de features importantes e importancia del modelo"},
-    "Mapa de presenca das features importantes por classe": {"en": "Presence map of important features by class", "es": "Mapa de presencia de features importantes por clase"},
-    "Assignment frequency of each interaction (%)": {"en": "Assignment frequency of each interaction (%)", "es": "Frecuencia de asignación de cada interacción (%)"},
-    "Frequencia de atribuicao da interacao prevalente nas features importantes": {"en": "Prevalent interaction assignment frequency in important features", "es": "Frecuencia de asignación de la interacción prevalente en features importantes"},
-    "Numero de ligantes": {"en": "Number of ligands", "es": "Número de ligandos"},
-    "Interacao e residuo prevalentes nas features importantes": {"en": "Prevalent interaction and residue in important features", "es": "Interacción y residuo prevalentes en features importantes"},
-    "Interacoes prevalentes das features importantes por ligante": {"en": "Prevalent interactions of important features by ligand", "es": "Interacciones prevalentes de features importantes por ligando"},
+    "% Important features": {"pt": "% de features importantes", "en": "% Important features", "es": "% de features importantes"},
+    "% de features importantes": {"en": "% Important features", "es": "% de features importantes"},
+    "Distribuicao das classes entre as features mais importantes": {"pt": "Distribuição das classes entre as features mais importantes", "en": "Class distribution among the most important features", "es": "Distribución de clases entre las features más importantes"},
+    "Distribuição das classes entre as features mais importantes": {"en": "Class distribution among the most important features", "es": "Distribución de clases entre las features más importantes"},
+    "Assignment frequency of each class (%)": {"pt": "Frequência de atribuição de cada classe (%)", "en": "Assignment frequency of each class (%)", "es": "Frecuencia de asignación de cada clase (%)"},
+    "Frequência de atribuição de cada classe (%)": {"en": "Assignment frequency of each class (%)", "es": "Frecuencia de asignación de cada clase (%)"},
+    "Feature id": {"pt": "ID da feature", "en": "Feature id", "es": "ID de feature"},
+    "ID da feature": {"en": "Feature id", "es": "ID de feature"},
+    "Frequencia de atribuicao de classes nas features importantes": {"pt": "Frequência de atribuição de classes nas features importantes", "en": "Class assignment frequency in important features", "es": "Frecuencia de asignación de clases en features importantes"},
+    "Frequência de atribuição de classes nas features importantes": {"en": "Class assignment frequency in important features", "es": "Frecuencia de asignación de clases en features importantes"},
+    "% Fingerprints containing the feature": {"pt": "% de fingerprints contendo a feature", "en": "% Fingerprints containing the feature", "es": "% de fingerprints que contienen la feature"},
+    "% de fingerprints contendo a feature": {"en": "% Fingerprints containing the feature", "es": "% de fingerprints que contienen la feature"},
+    "Cobertura das features importantes e importancia do modelo": {"pt": "Cobertura das features importantes e importância do modelo", "en": "Important feature coverage and model importance", "es": "Cobertura de features importantes e importancia del modelo"},
+    "Cobertura das features importantes e importância do modelo": {"en": "Important feature coverage and model importance", "es": "Cobertura de features importantes e importancia del modelo"},
+    "Mapa de presenca das features importantes por classe": {"pt": "Mapa de presença das features importantes por classe", "en": "Presence map of important features by class", "es": "Mapa de presencia de features importantes por clase"},
+    "Mapa de presença das features importantes por classe": {"en": "Presence map of important features by class", "es": "Mapa de presencia de features importantes por clase"},
+    "Assignment frequency of each interaction (%)": {"pt": "Frequência de atribuição de cada interação (%)", "en": "Assignment frequency of each interaction (%)", "es": "Frecuencia de asignación de cada interacción (%)"},
+    "Frequência de atribuição de cada interação (%)": {"en": "Assignment frequency of each interaction (%)", "es": "Frecuencia de asignación de cada interacción (%)"},
+    "Frequencia de atribuicao da interacao prevalente nas features importantes": {"pt": "Frequência de atribuição da interação prevalente nas features importantes", "en": "Prevalent interaction assignment frequency in important features", "es": "Frecuencia de asignación de la interacción prevalente en features importantes"},
+    "Frequência de atribuição da interação prevalente nas features importantes": {"en": "Prevalent interaction assignment frequency in important features", "es": "Frecuencia de asignación de la interacción prevalente en features importantes"},
+    "Numero de ligantes": {"pt": "Número de ligantes", "en": "Number of ligands", "es": "Número de ligandos"},
+    "Número de ligantes": {"en": "Number of ligands", "es": "Número de ligandos"},
+    "Interacao e residuo prevalentes nas features importantes": {"pt": "Interação e resíduo prevalentes nas features importantes", "en": "Prevalent interaction and residue in important features", "es": "Interacción y residuo prevalentes en features importantes"},
+    "Interação e resíduo prevalentes nas features importantes": {"en": "Prevalent interaction and residue in important features", "es": "Interacción y residuo prevalentes en features importantes"},
+    "Interacoes prevalentes das features importantes por ligante": {"pt": "Interações prevalentes das features importantes por ligante", "en": "Prevalent interactions of important features by ligand", "es": "Interacciones prevalentes de features importantes por ligando"},
+    "Interações prevalentes das features importantes por ligante": {"en": "Prevalent interactions of important features by ligand", "es": "Interacciones prevalentes de features importantes por ligando"},
     "Clustering hierárquico": {"en": "Hierarchical clustering", "es": "Clustering jerárquico"},
     "Distância": {"en": "Distance", "es": "Distancia"},
     "Matriz reordenada por cluster": {"en": "Matrix reordered by cluster", "es": "Matriz reordenada por cluster"},
@@ -626,7 +673,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "Feature no confiable",
     },
     "Ligantes selecionados": {"en": "Selected ligands", "es": "Ligandos seleccionados"},
-    "Matriz de similaridade": {"en": "Similarity matrix", "es": "Matriz de similaridad"},
+    "Matriz de similaridade": {"en": "Similarity matrix", "es": "Matriz de similitud"},
     "Otsu fallback": {"en": "Otsu fallback", "es": "Fallback Otsu"},
     "Clusters": {"en": "Clusters", "es": "Clusters"},
     "Tipo": {"en": "Type", "es": "Tipo"},
@@ -703,13 +750,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Clusters: reorganizam a matriz de similaridade para revelar famílias de ligantes por comportamento no sítio. Use os grupos como hipótese para priorização e para escolher representantes para inspeção no PyMOL."
     ): {
         "en": "Clusters: reorganize the similarity matrix to reveal ligand families by site behavior. Use the groups as prioritization hypotheses and to choose representatives for PyMOL inspection.",
-        "es": "Clusters: reorganizan la matriz de similaridad para revelar familias de ligandos por comportamiento en el sitio. Usa los grupos como hipótesis de priorización y para elegir representantes para inspección en PyMOL.",
+        "es": "Clusters: reorganizan la matriz de similitud para revelar familias de ligandos por comportamiento en el sitio. Usa los grupos como hipótesis de priorización y para elegir representantes para inspección en PyMOL.",
     },
     (
         "Fingerprints e FP análises: cada feature resume uma vizinhança de interação. A classe atribuída descreve a natureza dominante da feature; a importância do modelo estima quanto ela ajuda a separar classes/rótulos ou valores de atividade."
     ): {
         "en": "Fingerprints and FP analyses: each feature summarizes an interaction neighborhood. The assigned class describes the feature's dominant nature; model importance estimates how much it helps separate classes/labels or activity values.",
-        "es": "Fingerprints y análisis FP: cada feature resume una vecindad de interacción. La clase asignada describe la naturaleza dominante de la feature; la importancia del modelo estima cuánto ayuda a separar clases/rótulos o valores de actividad.",
+        "es": "Fingerprints y análisis FP: cada feature resume una vecindad de interacción. La clase asignada describe la naturaleza dominante de la feature; la importancia del modelo estima cuánto ayuda a separar clases/etiquetas o valores de actividad.",
     },
     (
         "Importância e p-value: o z-score de importância compara uma feature contra a distribuição de importâncias do conjunto. O p-value é calculado pela equação de Keiser and Hert [1], p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665))."
@@ -764,7 +811,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Filtro binding modes": {"en": "Binding modes filter", "es": "Filtro binding modes"},
     "Config. interações": {"en": "Interaction config", "es": "Config. interacciones"},
     "Distância máxima global": {"en": "Global maximum distance", "es": "Distancia máxima global"},
-    "Rótulos FP": {"en": "FP labels", "es": "Rótulos FP"},
+    "Rótulos FP": {"en": "FP labels", "es": "Etiquetas FP"},
     "Tarefa FP": {"en": "FP task", "es": "Tarea FP"},
     "Núcleos": {"en": "Cores", "es": "Núcleos"},
     (
@@ -790,7 +837,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Matriz de similaridade: compara ligantes pelos fingerprints de interação. Valores próximos de 1 indicam perfis de interação semelhantes; valores baixos indicam modos de interação distintos, mesmo quando as moléculas parecem estruturalmente parecidas."
     ): {
         "en": "Similarity matrix: compares ligands by interaction fingerprints. Values close to 1 indicate similar interaction profiles; low values indicate distinct interaction modes, even when molecules look structurally similar.",
-        "es": "Matriz de similaridad: compara ligandos por fingerprints de interacción. Valores cercanos a 1 indican perfiles de interacción semejantes; valores bajos indican modos de interacción distintos, incluso cuando las moléculas parecen estructuralmente parecidas.",
+        "es": "Matriz de similitud: compara ligandos por fingerprints de interacción. Valores cercanos a 1 indican perfiles de interacción semejantes; valores bajos indican modos de interacción distintos, incluso cuando las moléculas parecen estructuralmente parecidas.",
     },
     (
         "Cada barra representa a contagem de uma classe de interação. Use barras dominantes para identificar forças químicas recorrentes e barras raras para procurar contatos específicos que podem diferenciar poucos ligantes."
@@ -802,7 +849,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Cada célula compara dois ligantes pelo fingerprint de interação. Tons mais intensos indicam maior similaridade; blocos ao longo da diagonal sugerem famílias com modos de interação semelhantes."
     ): {
         "en": "Each cell compares two ligands by interaction fingerprint. More intense tones indicate higher similarity; blocks along the diagonal suggest families with similar interaction modes.",
-        "es": "Cada celda compara dos ligandos por fingerprint de interacción. Tonos más intensos indican mayor similaridad; bloques a lo largo de la diagonal sugieren familias con modos de interacción semejantes.",
+        "es": "Cada celda compara dos ligandos por fingerprint de interacción. Tonos más intensos indican mayor similitud; bloques a lo largo de la diagonal sugieren familias con modos de interacción semejantes.",
     },
 
     # Standard interaction labels used in plots.  Data keys remain unchanged.

@@ -516,6 +516,20 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertIn("entry_meta", _FP_SESSION_SCRIPT)
         self.assertIn("feature_shells", _FP_SESSION_SCRIPT)
 
+    def test_fp_session_helper_prefers_live_shell_regeneration(self) -> None:
+        self.assertIn("_regenerate_shells_from_project", _FP_SESSION_SCRIPT)
+        self.assertIn("_load_cached_shell_payload", _FP_SESSION_SCRIPT)
+        self.assertLess(
+            _FP_SESSION_SCRIPT.index("_regenerate_shells_from_project"),
+            _FP_SESSION_SCRIPT.index("_load_cached_shell_payload"),
+        )
+
+    def test_fp_session_helper_adds_shell_number_labels(self) -> None:
+        self.assertIn("def _add_shell_number_labels", _FP_SESSION_SCRIPT)
+        self.assertIn("Shell {shell_index} | L{level}", _FP_SESSION_SCRIPT)
+        self.assertIn('"shell_labels"', _FP_SESSION_SCRIPT)
+        self.assertIn("cmd.pseudoatom", _FP_SESSION_SCRIPT)
+
 
 if __name__ == "__main__":
     unittest.main()

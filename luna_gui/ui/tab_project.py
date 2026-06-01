@@ -86,7 +86,7 @@ class ProjectTab(QWidget):
         btn_w.setToolTip("Escolhe a pasta onde o projeto será salvo e reaberto depois.")
         btn_w.clicked.connect(self._pick_workdir)
         wrow = QHBoxLayout(); wrow.addWidget(self.workdir_edit, 1); wrow.addWidget(btn_w)
-        wrow.addWidget(InfoButton("Diretorio raiz do projeto. A GUI salva configuracoes, entradas, logs, resultados, relatorios e sessoes PyMOL nesta pasta."))
+        wrow.addWidget(InfoButton("Diretório raiz do projeto. A GUI salva configurações, entradas, logs, resultados, relatórios e sessões PyMOL nesta pasta."))
         form.addRow("Diretório de trabalho:", self._wrap(wrow))
 
         prep_row = QHBoxLayout()
@@ -95,7 +95,7 @@ class ProjectTab(QWidget):
         btn_prep.setToolTip("Divide complexos MOL2/PDB (proteína+ligante+águas) em entradas separadas.")
         btn_prep.clicked.connect(self._open_prep_wizard)
         prep_row.addWidget(btn_prep)
-        prep_row.addWidget(InfoButton("Divide arquivos de complexos em proteina, ligante e aguas. Aceita MOL2/PDB e remove pares LP de aguas para evitar confusao no LUNA."))
+        prep_row.addWidget(InfoButton("Divide arquivos de complexos em proteína, ligante e águas. Aceita MOL2/PDB e remove pares LP de águas para evitar confusão no LUNA."))
         prep_row.addStretch()
         form.addRow("Pré-processamento:", self._wrap(prep_row))
 
@@ -117,7 +117,7 @@ class ProjectTab(QWidget):
         prow.addWidget(self.protein_edit, 1)
         prow.addWidget(self.btn_protein_file)
         prow.addWidget(self.btn_protein_folder)
-        prow.addWidget(InfoButton("Arquivo PDB unico: uma proteina para todos os ligantes. Pasta: usa a proteina correspondente a cada ligante/frame pelo nome-base."))
+        prow.addWidget(InfoButton("Arquivo PDB único: uma proteína para todos os ligantes. Pasta: usa a proteína correspondente a cada ligante/frame pelo nome-base."))
         form.addRow("Proteína (PDB):", self._wrap(prow))
 
         self.ligand_edit = QLineEdit()
@@ -132,7 +132,7 @@ class ProjectTab(QWidget):
         btn_lf.setMinimumWidth(154)
         btn_lf.setToolTip(
             "Consolida todos os .mol2 ou todos os .sdf/.mol da pasta em um arquivo "
-            "unico. Para MOL2, remove LP e renumera atomos."
+            "único. Para MOL2, remove LP e renumera átomos."
         )
         btn_lf.clicked.connect(self._pick_ligand_folder)
         lrow = QHBoxLayout(); lrow.addWidget(self.ligand_edit, 1); lrow.addWidget(btn_l); lrow.addWidget(btn_lf)
@@ -146,16 +146,16 @@ class ProjectTab(QWidget):
             "Requer opções avançadas — usa o runner Python API."
         )
         self.cb_waters.setToolTip(
-            "Quando marcado, HOH e mantido no PDB e LUNA e chamado com "
-            "ignore_any_h2o=False (inclui interacoes mediadas por agua).\n"
+            "Quando marcado, HOH é mantido no PDB e LUNA é chamado com "
+            "ignore_any_h2o=False (inclui interações mediadas por água).\n"
             "Se a pasta do PDB contiver um arquivo por complexo, cada ligante "
-            "sera pareado com a proteina de mesmo nome-base.\n"
-            "Requer opcoes avancadas - usa o runner Python API."
+            "será pareado com a proteína de mesmo nome-base.\n"
+            "Requer opções avançadas - usa o runner Python API."
         )
         self.cb_waters.toggled.connect(self._on_waters_toggled)
         water_row = QHBoxLayout()
         water_row.addWidget(self.cb_waters)
-        water_row.addWidget(InfoButton("Mantem aguas do complexo no PDB da proteina e executa LUNA permitindo interacoes mediadas por agua."))
+        water_row.addWidget(InfoButton("Mantém águas do complexo no PDB da proteína e executa LUNA permitindo interações mediadas por água."))
         water_row.addStretch()
         form.addRow(self._wrap(water_row))
 
@@ -181,7 +181,7 @@ class ProjectTab(QWidget):
         self.cb_trajectory.toggled.connect(lambda v: setattr(self.cfg, "trajectory_analysis", bool(v)))
         trajectory_row = QHBoxLayout()
         trajectory_row.addWidget(self.cb_trajectory)
-        trajectory_row.addWidget(InfoButton("Ative quando cada entrada representa um frame/pose. Os graficos passam a usar percentuais de frames/entradas."))
+        trajectory_row.addWidget(InfoButton("Ative quando cada entrada representa um frame/pose. Os gráficos passam a usar percentuais de frames/entradas."))
         trajectory_row.addStretch()
         layout.addWidget(self._wrap(trajectory_row))
 
