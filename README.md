@@ -4,6 +4,10 @@
 
 O programa transforma arquivos estruturais em tabelas, mapas de calor, fingerprints de interação, sessões PyMOL, análises de importância de features e relatórios exportáveis. A ideia central é permitir que o usuário saia de um conjunto de complexos proteína-ligante ou proteína-proteína e chegue a uma leitura química interpretável: quais contatos aparecem, onde aparecem, quais resíduos participam, quais fingerprints são mais informativos e quais ligantes compartilham padrões de interação.
 
+## Manual De Uso
+
+O passo a passo completo do aplicativo está em [MANUAL_USO.md](MANUAL_USO.md).
+
 ## O Que O Aplicativo Faz
 
 - Prepara complexos de docking separando proteína, ligante e moléculas de água.
