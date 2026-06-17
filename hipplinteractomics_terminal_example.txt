@@ -1,0 +1,32 @@
+{
+  "protein_file": "/caminho/para/proteinas_ou_receptor.pdb",
+  "ligand_file": "/caminho/para/ligantes_ou_pasta",
+  "selected_ligands": "ALL",
+  "trajectory_analysis": false,
+  "workdir": "/caminho/para/workdir",
+
+  "out_ifp": true,
+  "ifp_type": "ALL",
+  "ifp_levels": 6,
+  "ifp_radius": 2.0,
+  "ifp_length": 4096,
+  "ifp_bit": true,
+  "sim_matrix": true,
+  "out_pse": true,
+
+  "include_waters": true,
+  "add_h": true,
+  "ph": 7.4,
+  "nproc": 1,
+  "overwrite": true,
+
+  "fp_labels_csv": "",
+  "fp_labels_id_column": "",
+  "fp_labels_column": "",
+  "fp_label_task": "regression",
+  "fp_use_otsu_threshold": true,
+
+  "python_exe": "",
+  "conda_exe": "",
+  "allow_hydrogen_warnings": false
+}

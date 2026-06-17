@@ -15,6 +15,7 @@ test_trajectory/
 test_anhydrated_linux/
 test_anhydrated_windows/
 test_hydrated_linux/
+test_hydrated_chemplp_linux/
 test_hydrated_windows/
 test_trajectory_linux/
 test_trajectory_windows/
