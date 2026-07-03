@@ -1,0 +1,17 @@
+name: luna-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip
+  - rdkit
+  - openbabel
+  - pymol-open-source
+  - biopython=1.79
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - networkx

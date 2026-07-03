@@ -1,45 +1,51 @@
-# LUNA GUI — Distribuição Linux
+# HIP2LInterActomics - Distribuicao Linux
 
-## Conteúdo
-- `run_gui.sh` — launcher principal no Linux; ativa o env `luna-gui`, valida dependências da GUI e inicia a aplicação
+## Conteudo
 
-## Instalação (uma única vez)
+- `install_hip2linteractomics.sh`: instalador para maquina Linux nova.
+- `run_gui.sh`: launcher principal da GUI.
+- `build_snap.sh`: gera o pacote `.snap` usando `snapcraft`.
+
+## Instalacao Recomendada
+
+Em uma copia completa do repositorio:
 
 ```bash
-# 1) Instale Miniconda se ainda não tiver
-# https://docs.conda.io/en/latest/miniconda.html
+chmod +x dist/linux/install_hip2linteractomics.sh
+./dist/linux/install_hip2linteractomics.sh
+```
 
-# 2) Crie o env da GUI
-conda create -n luna-gui python=3.11 -y
-conda activate luna-gui
-pip install -r ../../requirements.txt
+O instalador:
 
-# 3) Torne o launcher executável
-chmod +x run_gui.sh
+- detecta Conda/Miniforge/Miniconda;
+- instala Miniforge em `~/.hip2linteractomics/miniforge3` se Conda nao existir;
+- cria ou atualiza `luna-gui`;
+- cria ou atualiza `luna-env`;
+- instala LUNA, RDKit, Open Babel, PyMOL e dependencias analiticas;
+- aplica o patch de compatibilidade usado pela GUI;
+- cria um atalho desktop opcional.
+
+Para instalar apenas a GUI e deixar o `luna-env` para a aba `1. Inicio`:
+
+```bash
+./dist/linux/install_hip2linteractomics.sh --gui-only
 ```
 
 ## Uso
 
 ```bash
-./run_gui.sh
+./dist/linux/run_gui.sh
 ```
 
-Na primeira execução, vá à aba **1. Setup** e clique em **Instalar LUNA**
-para criar o ambiente `luna-env` (onde o LUNA de fato roda — é separado
-do `luna-gui`).
+Variaveis opcionais:
 
-O launcher Linux agora também verifica se o env da GUI contém:
-- `PyQt6`
-- `matplotlib`
-- `numpy`
-- `scipy`
+```bash
+HIP2LINTERACTOMICS_GUI_ENV=meu-env ./dist/linux/run_gui.sh
+HIP2LINTERACTOMICS_GUI_PYTHON=/caminho/para/python ./dist/linux/run_gui.sh
+HIP2LINTERACTOMICS_GUI_CONDA=/caminho/para/conda ./dist/linux/run_gui.sh
+```
 
-Se faltar alguma dependência, ele falha cedo e informa o comando correto.
-
-## Dependências do sistema (apt / dnf)
-
-Para o PyQt6 e o PyMOL funcionarem corretamente, instale os pacotes
-gráficos padrão:
+## Dependencias De Sistema
 
 ```bash
 # Debian / Ubuntu
@@ -49,25 +55,26 @@ sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1
 sudo dnf install xcb-util-cursor libxkbcommon-x11 mesa-libGL mesa-libEGL
 ```
 
-## Vantagens do Linux sobre Windows
+## Snap
 
-- **Paralelização funcional**: use `nproc` = número de núcleos disponíveis
-  na aba Executar. O bug de pickling do `spawn` no Windows não afeta o
-  Linux (usa `fork`).
-- **Melhor performance** para bibliotecas grandes (milhares de ligantes).
-- **Sem conflitos de DLL** entre múltiplas instalações de conda.
-- **Melhor fluxo de visualização**: a GUI exporta gráficos em `PNG`, `SVG` e `PDF`, e também exporta clusters em `CSV`.
-
-## Variável de ambiente opcional
-
-Se você usa um nome diferente para o env:
+O formato `.snap` e exclusivo do Linux. Para gerar:
 
 ```bash
-LUNA_GUI_ENV=meu-env ./run_gui.sh
+sudo snap install snapcraft --classic
+./dist/linux/build_snap.sh
 ```
 
-Se preferir apontar diretamente para um Python específico:
+Instalacao local do arquivo gerado:
 
 ```bash
-LUNA_GUI_PYTHON=/caminho/para/python ./run_gui.sh
+sudo snap install ./hip2linteractomics_0.1_amd64.snap --classic --dangerous
+hip2linteractomics
 ```
+
+O Snap empacota a GUI. O runtime pesado do LUNA continua no ambiente Conda
+`luna-env`, criado pela aba `1. Inicio` ou pelo instalador Linux.
+
+## Paralelismo
+
+No Linux, `nproc` pode usar varios nucleos. Este e o ambiente recomendado para
+bibliotecas grandes de ligantes e para analises longas.

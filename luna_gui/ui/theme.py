@@ -1,4 +1,4 @@
-"""Shared Qt theme for the LUNA GUI."""
+"""Shared Qt theme for HIP²LInterActomics."""
 from __future__ import annotations
 
 from PyQt6.QtGui import QColor, QFont, QPalette
@@ -11,35 +11,35 @@ def apply_theme(app: QApplication) -> None:
     app.setFont(QFont("Segoe UI", 10))
 
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor("#f4efe7"))
-    palette.setColor(QPalette.ColorRole.WindowText, QColor("#2e241f"))
-    palette.setColor(QPalette.ColorRole.Base, QColor("#fffdfa"))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#efe8dd"))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#fffdfa"))
-    palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#2e241f"))
-    palette.setColor(QPalette.ColorRole.Text, QColor("#2e241f"))
-    palette.setColor(QPalette.ColorRole.Button, QColor("#d8cdbd"))
-    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#2e241f"))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor("#0f766e"))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#fffdfa"))
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#8a7e71"))
+    palette.setColor(QPalette.ColorRole.Window, QColor("#ebe7df"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#061a32"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#fbfcff"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#e7e2d9"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#fbfcff"))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#061a32"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#061a32"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#236893"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#236893"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#7c8ca0"))
     app.setPalette(palette)
 
     app.setStyleSheet(
         """
         QWidget {
-            color: #2e241f;
+            color: #061a32;
         }
         QMainWindow, QDialog {
-            background: #f4efe7;
+            background: #ebe7df;
         }
         QStatusBar {
-            background: #eadfce;
-            color: #4e4037;
+            background: #e3ded5;
+            color: #263a52;
         }
         QMenuBar {
-            background: #eadfce;
-            border-bottom: 1px solid #c9baa7;
+            background: #ebe7df;
+            border-bottom: 1px solid #b6c7d8;
         }
         QMenuBar::item {
             padding: 6px 10px;
@@ -47,113 +47,120 @@ def apply_theme(app: QApplication) -> None:
         }
         QMenuBar::item:selected,
         QMenu::item:selected {
-            background: #d6c7b6;
+            background: #d8e7f2;
         }
         QMenu {
-            background: #fffdfa;
-            border: 1px solid #c9baa7;
+            background: #fbfcff;
+            border: 1px solid #94acc4;
         }
         QTabWidget::pane {
-            border: 1px solid #d7ccbd;
-            background: #fbf8f2;
-            border-radius: 14px;
+            border: 1px solid #9fb7cf;
+            background: #fbfcff;
+            border-radius: 12px;
             margin-top: 8px;
         }
         QTabBar::tab {
-            background: #ddd2c4;
-            border: 1px solid #c8bba7;
+            background: #e0d9ce;
+            border: 1px solid #b9c7d6;
             border-bottom: none;
-            color: #4b3c31;
-            padding: 10px 16px;
+            color: #061a32;
+            padding: 9px 16px;
             margin-right: 6px;
-            border-top-left-radius: 10px;
-            border-top-right-radius: 10px;
+            border-top-left-radius: 9px;
+            border-top-right-radius: 9px;
         }
         QTabBar::tab:selected {
-            background: #fbf8f2;
-            color: #173f3d;
+            background: #fbfcff;
+            color: #061a32;
+            border-top: 3px solid #e4b44f;
         }
         QGroupBox {
-            background: #fffdfa;
-            border: 1px solid #ddd2c3;
+            background: #fbfcff;
+            border: 1px solid #a8bed4;
             border-radius: 14px;
             margin-top: 16px;
-            padding: 14px;
+            padding: 10px;
             font-weight: 600;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
             left: 14px;
             padding: 0 6px;
-            color: #6d5f52;
+            color: #061a32;
         }
         QPushButton {
-            background: #c8693a;
-            color: #fffdfa;
+            background: #236893;
+            color: #ffffff;
             border: none;
             border-radius: 10px;
-            padding: 8px 14px;
+            padding: 6px 12px;
+            min-height: 24px;
             font-weight: 600;
         }
         QPushButton:hover {
-            background: #b85f35;
+            background: #1d5b82;
         }
         QPushButton:pressed {
-            background: #9f522d;
+            background: #164969;
         }
         QPushButton:disabled {
-            background: #d8d0c6;
-            color: #8d8174;
+            background: #cbd5df;
+            color: #738398;
         }
         QLineEdit, QPlainTextEdit, QListWidget, QTableWidget, QComboBox, QSpinBox, QDoubleSpinBox {
-            background: #fffdfa;
-            border: 1px solid #d4c8b9;
+            background: #fbfcff;
+            border: 1px solid #88a3bd;
             border-radius: 10px;
-            padding: 6px 8px;
-            selection-background-color: #0f766e;
-            selection-color: #fffdfa;
+            padding: 5px 8px;
+            min-height: 24px;
+            selection-background-color: #236893;
+            selection-color: #ffffff;
+        }
+        QScrollArea {
+            background: #ebe7df;
+            border: none;
         }
         QLineEdit:focus, QPlainTextEdit:focus, QListWidget:focus, QTableWidget:focus,
         QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-            border: 1px solid #0f766e;
+            border: 1px solid #236893;
         }
         QPlainTextEdit {
-            background: #1f2527;
-            color: #e6edf0;
-            border: 1px solid #30393d;
+            background: #f7f9fc;
+            color: #061a32;
+            border: 1px solid #88a3bd;
         }
         QHeaderView::section {
-            background: #efe7db;
-            color: #5a4b40;
+            background: #e7e2d9;
+            color: #061a32;
             border: none;
-            border-bottom: 1px solid #d4c8b9;
+            border-bottom: 1px solid #a8bed4;
             padding: 6px;
             font-weight: 600;
         }
         QScrollBar:vertical {
-            background: #efe7db;
+            background: #e7e2d9;
             width: 12px;
             margin: 4px 0 4px 0;
             border-radius: 6px;
         }
         QScrollBar::handle:vertical {
-            background: #c8b8a4;
+            background: #8aa4bc;
             min-height: 24px;
             border-radius: 6px;
         }
         QScrollBar:horizontal {
-            background: #efe7db;
+            background: #e7e2d9;
             height: 12px;
             margin: 0 4px 0 4px;
             border-radius: 6px;
         }
         QScrollBar::handle:horizontal {
-            background: #c8b8a4;
+            background: #8aa4bc;
             min-width: 24px;
             border-radius: 6px;
         }
         QLabel[muted="true"] {
-            color: #7d6e60;
+            color: #314c6b;
         }
         """
     )

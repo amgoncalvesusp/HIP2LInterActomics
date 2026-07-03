@@ -2,8 +2,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from .project import ProjectConfig
+
+
+def safe_nproc(value: int | None) -> int:
+    """Return a LUNA-safe nproc value for the current platform."""
+    nproc = max(1, int(value or 1))
+    if sys.platform == "win32":
+        return 1
+    return nproc
 
 
 def build_command(
@@ -67,7 +76,7 @@ def build_command(
 
     # Always pass nproc explicitly — LUNA's default is -1 (all cores),
     # which breaks on Windows due to a multiprocessing pickling bug.
-    cmd += ["--nproc", str(max(1, cfg.nproc or 1))]
+    cmd += ["--nproc", str(safe_nproc(cfg.nproc))]
 
     return cmd
 
@@ -75,10 +84,19 @@ def build_command(
 def validate(cfg: ProjectConfig) -> list[str]:
     """Return a list of human-readable errors. Empty list = OK."""
     errs: list[str] = []
-    if not cfg.protein_file or not Path(cfg.protein_file).exists():
+    protein_path = Path(cfg.protein_file) if cfg.protein_file else None
+    if not cfg.protein_file or protein_path is None or not protein_path.exists():
         errs.append("Arquivo de proteína não encontrado.")
-    if not cfg.ligand_file or not Path(cfg.ligand_file).exists():
+    elif protein_path.is_dir() and not any(protein_path.glob("*.pdb")):
+        errs.append("A pasta de proteínas não contém arquivos .pdb.")
+    ligand_path = Path(cfg.ligand_file) if cfg.ligand_file else None
+    if not cfg.ligand_file or ligand_path is None or not ligand_path.exists():
         errs.append("Arquivo de ligantes não encontrado.")
+    elif ligand_path.is_dir() and not any(
+        item.is_file() and item.suffix.lower() in {".mol2", ".sdf", ".sd", ".mol", ".pdb", ".ent"}
+        for item in ligand_path.iterdir()
+    ):
+        errs.append("A pasta de ligantes não contém arquivos .mol2, .sdf, .mol, .pdb ou .ent.")
     if not cfg.selected_ligands:
         errs.append("Nenhum ligante selecionado.")
     if not cfg.workdir:

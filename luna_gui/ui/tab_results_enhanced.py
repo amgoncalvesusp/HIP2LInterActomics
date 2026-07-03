@@ -6,6 +6,7 @@ import math
 import shutil
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -16,8 +17,17 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.project import ProjectConfig
-from ..core.analysis_helper import run_analysis, run_residue_matrix
-from ..core.report_export import save_report
+from ..core.analysis_runtime import run_analysis, run_residue_matrix
+from ..core.pymol_launcher import launch_pse_session
+from ..core.report_export import save_pdf_report, save_report
+from ..i18n import translate_figure
+from ..core.results_analysis import (
+    count_tanimoto_similarity,
+    load_analysis_summary,
+    load_residue_matrix_artifact,
+    load_ifp_sparse_matrix,
+    load_similarity_matrix,
+)
 
 try:
     from matplotlib.figure import Figure
@@ -32,11 +42,43 @@ try:
         cluster_rows,
         cluster_similarity_matrix,
         export_cluster_assignments,
-        load_similarity_matrix,
     )
     HAS_CLUSTERING = True
 except Exception:
     HAS_CLUSTERING = False
+
+
+class SortableTableWidgetItem(QTableWidgetItem):
+    def __lt__(self, other):  # type: ignore[override]
+        if isinstance(other, QTableWidgetItem):
+            left = self.data(Qt.ItemDataRole.UserRole)
+            right = other.data(Qt.ItemDataRole.UserRole)
+            if left is not None and right is not None:
+                try:
+                    return left < right
+                except Exception:
+                    pass
+        return super().__lt__(other)
+
+
+def _sortable_item(text: str, sort_value=None) -> QTableWidgetItem:
+    item = SortableTableWidgetItem(text)
+    if sort_value is not None:
+        item.setData(Qt.ItemDataRole.UserRole, sort_value)
+    return item
+
+
+def _popen_detached(args: list[str]) -> subprocess.Popen:
+    kwargs = {}
+    if sys.platform == "win32":
+        flags = 0
+        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        if flags:
+            kwargs["creationflags"] = flags
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(args, **kwargs)
 
 
 class ResultsTab(QWidget):
@@ -77,14 +119,19 @@ class ResultsTab(QWidget):
         btn_report = QPushButton("Exportar relatório HTML")
         btn_report.setToolTip("Gera um relatório HTML com os principais gráficos e resumos disponíveis.")
         btn_report.clicked.connect(self.export_report)
+        btn_report_pdf = QPushButton("Gerar relatório PDF")
+        btn_report_pdf.setToolTip("Gera um PDF com parâmetros, explicações e interpretação básica das análises.")
+        btn_report_pdf.clicked.connect(self.export_pdf_report)
         wd_row.addWidget(self.wd_edit, 1)
         wd_row.addWidget(btn_wd)
         wd_row.addWidget(btn_load)
         wd_row.addWidget(btn_export_chart)
         wd_row.addWidget(btn_report)
+        wd_row.addWidget(btn_report_pdf)
         layout.addLayout(wd_row)
 
         self.inner = QTabWidget()
+        self.inner.setUsesScrollButtons(True)
         layout.addWidget(self.inner, 1)
 
         self.fp_tab = QWidget()
@@ -103,12 +150,18 @@ class ResultsTab(QWidget):
         self.fp_rows.setToolTip("Limita quantas linhas do CSV serão mostradas na tabela para facilitar a inspeção.")
         self.fp_rows.valueChanged.connect(self._reload_fingerprints_preview)
         fp_ctrl.addWidget(self.fp_rows)
+        fp_ctrl.addWidget(QLabel("Tipo:"))
+        self.cb_fp_preview_type = QComboBox()
+        self.cb_fp_preview_type.setToolTip("Escolhe qual fingerprint calculado será exibido na tabela.")
+        self.cb_fp_preview_type.currentIndexChanged.connect(self._reload_fingerprints_preview)
+        fp_ctrl.addWidget(self.cb_fp_preview_type)
         self.fp_path_label = QLabel("—")
         self.fp_path_label.setProperty("muted", True)
         fp_ctrl.addWidget(self.fp_path_label, 1)
         fp_layout.addLayout(fp_ctrl)
         self.fp_table = QTableWidget()
         self.fp_table.horizontalHeader().setStretchLastSection(True)
+        self.fp_table.setSortingEnabled(True)
         fp_layout.addWidget(self.fp_table, 1)
         self.inner.addTab(self.fp_tab, "Fingerprints")
 
@@ -120,6 +173,14 @@ class ResultsTab(QWidget):
         sim_help.setWordWrap(True)
         sim_help.setProperty("muted", True)
         sim_layout.addWidget(sim_help)
+        sim_ctrl = QHBoxLayout()
+        sim_ctrl.addWidget(QLabel("Tipo:"))
+        self.cb_sim_type = QComboBox()
+        self.cb_sim_type.setToolTip("Escolhe qual matriz de similaridade carregada será exibida.")
+        self.cb_sim_type.currentIndexChanged.connect(self._reload_similarity_preview)
+        sim_ctrl.addWidget(self.cb_sim_type)
+        sim_ctrl.addStretch()
+        sim_layout.addLayout(sim_ctrl)
         self.sm_path_label = QLabel("—")
         self.sm_path_label.setProperty("muted", True)
         sim_layout.addWidget(self.sm_path_label)
@@ -165,13 +226,13 @@ class ResultsTab(QWidget):
         residue_help.setProperty("muted", True)
         hm_layout.addWidget(residue_help)
         hm_ctrl = QHBoxLayout()
-        btn_hm = QPushButton("Calcular heatmap (usa luna-env)")
+        btn_hm = QPushButton("Calcular mapa de calor (usa luna-env)")
         btn_hm.setToolTip("Calcula a matriz resíduo × ligante a partir dos resultados do projeto.")
         btn_hm.clicked.connect(self.compute_residue_matrix)
         hm_ctrl.addWidget(btn_hm)
         hm_ctrl.addWidget(QLabel("Tipo:"))
         self.cb_itype = QComboBox()
-        self.cb_itype.setToolTip("Escolhe qual classe de interação será exibida no heatmap.")
+        self.cb_itype.setToolTip("Escolhe qual classe de interação será exibida no mapa de calor.")
         self.cb_itype.currentIndexChanged.connect(self._render_residue_heatmap)
         hm_ctrl.addWidget(self.cb_itype, 1)
         self.hm_status = QLabel("—")
@@ -184,7 +245,7 @@ class ResultsTab(QWidget):
             hm_layout.addWidget(self.hm_canvas, 1)
         else:
             hm_layout.addWidget(QLabel("matplotlib não está instalado."))
-        self.inner.addTab(self.residue_tab, "Heatmap por tipo")
+        self.inner.addTab(self.residue_tab, "Mapa de calor por tipo")
 
         self.cluster_tab = QWidget()
         cluster_layout = QVBoxLayout(self.cluster_tab)
@@ -229,6 +290,7 @@ class ResultsTab(QWidget):
         self.cluster_table.setColumnCount(3)
         self.cluster_table.setHorizontalHeaderLabels(["Ligante", "Cluster", "Ordem"])
         self.cluster_table.setToolTip("Lista final dos agrupamentos calculados para cada ligante.")
+        self.cluster_table.setSortingEnabled(True)
         self.cluster_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.cluster_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.cluster_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -276,6 +338,8 @@ class ResultsTab(QWidget):
         wd = self._current_wd()
         if not wd:
             return
+        self._populate_fp_preview_sources(wd)
+        self._populate_similarity_sources(wd)
         self._load_fingerprints(wd)
         self._load_sim_matrix(wd)
         self._load_pse(wd)
@@ -283,7 +347,14 @@ class ResultsTab(QWidget):
     def _reload_fingerprints_preview(self) -> None:
         wd = self._current_wd()
         if wd:
+            self._populate_fp_preview_sources(wd)
             self._load_fingerprints(wd)
+
+    def _reload_similarity_preview(self) -> None:
+        wd = self._current_wd()
+        if wd:
+            self._populate_similarity_sources(wd)
+            self._load_sim_matrix(wd)
 
     def _find_first(self, candidates: list[Path]) -> Path | None:
         for candidate in candidates:
@@ -291,14 +362,129 @@ class ResultsTab(QWidget):
                 return candidate
         return None
 
-    def _load_fingerprints(self, wd: Path) -> None:
-        candidates = [
-            Path(self.cfg.ifp_output) if self.cfg.ifp_output else None,
-            wd / "results" / "fingerprints" / "ifp.csv",
+    def _fingerprint_candidates(self, wd: Path) -> list[Path]:
+        custom = Path(self.cfg.ifp_output) if self.cfg.ifp_output else None
+        fp_dir = custom.parent if custom else wd / "results" / "fingerprints"
+        return [
+            c for c in [
+                custom,
+                wd / "results" / "fingerprints" / "ifp.csv",
+                fp_dir / "ifp_E.csv",
+                fp_dir / "ifp_H.csv",
+                fp_dir / "ifp_F.csv",
+            ] if c
         ]
-        file_path = self._find_first([c for c in candidates if c])
+
+    def _normalize_ifp_source_key(self, path: Path) -> tuple[str, str]:
+        stem = path.stem.lower()
+        if stem.endswith("_e"):
+            return "EIFP", path.name
+        if stem.endswith("_f"):
+            return "FIFP", path.name
+        if stem.endswith("_h"):
+            return "HIFP", path.name
+        return "DEFAULT", path.name
+
+    def _populate_fp_preview_sources(self, wd: Path) -> None:
+        current = self.cb_fp_preview_type.currentData() if self.cb_fp_preview_type.count() else None
+        candidates = [candidate for candidate in self._fingerprint_candidates(wd) if candidate.exists()]
+        typed = []
+        default = []
+        for candidate in candidates:
+            key, label = self._normalize_ifp_source_key(candidate)
+            bucket = typed if key in {"EIFP", "FIFP", "HIFP"} else default
+            bucket.append((key, label, str(candidate)))
+        source_rows = typed or default
+        self.cb_fp_preview_type.blockSignals(True)
+        self.cb_fp_preview_type.clear()
+        seen_keys: set[str] = set()
+        for key, label, path_str in source_rows:
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            self.cb_fp_preview_type.addItem(label, path_str)
+        if self.cb_fp_preview_type.count():
+            idx = self.cb_fp_preview_type.findData(current)
+            self.cb_fp_preview_type.setCurrentIndex(idx if idx >= 0 else 0)
+        self.cb_fp_preview_type.blockSignals(False)
+
+    def _selected_fingerprint_path(self, wd: Path) -> Path | None:
+        selected = self.cb_fp_preview_type.currentData() if self.cb_fp_preview_type.count() else None
+        if selected:
+            candidate = Path(str(selected))
+            if candidate.exists():
+                return candidate
+        return self._find_first(self._fingerprint_candidates(wd))
+
+    def _sim_matrix_candidates(self, wd: Path) -> list[Path]:
+        custom = Path(self.cfg.sim_matrix_output) if self.cfg.sim_matrix_output else None
+        sim_dir = custom.parent if custom else wd
+        custom_square = custom.with_name(f"{custom.stem}_square.csv") if custom else None
+        return [
+            c for c in [
+                custom_square,
+                custom,
+                wd / "sim_matrix.csv",
+                wd / "results" / "sim_matrix.csv",
+                wd / "sim_matrix_square.csv",
+                wd / "results" / "sim_matrix_square.csv",
+                sim_dir / "sim_matrix_E_square.csv",
+                sim_dir / "sim_matrix_H_square.csv",
+                sim_dir / "sim_matrix_F_square.csv",
+                sim_dir / "sim_matrix_E.csv",
+                sim_dir / "sim_matrix_H.csv",
+                sim_dir / "sim_matrix_F.csv",
+            ] if c
+        ]
+
+    def _normalize_similarity_source_key(self, path: Path) -> tuple[str, str]:
+        stem = path.stem.lower()
+        if "sim_matrix_e" in stem:
+            return "EIFP", "E (Extended)"
+        if "sim_matrix_f" in stem:
+            return "FIFP", "F (Functional)"
+        if "sim_matrix_h" in stem:
+            return "HIFP", "H (Hybrid)"
+        return "DEFAULT", path.name
+
+    def _populate_similarity_sources(self, wd: Path) -> None:
+        current = self.cb_sim_type.currentData() if self.cb_sim_type.count() else None
+        candidates = [candidate for candidate in self._sim_matrix_candidates(wd) if candidate.exists()]
+        typed = []
+        default = []
+        for candidate in candidates:
+            key, label = self._normalize_similarity_source_key(candidate)
+            row = (key, label, str(candidate))
+            if key in {"EIFP", "FIFP", "HIFP"}:
+                typed.append(row)
+            else:
+                default.append(row)
+        source_rows = typed or default
+        self.cb_sim_type.blockSignals(True)
+        self.cb_sim_type.clear()
+        seen_keys: set[str] = set()
+        for _key, label, path_str in source_rows:
+            if _key in seen_keys:
+                continue
+            seen_keys.add(_key)
+            self.cb_sim_type.addItem(label, path_str)
+        if self.cb_sim_type.count():
+            idx = self.cb_sim_type.findData(current)
+            self.cb_sim_type.setCurrentIndex(idx if idx >= 0 else 0)
+        self.cb_sim_type.blockSignals(False)
+
+    def _selected_similarity_path(self, wd: Path) -> Path | None:
+        selected = self.cb_sim_type.currentData() if self.cb_sim_type.count() else None
+        if selected:
+            candidate = Path(str(selected))
+            if candidate.exists():
+                return candidate
+        return self._find_first(self._sim_matrix_candidates(wd))
+
+    def _load_fingerprints(self, wd: Path) -> None:
+        file_path = self._selected_fingerprint_path(wd)
         if not file_path:
-            self.fp_path_label.setText("ifp.csv não encontrado")
+            self.fp_path_label.setText("Nenhum fingerprint calculado foi encontrado")
             self.fp_table.clear()
             self.fp_table.setRowCount(0)
             self.fp_table.setColumnCount(0)
@@ -325,46 +511,71 @@ class ResultsTab(QWidget):
         self.fp_table.setColumnCount(len(header))
         self.fp_table.setHorizontalHeaderLabels(header)
         self.fp_table.setRowCount(len(data))
+        self.fp_table.setSortingEnabled(False)
         for r, row in enumerate(data):
             for c, value in enumerate(row):
-                self.fp_table.setItem(r, c, QTableWidgetItem(value))
+                try:
+                    sort_value = float(value)
+                except Exception:
+                    sort_value = value
+                self.fp_table.setItem(r, c, _sortable_item(value, sort_value))
+        self.fp_table.setSortingEnabled(True)
 
     def _load_sim_matrix(self, wd: Path) -> None:
-        candidates = [
-            Path(self.cfg.sim_matrix_output) if self.cfg.sim_matrix_output else None,
-            wd / "sim_matrix.csv",
-            wd / "results" / "sim_matrix.csv",
-        ]
-        file_path = self._find_first([c for c in candidates if c])
+        file_path = self._selected_similarity_path(wd)
         if not file_path:
-            self._sim_labels = []
-            self._sim_matrix = None
-            self.sm_path_label.setText("sim_matrix.csv não encontrado")
-            if HAS_MPL:
-                self.fig.clear()
-                self.canvas.draw()
-            self._clear_clusters("Matriz de similaridade não encontrada.")
-            return
+            fp_path = self._selected_fingerprint_path(wd)
+            if fp_path and fp_path.exists():
+                try:
+                    labels, _feature_ids, fp_matrix = load_ifp_sparse_matrix(fp_path)
+                    self._sim_labels = labels
+                    self._sim_matrix = count_tanimoto_similarity(fp_matrix)
+                    self.sm_path_label.setText(f"Reconstruida a partir de {fp_path.name}")
+                except Exception as exc:
+                    self._sim_labels = []
+                    self._sim_matrix = None
+                    self.sm_path_label.setText("Nenhuma matriz de similaridade calculada foi encontrada")
+                    if HAS_MPL:
+                        self.fig.clear()
+                        self.canvas.draw()
+                    self._clear_clusters("Matriz de similaridade não encontrada.")
+                    QMessageBox.critical(self, "Erro ao reconstruir matriz", str(exc))
+                    return
+            else:
+                self._sim_labels = []
+                self._sim_matrix = None
+                self.sm_path_label.setText("Nenhuma matriz de similaridade calculada foi encontrada")
+                if HAS_MPL:
+                    self.fig.clear()
+                    self.canvas.draw()
+                self._clear_clusters("Matriz de similaridade não encontrada.")
+                return
+        else:
+            self.sm_path_label.setText(str(file_path))
+            try:
+                labels, matrix = load_similarity_matrix(file_path)
+            except Exception as exc:
+                self._sim_labels = []
+                self._sim_matrix = None
+                self._clear_clusters("Erro ao carregar a matriz.")
+                QMessageBox.critical(self, "Erro ao ler matriz", str(exc))
+                return
 
-        self.sm_path_label.setText(str(file_path))
-        try:
-            labels, matrix = load_similarity_matrix(file_path)
-        except Exception as exc:
-            self._sim_labels = []
-            self._sim_matrix = None
-            self._clear_clusters("Erro ao carregar a matriz.")
-            QMessageBox.critical(self, "Erro ao ler matriz", str(exc))
-            return
-
-        self._sim_labels = labels
-        self._sim_matrix = matrix
+            self._sim_labels = labels
+            self._sim_matrix = matrix
 
         if HAS_MPL:
+            label_count = max(1, len(self._sim_labels))
+            width_in = max(8.4, 3.2 + ((0.5 / 2.54) * label_count))
+            height_in = max(7.0, 3.0 + ((0.5 / 2.54) * label_count))
+            self.fig.set_dpi(120)
+            self.fig.set_size_inches(width_in, height_in, forward=True)
+            self.canvas.setMinimumSize(int(width_in * self.fig.dpi), int(height_in * self.fig.dpi))
             self.fig.clear()
             ax = self.fig.add_subplot(111)
-            im = ax.imshow(matrix, cmap="viridis", aspect="auto", vmin=0, vmax=1)
+            im = ax.imshow(self._sim_matrix, cmap="viridis", aspect="auto", vmin=0, vmax=1)
             ax.set_title("Similaridade de Tanimoto")
-            _apply_tick_labels(ax, labels, axis="both")
+            _apply_tick_labels(ax, self._sim_labels, axis="both", ligand_axis=True)
             self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
             self.fig.tight_layout()
             self.canvas.draw()
@@ -384,8 +595,18 @@ class ResultsTab(QWidget):
                 break
         if not found_dir:
             return
-        for file_path in sorted(found_dir.glob("*.pse")):
-            item = QListWidgetItem(file_path.name)
+        pse_files = list(found_dir.glob("*.pse"))
+        filtered_root = wd / "results" / "pse_filtered"
+        if filtered_root.exists():
+            pse_files.extend(filtered_root.glob("*/*.pse"))
+        for file_path in sorted(pse_files):
+            label = file_path.name
+            try:
+                if filtered_root.exists() and filtered_root.resolve() in file_path.resolve().parents:
+                    label = f"{file_path.parent.name}/{file_path.name}"
+            except Exception:
+                pass
+            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, str(file_path))
             self.pse_list.addItem(item)
 
@@ -395,19 +616,10 @@ class ResultsTab(QWidget):
             QMessageBox.information(self, "PSE", "Selecione um arquivo .pse na lista.")
             return
         path = item.data(Qt.ItemDataRole.UserRole)
-        pymol = shutil.which("pymol") or shutil.which("pymol.exe")
         try:
-            if pymol:
-                subprocess.Popen([pymol, path])
-            elif sys.platform == "win32":
-                import os
-                os.startfile(path)  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
+            launch_pse_session(path, self.py_exe)
         except Exception as exc:
-            QMessageBox.critical(self, "Erro ao abrir", str(exc))
+            QMessageBox.critical(self, "Erro ao abrir PyMOL", str(exc))
 
     def set_python(self, py_exe: str) -> None:
         self.py_exe = py_exe
@@ -500,7 +712,7 @@ class ResultsTab(QWidget):
         else:
             im = ax.imshow(arr, cmap="viridis", aspect="auto")
             _apply_tick_labels(ax, residues, axis="x")
-            _apply_tick_labels(ax, entries, axis="y", max_labels=28, rotation=0)
+            _apply_tick_labels(ax, entries, axis="y", max_labels=28, rotation=0, ligand_axis=True)
             ax.set_title(f"Resíduos × ligantes — {interaction_type}")
             self.hm_fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         self.hm_fig.tight_layout()
@@ -533,6 +745,12 @@ class ResultsTab(QWidget):
     def _render_cluster_chart(self, result) -> None:
         if not (HAS_MPL and HAS_CLUSTERING):
             return
+        label_count = max(1, len(result.labels))
+        width_in = max(9.0, 4.4 + ((0.5 / 2.54) * label_count))
+        height_in = max(8.0, 4.2 + ((0.5 / 2.54) * label_count))
+        self.cluster_fig.set_dpi(120)
+        self.cluster_fig.set_size_inches(width_in, height_in, forward=True)
+        self.cluster_canvas.setMinimumSize(int(width_in * self.cluster_fig.dpi), int(height_in * self.cluster_fig.dpi))
         self.cluster_fig.clear()
         grid = self.cluster_fig.add_gridspec(2, 1, height_ratios=[1.3, 2.4], hspace=0.35)
 
@@ -555,19 +773,27 @@ class ResultsTab(QWidget):
         ax_heat = self.cluster_fig.add_subplot(grid[1])
         im = ax_heat.imshow(result.ordered_matrix, cmap="magma", aspect="auto", vmin=0, vmax=1)
         ax_heat.set_title("Matriz reordenada por cluster")
-        _apply_tick_labels(ax_heat, result.ordered_labels, axis="both")
+        _apply_tick_labels(ax_heat, result.ordered_labels, axis="both", ligand_axis=True)
         self.cluster_fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
-        self.cluster_fig.tight_layout()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="This figure includes Axes that are not compatible with tight_layout",
+                category=UserWarning,
+            )
+            self.cluster_fig.tight_layout()
         self.cluster_canvas.draw()
 
     def _populate_cluster_table(self, result) -> None:
         rows = cluster_rows(result)
+        self.cluster_table.setSortingEnabled(False)
         self.cluster_table.setRowCount(len(rows))
         for row_index, (label, cluster_id, leaf_order) in enumerate(rows):
-            self.cluster_table.setItem(row_index, 0, QTableWidgetItem(label))
-            self.cluster_table.setItem(row_index, 1, QTableWidgetItem(str(cluster_id)))
-            self.cluster_table.setItem(row_index, 2, QTableWidgetItem(str(leaf_order)))
+            self.cluster_table.setItem(row_index, 0, _sortable_item(label, label))
+            self.cluster_table.setItem(row_index, 1, _sortable_item(str(cluster_id), int(cluster_id)))
+            self.cluster_table.setItem(row_index, 2, _sortable_item(str(leaf_order), int(leaf_order)))
         self.cluster_table.resizeRowsToContents()
+        self.cluster_table.setSortingEnabled(True)
 
     def _clear_clusters(self, message: str) -> None:
         self._cluster_result = None
@@ -594,6 +820,7 @@ class ResultsTab(QWidget):
         if not out:
             return
         try:
+            translate_figure(figure)
             figure.savefig(out, dpi=180, bbox_inches="tight")
         except Exception as exc:
             QMessageBox.critical(self, "Erro ao exportar gráfico", str(exc))
@@ -653,10 +880,13 @@ class ResultsTab(QWidget):
         cluster_png = wd / "_report_clusters.png"
         try:
             if HAS_MPL and self.fig.axes:
+                translate_figure(self.fig)
                 self.fig.savefig(heatmap_png, dpi=140, bbox_inches="tight")
             if HAS_MPL and self.st_fig.axes:
+                translate_figure(self.st_fig)
                 self.st_fig.savefig(inter_png, dpi=140, bbox_inches="tight")
             if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
+                translate_figure(self.cluster_fig)
                 self.cluster_fig.savefig(cluster_png, dpi=140, bbox_inches="tight")
         except Exception:
             pass
@@ -683,15 +913,91 @@ class ResultsTab(QWidget):
             return
         QMessageBox.information(self, "Relatório salvo", out)
 
+    def export_pdf_report(self) -> None:
+        wd = self._current_wd()
+        if not wd:
+            return
+        out, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar relatório PDF",
+            str(wd / "luna_report.pdf"),
+            "PDF (*.pdf)",
+        )
+        if not out:
+            return
 
-def _apply_tick_labels(ax, labels: list[str], axis: str = "both", max_labels: int = 32, rotation: int = 90) -> None:
-    positions = _tick_positions(len(labels), max_labels=max_labels)
+        if not self._last_analysis:
+            self.compute_stats()
+        if not self._last_analysis:
+            return
+
+        heatmap_png = wd / "_report_pdf_similarity.png"
+        inter_png = wd / "_report_pdf_interactions.png"
+        cluster_png = wd / "_report_pdf_clusters.png"
+        try:
+            if HAS_MPL and hasattr(self, "fig") and self.fig.axes:
+                translate_figure(self.fig)
+                self.fig.savefig(heatmap_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
+            if HAS_MPL and hasattr(self, "st_fig") and self.st_fig.axes:
+                translate_figure(self.st_fig)
+                self.st_fig.savefig(inter_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
+            if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
+                translate_figure(self.cluster_fig)
+                self.cluster_fig.savefig(cluster_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
+        except Exception:
+            pass
+
+        cluster_items = None
+        if self._cluster_result:
+            cluster_items = [
+                (label, cluster_id)
+                for label, cluster_id, _ in cluster_rows(self._cluster_result)
+            ]
+
+        try:
+            save_pdf_report(
+                out,
+                cfg=self.cfg,
+                analysis=self._last_analysis,
+                heatmap_png=heatmap_png if heatmap_png.exists() else None,
+                interactions_png=inter_png if inter_png.exists() else None,
+                cluster_png=cluster_png if cluster_png.exists() else None,
+                clusters=cluster_items,
+                fp_dashboards=getattr(self, "_fp_dashboards", {}),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Erro ao gerar PDF", str(exc))
+            return
+        QMessageBox.information(self, "Relatório PDF salvo", out)
+
+
+def _apply_tick_labels(
+    ax,
+    labels: list[str],
+    axis: str = "both",
+    max_labels: int = 32,
+    rotation: int = 90,
+    ligand_axis: bool = False,
+    ligand_limit: int = 220,
+) -> None:
+    labels = [str(label) for label in labels]
+    if ligand_axis and len(labels) > ligand_limit:
+        if axis in ("x", "both"):
+            ax.set_xticks([])
+            ax.set_xlabel("Todos os ligantes")
+        if axis in ("y", "both"):
+            ax.set_yticks([])
+            ax.set_ylabel("Todos os ligantes")
+        return
+    effective_max = len(labels) if ligand_axis and labels else max_labels
+    fontsize = 7 * 0.85 if ligand_axis else 7
+    positions = _tick_positions(len(labels), max_labels=effective_max)
     if axis in ("x", "both"):
         ax.set_xticks(positions)
-        ax.set_xticklabels([labels[i] for i in positions], rotation=rotation, fontsize=7)
+        ax.set_xticklabels([labels[i] for i in positions], rotation=rotation, fontsize=fontsize)
     if axis in ("y", "both"):
         ax.set_yticks(positions)
-        ax.set_yticklabels([labels[i] for i in positions], fontsize=7)
+        ax.set_yticklabels([labels[i] for i in positions], fontsize=fontsize)
 
 
 def _tick_positions(total: int, max_labels: int = 32) -> list[int]:

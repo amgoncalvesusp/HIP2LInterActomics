@@ -1,1 +1,1 @@
-"""LUNA GUI — graphical interface for the LUNA toolkit."""
+"""HIP²LInterActomics — graphical interface for the LUNA toolkit."""

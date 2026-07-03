@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import csv
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -16,7 +13,9 @@ from PyQt6.QtWidgets import (
 
 from ..core.project import ProjectConfig
 from ..core.analysis_helper import run_analysis, run_residue_matrix
+from ..core.pymol_launcher import launch_pse_session
 from ..core.report import save_report
+from ..i18n import translate_figure
 
 # matplotlib is optional — heatmap is disabled gracefully if missing.
 try:
@@ -107,7 +106,7 @@ class ResultsTab(QWidget):
         # --- Heatmap per interaction type (T1.4) ---
         hm_w = QWidget(); hm_l = QVBoxLayout(hm_w)
         hm_ctrl = QHBoxLayout()
-        btn_hm = QPushButton("Calcular heatmap (usa luna-env)")
+        btn_hm = QPushButton("Calcular mapa de calor (usa luna-env)")
         btn_hm.clicked.connect(self.compute_residue_matrix)
         hm_ctrl.addWidget(btn_hm)
         hm_ctrl.addWidget(QLabel("Tipo:"))
@@ -124,7 +123,7 @@ class ResultsTab(QWidget):
         else:
             hm_l.addWidget(QLabel("matplotlib não está instalado."))
         self._residue_matrix: dict = {}
-        self.inner.addTab(hm_w, "Heatmap por tipo")
+        self.inner.addTab(hm_w, "Mapa de calor por tipo")
 
         # --- PyMOL sessions ---
         pse_w = QWidget(); pse_l = QVBoxLayout(pse_w)
@@ -171,13 +170,35 @@ class ResultsTab(QWidget):
                 return c
         return None
 
-    def _load_fingerprints(self, wd: Path) -> None:
-        candidates = [
-            Path(self.cfg.ifp_output) if self.cfg.ifp_output else None,
-            wd / "results" / "fingerprints" / "ifp.csv",
+    def _fingerprint_candidates(self, wd: Path) -> list[Path]:
+        custom = Path(self.cfg.ifp_output) if self.cfg.ifp_output else None
+        fp_dir = custom.parent if custom else wd / "results" / "fingerprints"
+        return [
+            c for c in [
+                custom,
+                wd / "results" / "fingerprints" / "ifp.csv",
+                fp_dir / "ifp_E.csv",
+                fp_dir / "ifp_H.csv",
+                fp_dir / "ifp_F.csv",
+            ] if c
         ]
-        candidates = [c for c in candidates if c]
-        f = self._find_first(wd, candidates)
+
+    def _sim_matrix_candidates(self, wd: Path) -> list[Path]:
+        custom = Path(self.cfg.sim_matrix_output) if self.cfg.sim_matrix_output else None
+        sim_dir = custom.parent if custom else wd
+        return [
+            c for c in [
+                custom,
+                wd / "sim_matrix.csv",
+                wd / "results" / "sim_matrix.csv",
+                sim_dir / "sim_matrix_E.csv",
+                sim_dir / "sim_matrix_H.csv",
+                sim_dir / "sim_matrix_F.csv",
+            ] if c
+        ]
+
+    def _load_fingerprints(self, wd: Path) -> None:
+        f = self._find_first(wd, self._fingerprint_candidates(wd))
         if not f:
             self.fp_path_label.setText("ifp.csv não encontrado")
             self.fp_table.clear(); self.fp_table.setRowCount(0); self.fp_table.setColumnCount(0)
@@ -210,13 +231,7 @@ class ResultsTab(QWidget):
     def _load_sim_matrix(self, wd: Path) -> None:
         if not HAS_MPL:
             return
-        candidates = [
-            Path(self.cfg.sim_matrix_output) if self.cfg.sim_matrix_output else None,
-            wd / "sim_matrix.csv",
-            wd / "results" / "sim_matrix.csv",
-        ]
-        candidates = [c for c in candidates if c]
-        f = self._find_first(wd, candidates)
+        f = self._find_first(wd, self._sim_matrix_candidates(wd))
         if not f:
             self.sm_path_label.setText("sim_matrix.csv não encontrado")
             self.fig.clear(); self.canvas.draw()
@@ -282,21 +297,10 @@ class ResultsTab(QWidget):
             QMessageBox.information(self, "PSE", "Selecione um arquivo .pse na lista.")
             return
         path = it.data(Qt.ItemDataRole.UserRole)
-        pymol = shutil.which("pymol") or shutil.which("pymol.exe")
         try:
-            if pymol:
-                subprocess.Popen([pymol, path])
-            else:
-                # Fall back to OS file association
-                if sys.platform == "win32":
-                    import os
-                    os.startfile(path)  # type: ignore
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", path])
-                else:
-                    subprocess.Popen(["xdg-open", path])
+            launch_pse_session(path, self.py_exe)
         except Exception as e:
-            QMessageBox.critical(self, "Erro ao abrir", str(e))
+            QMessageBox.critical(self, "Erro ao abrir PyMOL", str(e))
 
 
     # ---- statistics (post-analysis via luna-env helper) ----
@@ -418,8 +422,10 @@ class ResultsTab(QWidget):
         inter_png = wd / "_report_interactions.png"
         try:
             if HAS_MPL and self.fig.axes:
+                translate_figure(self.fig)
                 self.fig.savefig(heatmap_png, dpi=120, bbox_inches="tight")
             if HAS_MPL and self.st_fig.axes:
+                translate_figure(self.st_fig)
                 self.st_fig.savefig(inter_png, dpi=120, bbox_inches="tight")
         except Exception:
             pass

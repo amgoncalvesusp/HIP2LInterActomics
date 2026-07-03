@@ -8,31 +8,49 @@ import json
 PROJECT_FILENAME = ".luna_gui.json"
 HISTORY_FILE = Path.home() / ".luna_gui_history.json"
 
+IFP_ALL = "ALL"
+IFP_SINGLE_TYPES = ("EIFP", "HIFP", "FIFP")
+IFP_ALL_TYPES = ("HIFP", "EIFP", "FIFP")
+IFP_SUFFIXES = {"HIFP": "H", "EIFP": "E", "FIFP": "F"}
+
 
 @dataclass
 class ProjectConfig:
+    # GUI
+    language: str = "pt"          # pt | en | es
+
     # Inputs
     protein_file: str = ""
     ligand_file: str = ""
     selected_ligands: list[str] = field(default_factory=list)
+    trajectory_analysis: bool = False  # entradas representam frames de dinamica molecular
 
     # Workdir
     workdir: str = ""
 
     # Analyses
     out_ifp: bool = True
-    ifp_type: str = "EIFP"        # EIFP | HIFP | FIFP
+    ifp_type: str = "EIFP"        # EIFP | HIFP | FIFP | ALL
     ifp_levels: int = 2
     ifp_radius: float = 5.73171
     ifp_length: int = 4096
     ifp_bit: bool = False         # False = count fingerprints
     ifp_output: str = ""          # default: <workdir>/results/fingerprints/ifp.csv
+    ifp_seed_file: str = ""       # optional file containing the random seed for FP analyses
+    fp_labels_csv: str = ""       # optional supervised labels for FP analyses
+    fp_labels_id_column: str = "" # optional column name containing ligand IDs
+    fp_labels_column: str = ""    # column name containing labels/classes
+    fp_label_task: str = "regression"  # regression or classification
+    fp_use_otsu_threshold: bool = False # use Otsu fallback when z-score cutoff is unavailable
 
     sim_matrix: bool = False
     sim_matrix_output: str = ""   # default: <workdir>/sim_matrix.csv
 
     out_pse: bool = False
     pse_path: str = ""
+
+    add_h: bool = True             # let LUNA add hydrogens
+    ph: float = 7.4                # pH used when add_h=True
 
     filter_binding_modes: bool = False
     binding_modes_cfg: str = ""   # path to .cfg file
@@ -55,18 +73,43 @@ class ProjectConfig:
     ic_ignore_self_inter: bool = True
     # DefaultInteractionConfig overrides — {key: value}; empty means "defaults"
     inter_config_overrides: dict = field(default_factory=dict)
+    inter_max_distance_cap: float = 0.0
+    # Optional full InteractionConfig file (.cfg) used by the Python API runner
+    interaction_config_file: str = ""
     # PSE filter — only generate PSE for these interaction types; empty = all
     pse_interaction_types: list[str] = field(default_factory=list)
     # Force the Python-API runner even if no advanced field changed
     force_python_api: bool = False
 
+    def selected_ifp_types(self) -> list[str]:
+        """Return the concrete IFP types requested by the UI."""
+        if self.ifp_type == IFP_ALL:
+            return list(IFP_ALL_TYPES)
+        if self.ifp_type in IFP_SINGLE_TYPES:
+            return [self.ifp_type]
+        return ["EIFP"]
+
     def uses_python_api(self) -> bool:
         """True when any advanced knob requires the Python-API runner."""
         if self.force_python_api:
             return True
+        if self.fork_from:
+            return True
+        if self.ifp_type == IFP_ALL:
+            return True
+        if self.ifp_seed_file:
+            return True
+        if not self.add_h:
+            return True
+        if abs(float(self.ph) - 7.4) > 1e-9:
+            return True
         if self.include_waters:
             return True
+        if self.interaction_config_file:
+            return True
         if self.inter_config_overrides:
+            return True
+        if float(self.inter_max_distance_cap or 0.0) > 0.0:
             return True
         if self.pse_interaction_types:
             return True
@@ -117,3 +160,42 @@ def load_history() -> list[str]:
         return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
     except Exception:
         return []
+
+
+def resolve_ifp_output_paths(cfg: ProjectConfig) -> dict[str, str]:
+    """Return the concrete IFP CSV path(s) implied by the current config."""
+    types = cfg.selected_ifp_types()
+    if not types:
+        return {}
+
+    root = Path(cfg.workdir or ".")
+    if len(types) == 1:
+        output = cfg.ifp_output.strip() if cfg.ifp_output else str(root / "results" / "fingerprints" / "ifp.csv")
+        return {types[0]: output}
+
+    base_dir = Path(cfg.ifp_output).parent if cfg.ifp_output else root / "results" / "fingerprints"
+    return {
+        ifp_type: str(base_dir / f"ifp_{IFP_SUFFIXES[ifp_type]}.csv")
+        for ifp_type in types
+    }
+
+
+def resolve_sim_matrix_output_paths(cfg: ProjectConfig) -> dict[str, str]:
+    """Return the concrete similarity-matrix path(s) implied by the current config."""
+    if not cfg.sim_matrix:
+        return {}
+
+    types = cfg.selected_ifp_types()
+    root = Path(cfg.workdir or ".")
+    if len(types) == 1:
+        if cfg.sim_matrix_output:
+            output = cfg.sim_matrix_output.strip()
+        else:
+            output = str(root / f"sim_matrix_{IFP_SUFFIXES[types[0]]}.csv")
+        return {types[0]: output}
+
+    base_dir = Path(cfg.sim_matrix_output).parent if cfg.sim_matrix_output else root
+    return {
+        ifp_type: str(base_dir / f"sim_matrix_{IFP_SUFFIXES[ifp_type]}.csv")
+        for ifp_type in types
+    }

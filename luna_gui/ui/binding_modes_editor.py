@@ -16,7 +16,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox, QLabel,
-    QComboBox, QInputDialog,
+    QComboBox, QLineEdit,
 )
 
 
@@ -60,8 +60,41 @@ class BindingModesEditor(QDialog):
             "Ex.: */HIS/*/* (todos os átomos de histidinas), A/LYS/245/N* (nitrogênios da Lys245 cadeia A)."
         ))
 
+        add_row = QHBoxLayout()
+        add_row.addWidget(QLabel("Tipo:"))
+        self.type_combo = QComboBox()
+        self.type_combo.setEditable(True)
+        self.type_combo.addItems(DEFAULT_TYPES)
+        self.type_combo.setToolTip("Escolha um tipo conhecido ou digite um nome de interação.")
+        add_row.addWidget(self.type_combo, 1)
+        add_row.addWidget(QLabel("accept_all:"))
+        self.accept_all_combo = QComboBox()
+        self.accept_all_combo.addItems(["False", "True"])
+        add_row.addWidget(self.accept_all_combo)
+        self.selector_edit = QLineEdit()
+        self.selector_edit.setPlaceholderText("accept_only opcional, ex.: A/LYS/245/N*")
+        self.selector_edit.setToolTip("Seletores separados por vírgula; deixe vazio para aceitar todos quando accept_all=True.")
+        add_row.addWidget(self.selector_edit, 1)
+        btn_add_inline = QPushButton("+ Adicionar filtro")
+        btn_add_inline.clicked.connect(self._add_row_from_inline_fields)
+        add_row.addWidget(btn_add_inline)
+        btn_update_inline = QPushButton("Atualizar selecionado")
+        btn_update_inline.clicked.connect(self._update_selected_row)
+        add_row.addWidget(btn_update_inline)
+        layout.addLayout(add_row)
+        note = QLabel(
+            "Para editar um filtro existente, selecione a linha, ajuste os campos acima e clique em Atualizar selecionado."
+        )
+        note.setProperty("muted", True)
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Tipo de interação", "accept_all", "accept_only (lista)"])
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.itemSelectionChanged.connect(self._sync_inline_fields_from_selection)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
@@ -69,8 +102,8 @@ class BindingModesEditor(QDialog):
 
         btn_row = QHBoxLayout()
         btn_add = QPushButton("+ Adicionar tipo")
-        btn_add.clicked.connect(self._add_row_dialog)
-        btn_del = QPushButton("− Remover linha")
+        btn_add.clicked.connect(self._add_row_from_inline_fields)
+        btn_del = QPushButton("- Remover linha")
         btn_del.clicked.connect(self._del_row)
         btn_load = QPushButton("Carregar .cfg")
         btn_load.clicked.connect(self._load)
@@ -95,26 +128,73 @@ class BindingModesEditor(QDialog):
                 self._add_row(t, False, "")
 
     # ---- table helpers ----
+    def _readonly_item(self, text: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        return item
+
     def _add_row(self, type_name: str, accept_all: bool, accept_only: str) -> None:
         r = self.table.rowCount()
         self.table.insertRow(r)
-        self.table.setItem(r, 0, QTableWidgetItem(type_name))
+        self.table.setItem(r, 0, self._readonly_item(type_name))
         cb = QComboBox(); cb.addItems(["False", "True"])
         cb.setCurrentText(str(accept_all))
         self.table.setCellWidget(r, 1, cb)
-        self.table.setItem(r, 2, QTableWidgetItem(accept_only))
+        self.table.setItem(r, 2, self._readonly_item(accept_only))
+        self.table.selectRow(r)
 
     def _add_row_dialog(self) -> None:
-        type_name, ok = QInputDialog.getItem(
-            self, "Tipo de interação", "Selecione ou digite:", DEFAULT_TYPES, 0, True
-        )
-        if ok and type_name:
-            self._add_row(type_name, False, "")
+        self._add_row_from_inline_fields()
+
+    def _add_row_from_inline_fields(self) -> None:
+        type_name = self.type_combo.currentText().strip()
+        selectors = self.selector_edit.text().strip()
+        if not type_name:
+            QMessageBox.information(self, "Tipo de interação", "Informe um tipo de interação.")
+            return
+        accept_all = self.accept_all_combo.currentText() == "True"
+        self._add_row(type_name, accept_all, selectors)
+        self.selector_edit.clear()
+
+    def _sync_inline_fields_from_selection(self) -> None:
+        r = self.table.currentRow()
+        if r < 0:
+            return
+        type_item = self.table.item(r, 0)
+        selectors_item = self.table.item(r, 2)
+        cb: QComboBox | None = self.table.cellWidget(r, 1)  # type: ignore[assignment]
+        self.type_combo.setCurrentText(type_item.text() if type_item else "")
+        self.accept_all_combo.setCurrentText(cb.currentText() if cb else "False")
+        self.selector_edit.setText(selectors_item.text() if selectors_item else "")
+
+    def _update_selected_row(self) -> None:
+        r = self.table.currentRow()
+        if r < 0:
+            QMessageBox.information(self, "Editar filtro", "Selecione uma linha para atualizar.")
+            return
+        type_name = self.type_combo.currentText().strip()
+        if not type_name:
+            QMessageBox.information(self, "Tipo de interação", "Informe um tipo de interação.")
+            return
+        selectors = self.selector_edit.text().strip()
+        self.table.setItem(r, 0, self._readonly_item(type_name))
+        cb: QComboBox | None = self.table.cellWidget(r, 1)  # type: ignore[assignment]
+        if cb is None:
+            cb = QComboBox()
+            cb.addItems(["False", "True"])
+            self.table.setCellWidget(r, 1, cb)
+        cb.setCurrentText(self.accept_all_combo.currentText())
+        self.table.setItem(r, 2, self._readonly_item(selectors))
+        self.table.selectRow(r)
 
     def _del_row(self) -> None:
         r = self.table.currentRow()
         if r >= 0:
             self.table.removeRow(r)
+            if self.table.rowCount() > 0:
+                self.table.selectRow(min(r, self.table.rowCount() - 1))
+            else:
+                self.selector_edit.clear()
 
     # ---- file IO ----
     def _load(self) -> None:
@@ -153,7 +233,7 @@ class BindingModesEditor(QDialog):
             QMessageBox.critical(self, "Erro ao ler", str(e))
 
     def _serialize(self) -> str:
-        lines = ["; Generated by LUNA GUI"]
+        lines = ["; Generated by HIP²LInterActomics"]
         for r in range(self.table.rowCount()):
             name_item = self.table.item(r, 0)
             if not name_item or not name_item.text().strip():
