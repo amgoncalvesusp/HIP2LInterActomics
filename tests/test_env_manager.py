@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -9,6 +10,7 @@ from luna_gui.core import env_manager
 
 
 class EnvManagerTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_env_prefix_uses_conda_envs_dirs_when_env_is_missing(self) -> None:
         conda = r"C:\ProgramData\Anaconda3\Scripts\conda.exe"
         info = {
@@ -23,6 +25,7 @@ class EnvManagerTests(unittest.TestCase):
 
         self.assertEqual(prefix, Path(r"C:\Users\danie\.conda\envs\luna-env"))
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_find_conda_honors_manual_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -42,6 +45,7 @@ class EnvManagerTests(unittest.TestCase):
 
             self.assertEqual(found, str(override_exe))
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_conda_process_env_prefers_conda_root_bins_and_clears_active_env(self) -> None:
         conda = r"C:\ProgramData\Anaconda3\Scripts\conda.exe"
         original_path = r"C:\Users\danie\.conda\envs\luna-gui;C:\Windows\System32"
@@ -69,6 +73,7 @@ class EnvManagerTests(unittest.TestCase):
         self.assertNotIn("PYTHONHOME", env)
         self.assertNotIn("PYTHONPATH", env)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_python_process_env_prefers_env_bins_and_disables_user_site(self) -> None:
         py = r"C:\Users\danie\.conda\envs\luna-env\python.exe"
         original_path = r"C:\Users\danie\AppData\Roaming\Python\Python39\site-packages;C:\Windows\System32"
@@ -93,6 +98,7 @@ class EnvManagerTests(unittest.TestCase):
         self.assertNotIn("PYTHONPATH", env)
         self.assertNotIn("PYTHONUSERBASE", env)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_find_conda_prefers_current_gui_env_over_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -121,6 +127,7 @@ class EnvManagerTests(unittest.TestCase):
 
             self.assertEqual(found, str(preferred_exe))
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_find_conda_discovers_hidden_dot_conda_install(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
