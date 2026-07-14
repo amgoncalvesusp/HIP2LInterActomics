@@ -76,5 +76,13 @@ class HistoryTab(QWidget):
         items = [w for w in load_history() if w != wd]
         import json
         from ..core.project import HISTORY_FILE
-        HISTORY_FILE.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        try:
+            HISTORY_FILE.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Erro ao atualizar histórico",
+                f"Não foi possível salvar o histórico de projetos:\n{exc}",
+            )
+            return
         self.refresh()

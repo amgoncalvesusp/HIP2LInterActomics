@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QListWidget, QListWidgetItem, QMessageBox,
-    QGroupBox, QCheckBox, QScrollArea, QFrame, QSizePolicy,
+    QGroupBox, QCheckBox, QScrollArea, QFrame, QSizePolicy, QGridLayout,
 )
 
 from ..core.ligand_io import (
@@ -56,7 +56,7 @@ class ProjectTab(QWidget):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        self.cb_fork = QCheckBox("Fork de projeto existente (desmarcado = projeto novo)")
+        self.cb_fork = QCheckBox("Fork de projeto existente")
         self.cb_fork.setToolTip(
             "Marque para usar um projeto LUNA já existente como base.\n"
             "Os novos ligantes e proteínas serão acrescentados ao fork no diretório de trabalho escolhido."
@@ -113,11 +113,12 @@ class ProjectTab(QWidget):
         self.btn_protein_folder.setMinimumWidth(106)
         self.btn_protein_folder.setToolTip("Seleciona uma pasta com um arquivo .pdb para cada ligante/complexo.")
         self.btn_protein_folder.clicked.connect(self._pick_protein_folder)
-        prow = QHBoxLayout()
-        prow.addWidget(self.protein_edit, 1)
-        prow.addWidget(self.btn_protein_file)
-        prow.addWidget(self.btn_protein_folder)
-        prow.addWidget(InfoButton("Arquivo PDB único: uma proteína para todos os ligantes. Pasta: usa a proteína correspondente a cada ligante/frame pelo nome-base."))
+        prow = QGridLayout()
+        prow.addWidget(self.protein_edit, 0, 0, 1, 3)
+        prow.addWidget(self.btn_protein_file, 1, 0)
+        prow.addWidget(self.btn_protein_folder, 1, 1)
+        prow.addWidget(InfoButton("Arquivo PDB único: uma proteína para todos os ligantes. Pasta: usa a proteína correspondente a cada ligante/frame pelo nome-base."), 1, 2)
+        prow.setColumnStretch(2, 1)
         form.addRow("Proteína (PDB):", self._wrap(prow))
 
         self.ligand_edit = QLineEdit()
@@ -135,8 +136,12 @@ class ProjectTab(QWidget):
             "único. Para MOL2, remove LP e renumera átomos."
         )
         btn_lf.clicked.connect(self._pick_ligand_folder)
-        lrow = QHBoxLayout(); lrow.addWidget(self.ligand_edit, 1); lrow.addWidget(btn_l); lrow.addWidget(btn_lf)
-        lrow.addWidget(InfoButton("Entrada de ligantes ou frames. Pode ser arquivo MOL2/SDF/PDB ou pasta para consolidar/selecionar multiplas moleculas."))
+        lrow = QGridLayout()
+        lrow.addWidget(self.ligand_edit, 0, 0, 1, 3)
+        lrow.addWidget(btn_l, 1, 0)
+        lrow.addWidget(btn_lf, 1, 1)
+        lrow.addWidget(InfoButton("Entrada de ligantes ou frames. Pode ser arquivo MOL2/SDF/PDB ou pasta para consolidar/selecionar multiplas moleculas."), 1, 2)
+        lrow.setColumnStretch(2, 1)
         form.addRow("Ligantes (MOL2/SDF):", self._wrap(lrow))
 
         self.cb_waters = QCheckBox("Incluir águas (HOH) — análise hidratada")
@@ -171,7 +176,7 @@ class ProjectTab(QWidget):
         self._on_fork_toggled(False)
         self._on_waters_toggled(bool(getattr(self.cfg, "include_waters", False)))
 
-        self.cb_trajectory = QCheckBox("Análise de trajetória de dinâmica molecular/poses de docking (entradas = frames/poses)")
+        self.cb_trajectory = QCheckBox("Análise de trajetória / poses")
         self.cb_trajectory.setToolTip(
             "Marque quando cada entrada do projeto representar um frame de dinâmica molecular "
             "ou uma pose de docking. A aba Resultados > Estatísticas mostrará gráficos por "
@@ -197,7 +202,7 @@ class ProjectTab(QWidget):
         lig_help.setProperty("muted", True)
         lig_layout.addWidget(lig_help)
 
-        filter_row = QHBoxLayout()
+        filter_row = QGridLayout()
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("Filtrar por nome (texto livre)...")
         self.filter_edit.setToolTip("Mostra apenas os ligantes cujo nome contém o texto digitado.")
@@ -211,10 +216,10 @@ class ProjectTab(QWidget):
         btn_clear = QPushButton("Limpar detecção")
         btn_clear.setToolTip("Remove todos os ligantes detectados da lista atual sem apagar os arquivos de entrada.")
         btn_clear.clicked.connect(self._clear_detected_ligands)
-        filter_row.addWidget(self.filter_edit, 1)
-        filter_row.addWidget(btn_all)
-        filter_row.addWidget(btn_none)
-        filter_row.addWidget(btn_clear)
+        filter_row.addWidget(self.filter_edit, 0, 0, 1, 3)
+        filter_row.addWidget(btn_all, 1, 0)
+        filter_row.addWidget(btn_none, 1, 1)
+        filter_row.addWidget(btn_clear, 1, 2)
         lig_layout.addLayout(filter_row)
 
         self.lig_list = QListWidget()

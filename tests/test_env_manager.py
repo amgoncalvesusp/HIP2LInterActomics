@@ -10,6 +10,60 @@ from luna_gui.core import env_manager
 
 
 class EnvManagerTests(unittest.TestCase):
+    def test_snap_qt_paths_are_removed_from_external_python_environment(self) -> None:
+        with mock.patch.dict(
+            env_manager.os.environ,
+            {
+                "PATH": "/snap/bin:/usr/bin",
+                "HIP2LINTERACTOMICS_SNAP": "1",
+                "LD_LIBRARY_PATH": "/snap/lib",
+                "QML2_IMPORT_PATH": "/snap/qml",
+                "QT_PLUGIN_PATH": "/snap/plugins",
+                "QT_QPA_PLATFORM_PLUGIN_PATH": "/snap/platforms",
+            },
+            clear=True,
+        ):
+            env = env_manager.python_process_env("/home/user/.conda/envs/luna-env/bin/python")
+
+        self.assertEqual(env["HIP2LINTERACTOMICS_SNAP"], "1")
+        self.assertNotIn("LD_LIBRARY_PATH", env)
+        self.assertNotIn("QML2_IMPORT_PATH", env)
+        self.assertNotIn("QT_PLUGIN_PATH", env)
+        self.assertNotIn("QT_QPA_PLATFORM_PLUGIN_PATH", env)
+
+    def test_snap_qt_paths_are_removed_from_external_conda_environment(self) -> None:
+        with mock.patch.dict(
+            env_manager.os.environ,
+            {
+                "PATH": "/snap/bin:/usr/bin",
+                "HIP2LINTERACTOMICS_SNAP": "1",
+                "LD_LIBRARY_PATH": "/snap/lib",
+                "QT_PLUGIN_PATH": "/snap/plugins",
+            },
+            clear=True,
+        ):
+            env = env_manager.conda_process_env("/home/user/miniforge3/bin/conda")
+
+        self.assertNotIn("LD_LIBRARY_PATH", env)
+        self.assertNotIn("QT_PLUGIN_PATH", env)
+
+    def test_miniconda_download_url_uses_linux_arm64_build(self) -> None:
+        with (
+            mock.patch.object(env_manager.sys, "platform", "linux"),
+            mock.patch.object(env_manager.platform, "machine", return_value="aarch64"),
+        ):
+            url = env_manager.miniconda_download_url()
+
+        self.assertTrue(url.endswith("Linux-aarch64.sh"))
+
+    def test_miniconda_download_url_rejects_unknown_linux_architecture(self) -> None:
+        with (
+            mock.patch.object(env_manager.sys, "platform", "linux"),
+            mock.patch.object(env_manager.platform, "machine", return_value="riscv64"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "riscv64"):
+                env_manager.miniconda_download_url()
+
     @unittest.skipUnless(sys.platform == "win32", "Windows path behavior")
     def test_env_prefix_uses_conda_envs_dirs_when_env_is_missing(self) -> None:
         conda = r"C:\ProgramData\Anaconda3\Scripts\conda.exe"

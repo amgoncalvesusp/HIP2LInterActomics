@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import signal
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QProcess, QProcessEnvironment, pyqtSignal
+from PyQt6.QtCore import QProcess, QProcessEnvironment, QTimer, pyqtSignal
+from PyQt6.QtGui import QFontDatabase
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QSpinBox, QCheckBox, QPlainTextEdit, QMessageBox, QGroupBox,
@@ -26,6 +29,8 @@ class RunTab(QWidget):
         self.py_exe: str = ""
         self.run_py: str = ""
         self.proc: QProcess | None = None
+        self._process_group_owner: QProcess | None = None
+        self._cancel_helper: QProcess | None = None
         self.collect_callback = None  # set by MainWindow
         self._last_progress_pct = 0
 
@@ -86,13 +91,15 @@ class RunTab(QWidget):
         self.cmd_label = QLabel("")
         self.cmd_label.setWordWrap(True)
         self.cmd_label.setToolTip("Mostra o comando efetivo usado para executar o LUNA nesta rodada.")
-        self.cmd_label.setStyleSheet("color: #555; font-family: Consolas, monospace; font-size: 10px;")
+        self.cmd_label.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.cmd_label.setStyleSheet("color: #555; font-size: 10px;")
         layout.addWidget(self.cmd_label)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setToolTip("Exibe o log completo da execução, incluindo mensagens do LUNA e erros.")
-        self.log.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        self.log.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.log.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.log, 1)
 
     # ---- public API ----
@@ -107,7 +114,8 @@ class RunTab(QWidget):
             return
 
         if self.collect_callback:
-            self.collect_callback()
+            if self.collect_callback() is False:
+                return
 
         self.cfg.nproc = luna_runner.safe_nproc(self.sp_nproc.value())
         self.cfg.overwrite = self.cb_overwrite.isChecked()
@@ -158,26 +166,91 @@ class RunTab(QWidget):
         self._last_progress_pct = 0
 
         self.proc = QProcess(self)
-        self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        proc = self.proc
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        program, arguments = cmd[0], cmd[1:]
+        if sys.platform != "win32" and hasattr(proc, "setChildProcessModifier"):
+            proc.setChildProcessModifier(os.setsid)
+            self._process_group_owner = proc
+        elif sys.platform != "win32" and (setsid := shutil.which("setsid")):
+            program, arguments = setsid, cmd
+            self._process_group_owner = proc
         # Force UTF-8 so LUNA's unicode status characters don't crash on cp1252 (Windows)
         proc_env = QProcessEnvironment()
         for key, value in em.python_process_env(self.py_exe).items():
             proc_env.insert(key, value)
         proc_env.insert("PYTHONIOENCODING", "utf-8")
         proc_env.insert("PYTHONUTF8", "1")
-        self.proc.setProcessEnvironment(proc_env)
-        self.proc.readyReadStandardOutput.connect(self._on_stdout)
-        self.proc.finished.connect(self._on_finished)
+        proc.setProcessEnvironment(proc_env)
+        proc.readyReadStandardOutput.connect(self._on_stdout)
+        proc.finished.connect(self._on_finished)
+        proc.errorOccurred.connect(self._on_process_error)
         self.btn_run.setEnabled(False)
         self.btn_cancel.setEnabled(True)
-        self.proc.start(cmd[0], cmd[1:])
+        proc.start(program, arguments)
+
+    def is_running(self) -> bool:
+        return self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning
 
     def cancel(self) -> None:
-        if self.proc and self.proc.state() != QProcess.ProcessState.NotRunning:
-            self.proc.kill()
-            self.log.appendPlainText("\n[cancelado pelo usuário]")
+        proc = self.proc
+        if not proc or proc.state() == QProcess.ProcessState.NotRunning:
+            return
+        pid = int(proc.processId())
+        self.btn_cancel.setEnabled(False)
+        try:
+            if pid > 0 and sys.platform == "win32":
+                helper = QProcess(self)
+                self._cancel_helper = helper
+                helper.finished.connect(
+                    lambda code, _status, original=proc, owner=helper: self._taskkill_finished(
+                        original, owner, code
+                    )
+                )
+                helper.errorOccurred.connect(
+                    lambda _error, original=proc, owner=helper: self._taskkill_failed(
+                        original, owner
+                    )
+                )
+                helper.start("taskkill", ["/PID", str(pid), "/T", "/F"])
+            elif pid > 0 and self._process_group_owner is proc:
+                os.killpg(pid, signal.SIGTERM)
+                QTimer.singleShot(2000, lambda p=pid, original=proc: self._kill_process_group(p, original))
+            else:
+                proc.terminate()
+                QTimer.singleShot(2000, lambda original=proc: self._kill_if_running(original))
+        except OSError:
+            proc.kill()
+        self.log.appendPlainText("\n[cancelado pelo usuário]")
+
+    def _kill_process_group(self, pid: int, proc: QProcess) -> None:
+        if self.proc is not proc or proc.state() == QProcess.ProcessState.NotRunning:
+            return
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
+
+    def _kill_if_running(self, proc: QProcess) -> None:
+        if self.proc is proc and proc.state() != QProcess.ProcessState.NotRunning:
+            proc.kill()
+
+    def _taskkill_finished(self, proc: QProcess, helper: QProcess, code: int) -> None:
+        if self._cancel_helper is helper:
+            self._cancel_helper = None
+        helper.deleteLater()
+        if code != 0:
+            self._kill_if_running(proc)
+
+    def _taskkill_failed(self, proc: QProcess, helper: QProcess) -> None:
+        self._taskkill_finished(proc, helper, 1)
 
     def _on_stdout(self) -> None:
+        sender = self.sender()
+        if isinstance(sender, QProcess) and sender is not self.proc:
+            return
+        if self.proc is None:
+            return
         data = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
         self.log.insertPlainText(data)
         self._update_progress_from_text(data)
@@ -228,6 +301,15 @@ class RunTab(QWidget):
         self.progress.setFormat(f"{pct}% - {stage}")
 
     def _on_finished(self, code: int, _status) -> None:
+        sender = self.sender()
+        if isinstance(sender, QProcess) and sender is not self.proc:
+            return
+        proc = self.proc
+        self.proc = None
+        if self._process_group_owner is proc:
+            self._process_group_owner = None
+        if proc is not None:
+            proc.deleteLater()
         self.log.appendPlainText(f"\n=== LUNA finalizou (exit code {code}) ===")
         self.btn_run.setEnabled(True)
         self.btn_cancel.setEnabled(False)
@@ -239,3 +321,21 @@ class RunTab(QWidget):
                                     f"Análise concluída.\nResultados em: {self.cfg.workdir}")
         else:
             self.progress.setFormat(f"Falhou (exit code {code})")
+
+    def _on_process_error(self, error: QProcess.ProcessError) -> None:
+        sender = self.sender()
+        if isinstance(sender, QProcess) and sender is not self.proc:
+            return
+        if error != QProcess.ProcessError.FailedToStart:
+            return
+        proc = self.proc
+        detail = proc.errorString() if proc is not None else "processo não iniciado"
+        self.log.appendPlainText(f"\n[erro ao iniciar LUNA] {detail}")
+        self.progress.setFormat("Falha ao iniciar")
+        self.btn_run.setEnabled(True)
+        self.btn_cancel.setEnabled(False)
+        self.proc = None
+        if self._process_group_owner is proc:
+            self._process_group_owner = None
+        if proc is not None:
+            proc.deleteLater()

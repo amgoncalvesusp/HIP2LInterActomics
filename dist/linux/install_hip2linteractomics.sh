@@ -48,6 +48,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --conda-root)
+            if [[ $# -lt 2 || -z "${2:-}" ]]; then
+                echo "[ERRO] --conda-root requer um diretorio." >&2
+                exit 2
+            fi
             CONDA_ROOT="$2"
             shift 2
             ;;
@@ -155,6 +159,28 @@ install_gui_env() {
     "${CONDA_BIN}" run -n "${GUI_ENV}" python -m pip install -r "${REPO_ROOT}/requirements.txt"
 }
 
+check_qt_runtime() {
+    local plugin missing
+    plugin="$("${CONDA_BIN}" run -n "${GUI_ENV}" python -c \
+        'from pathlib import Path; from PyQt6.QtCore import QLibraryInfo; print(Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)) / "platforms" / "libqxcb.so")' \
+        | tail -n 1)"
+    if [[ ! -f "${plugin}" ]]; then
+        echo "[ERRO] Plugin Qt XCB nao encontrado no ambiente ${GUI_ENV}: ${plugin}" >&2
+        exit 1
+    fi
+    if ! command -v ldd >/dev/null 2>&1; then
+        echo "[AVISO] ldd nao encontrado; a verificacao das bibliotecas XCB foi pulada." >&2
+        return 0
+    fi
+    missing="$(ldd "${plugin}" 2>/dev/null | awk '/not found/{print $1}' | paste -sd ',' - | sed 's/,/, /g')"
+    if [[ -n "${missing}" ]]; then
+        echo "[ERRO] Dependencias nativas do Qt/XCB ausentes: ${missing}" >&2
+        echo "Ubuntu/Debian: sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 libxcb-util1 libxcb-xfixes0 libxcb-xkb1 libxkbcommon-x11-0 libgl1 libegl1" >&2
+        echo "Fedora: sudo dnf install libxcb xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbcommon-x11 mesa-libGL mesa-libEGL" >&2
+        exit 1
+    fi
+}
+
 install_luna_env() {
     log "Criando/atualizando ambiente ${LUNA_ENV}"
     conda_create_or_install "${LUNA_ENV}" \
@@ -167,17 +193,26 @@ install_luna_env() {
 }
 
 create_desktop_launcher() {
-    local desktop_dir desktop_file icon_path
+    local desktop_dir desktop_file icon_path launcher_dir launcher
     desktop_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/applications"
     desktop_file="${desktop_dir}/hip2linteractomics.desktop"
     icon_path="${REPO_ROOT}/luna_gui/assets/hip2l_interactomics_icon.png"
-    mkdir -p "${desktop_dir}"
+    launcher_dir="${HOME}/.local/bin"
+    launcher="${launcher_dir}/hip2linteractomics"
+    mkdir -p "${desktop_dir}" "${launcher_dir}"
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf 'export HIP2LINTERACTOMICS_GUI_ENV=%q\n' "${GUI_ENV}"
+        printf 'export HIP2LINTERACTOMICS_GUI_CONDA=%q\n' "${CONDA_BIN}"
+        printf 'exec %q "$@"\n' "${REPO_ROOT}/dist/linux/run_gui.sh"
+    } > "${launcher}"
+    chmod +x "${launcher}"
     cat > "${desktop_file}" <<EOF
 [Desktop Entry]
 Type=Application
 Name=HIP2LInterActomics
 Comment=Protein-ligand interaction analysis with LUNA
-Exec=env HIP2LINTERACTOMICS_GUI_ENV=${GUI_ENV} HIP2LINTERACTOMICS_GUI_CONDA=${CONDA_BIN} ${REPO_ROOT}/dist/linux/run_gui.sh
+Exec="${launcher}"
 Icon=${icon_path}
 Terminal=false
 Categories=Science;Education;
@@ -200,6 +235,7 @@ log "Usando conda: ${CONDA_BIN}"
 "${CONDA_BIN}" config --set channel_priority flexible >/dev/null 2>&1 || true
 
 install_gui_env
+check_qt_runtime
 if [[ "${INSTALL_LUNA}" -eq 1 ]]; then
     install_luna_env
 else

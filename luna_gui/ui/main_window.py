@@ -67,6 +67,23 @@ class MainWindow(QMainWindow):
         self.tab_history.project_loaded.connect(self._apply_loaded_cfg)
 
     def closeEvent(self, event) -> None:
+        if self.tab_setup.has_running_tasks() or self.tab_results.has_running_tasks():
+            QMessageBox.information(
+                self,
+                "Operação em andamento",
+                "Aguarde a operação atual terminar antes de fechar o aplicativo.",
+            )
+            event.ignore()
+            return
+        if self.tab_run.is_running():
+            self.tab_run.cancel()
+            QMessageBox.information(
+                self,
+                "Cancelando execução",
+                "A execução está sendo encerrada. Feche o aplicativo novamente quando o cancelamento terminar.",
+            )
+            event.ignore()
+            return
         answer = QMessageBox.question(
             self,
             "Fechar aplicativo",
@@ -147,7 +164,11 @@ class MainWindow(QMainWindow):
         if not self.cfg.workdir:
             QMessageBox.warning(self, "Workdir", t("Defina um workdir antes de salvar."))
             return
-        save_to_workdir(self.cfg)
+        try:
+            save_to_workdir(self.cfg)
+        except OSError as exc:
+            QMessageBox.critical(self, "Erro ao salvar projeto", str(exc))
+            return
         self.statusBar().showMessage(f"{t('Projeto salvo em')} {self.cfg.workdir}", 5000)
 
     def _about(self) -> None:
@@ -214,11 +235,16 @@ class MainWindow(QMainWindow):
             "</ol>"
         )
 
-    def _collect_and_save(self) -> None:
+    def _collect_and_save(self) -> bool:
         self.tab_project.collect()
         self.tab_analyses.collect()
         self.cfg.language = language()
-        save_to_workdir(self.cfg)
+        try:
+            save_to_workdir(self.cfg)
+        except OSError as exc:
+            QMessageBox.critical(self, "Erro ao salvar projeto", str(exc))
+            return False
+        return True
 
     def _sync_cfg_if_idle(self) -> None:
         proc = getattr(self.tab_run, "proc", None)
@@ -329,12 +355,12 @@ class MainWindow(QMainWindow):
         screen = QGuiApplication.primaryScreen()
         if screen is None:
             self.resize(1280, 820)
-            self.setMinimumSize(900, 620)
+            self.setMinimumSize(640, 480)
             return
         available = screen.availableGeometry()
-        width = max(900, min(1280, int(available.width() * 0.90)))
-        height = max(620, min(820, int(available.height() * 0.88)))
-        min_width = max(760, min(900, int(available.width() * 0.72)))
-        min_height = max(540, min(620, int(available.height() * 0.66)))
+        width = max(1, min(1280, int(available.width() * 0.90)))
+        height = max(1, min(820, int(available.height() * 0.88)))
+        min_width = max(1, min(760, int(available.width() * 0.72), width))
+        min_height = max(1, min(540, int(available.height() * 0.66), height))
         self.resize(width, height)
         self.setMinimumSize(min_width, min_height)

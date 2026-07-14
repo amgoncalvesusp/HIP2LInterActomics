@@ -5,13 +5,14 @@ import webbrowser
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSize, QProcess, QProcessEnvironment, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QFontDatabase, QPixmap
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QPlainTextEdit,
     QMessageBox, QGroupBox,
 )
 
 from ..core import env_manager as em
+from .async_task import AsyncTask
 from .info import InfoButton
 
 
@@ -24,6 +25,7 @@ class SetupTab(QWidget):
         super().__init__()
         self.proc: QProcess | None = None
         self._cmd_queue: list[list[str]] = []
+        self._detect_task: AsyncTask | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -79,100 +81,131 @@ class SetupTab(QWidget):
         env_layout = QVBoxLayout(env_box)
         env_layout.addWidget(self.status_label)
 
-        btn_row = QHBoxLayout()
+        btn_row = QGridLayout()
         self.btn_refresh = QPushButton("Verificar novamente")
         self.btn_refresh.setToolTip("Refaz a detecção do Conda, do ambiente 'luna-env' e da instalação do LUNA.")
         self.btn_refresh.clicked.connect(self.detect)
         self.btn_install_miniconda = QPushButton("Baixar Miniconda")
         self.btn_install_miniconda.setToolTip("Abre a página oficial do Miniconda para instalar o Conda no sistema.")
-        self.btn_install_miniconda.clicked.connect(
-            lambda: webbrowser.open(em.miniconda_download_url())
-        )
+        self.btn_install_miniconda.clicked.connect(self._open_miniconda_download)
         self.btn_install_luna = QPushButton("Instalar LUNA (cria luna-env)")
         self.btn_install_luna.setToolTip(
             "Cria ou atualiza o ambiente 'luna-env' e instala nele as dependências usadas pela GUI."
         )
         self.btn_install_luna.clicked.connect(self.install_luna)
-        btn_row.addWidget(self.btn_refresh)
-        btn_row.addWidget(self.btn_install_miniconda)
-        btn_row.addWidget(self.btn_install_luna)
-        btn_row.addWidget(InfoButton("Verifica e prepara o ambiente luna-env. Esta etapa garante LUNA, scikit-learn e dependencias de analise para executar o fluxo."))
-        btn_row.addStretch()
+        btn_row.addWidget(self.btn_refresh, 0, 0)
+        btn_row.addWidget(self.btn_install_miniconda, 0, 1)
+        btn_row.addWidget(self.btn_install_luna, 1, 0, 1, 2)
+        btn_row.addWidget(InfoButton("Verifica e prepara o ambiente luna-env. Esta etapa garante LUNA, scikit-learn e dependencias de analise para executar o fluxo."), 1, 2)
+        btn_row.setColumnStretch(2, 1)
         env_layout.addLayout(btn_row)
         layout.addWidget(env_box)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setToolTip("Mostra o passo a passo da verificação e da instalação do ambiente.")
-        self.log.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        self.log.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.log.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.log, 1)
 
         self.detect()
 
     # ---- detection ----
+    def _open_miniconda_download(self) -> None:
+        try:
+            url = em.miniconda_download_url()
+        except RuntimeError as exc:
+            QMessageBox.critical(self, "Arquitetura não suportada", str(exc))
+            return
+        webbrowser.open(url)
+
     def detect(self) -> None:
         self.log.appendPlainText("=== Verificação de ambiente ===")
+        if self._detect_task is not None and self._detect_task.is_running:
+            return
+        self.btn_refresh.setEnabled(False)
+        self.btn_install_luna.setEnabled(False)
+        self.status_label.setText("Verificando ambiente...")
+        task = AsyncTask(self._probe_environment, self)
+        self._detect_task = task
+        task.succeeded.connect(self._apply_environment_status)
+        task.failed.connect(self._detection_failed)
+        task.finished.connect(self._detection_finished)
+        task.start()
+
+    @staticmethod
+    def _probe_environment() -> dict[str, object]:
+        logs: list[str] = []
         conda = em.find_conda()
         if not conda:
-            self.status_label.setText("❌ Conda não encontrado. Instale o Miniconda primeiro.")
-            self.btn_install_luna.setEnabled(False)
-            self.log.appendPlainText("Conda: NÃO encontrado.")
-            return
-        self.log.appendPlainText(f"Conda: {conda}")
-        self.conda = conda
+            return {
+                "status": "❌ Conda não encontrado. Instale o Miniconda primeiro.",
+                "install_enabled": False,
+                "logs": ["Conda: NÃO encontrado."],
+            }
+        logs.append(f"Conda: {conda}")
         prefix = em.env_prefix(conda)
-        self.log.appendPlainText(f"Prefixo do env: {prefix}")
+        logs.append(f"Prefixo do env: {prefix}")
 
         if em.env_is_partial(conda):
-            self.status_label.setText(
-                "⚠️  Conda OK. Ambiente 'luna-env' está incompleto e será recriado ao clicar em 'Instalar LUNA'."
-            )
-            self.btn_install_luna.setEnabled(True)
-            return
+            return {"conda": conda, "status": "⚠️  Conda OK. Ambiente 'luna-env' está incompleto e será recriado ao clicar em 'Instalar LUNA'.", "install_enabled": True, "logs": logs}
 
         if not em.env_exists(conda):
-            self.status_label.setText("⚠️  Conda OK. Ambiente 'luna-env' não existe — clique em 'Instalar LUNA'.")
-            self.btn_install_luna.setEnabled(True)
-            return
+            return {"conda": conda, "status": "⚠️  Conda OK. Ambiente 'luna-env' não existe — clique em 'Instalar LUNA'.", "install_enabled": True, "logs": logs}
 
         py = em.env_python(conda)
         if not py:
-            self.status_label.setText("⚠️  luna-env existe mas python não foi localizado.")
-            return
-        self.log.appendPlainText(f"Python do env: {py}")
+            return {"conda": conda, "status": "⚠️  luna-env existe mas python não foi localizado.", "install_enabled": True, "logs": logs}
+        logs.append(f"Python do env: {py}")
 
         if not em.luna_installed(py):
-            self.status_label.setText("⚠️  luna-env existe mas LUNA não está instalado.")
-            self.btn_install_luna.setEnabled(True)
-            return
+            return {"conda": conda, "status": "⚠️  luna-env existe mas LUNA não está instalado.", "install_enabled": True, "logs": logs}
 
         run_py = em.luna_run_py_path(py)
         if not run_py:
-            self.status_label.setText("⚠️  LUNA importado mas run.py não foi localizado.")
-            return
+            return {"conda": conda, "status": "⚠️  LUNA importado mas run.py não foi localizado.", "install_enabled": True, "logs": logs}
 
         missing = em.missing_runtime_packages(py)
         if missing:
-            self.status_label.setText(
-                "⚠️  LUNA pronto, mas faltam dependências para análises avançadas: "
-                + ", ".join(missing)
-                + ". Clique em 'Instalar LUNA' para atualizar o luna-env."
-            )
-            self.log.appendPlainText(
+            logs.append(
                 "Dependências ausentes no luna-env: "
                 + ", ".join(missing)
                 + "\nUse 'Instalar LUNA' para executar conda install/update com scikit-learn."
             )
-            self.btn_install_luna.setEnabled(True)
-            self.luna_ready.emit(str(py), str(run_py))
-            return
+            return {"conda": conda, "status": "⚠️  LUNA pronto, mas faltam dependências para análises avançadas: " + ", ".join(missing) + ". Clique em 'Instalar LUNA' para atualizar o luna-env.", "install_enabled": True, "logs": logs, "ready": (str(py), str(run_py))}
 
-        self.status_label.setText(f"✅ LUNA pronto. run.py: {run_py}")
-        self.log.appendPlainText(f"run.py: {run_py}")
-        self.luna_ready.emit(str(py), str(run_py))
+        logs.append(f"run.py: {run_py}")
+        return {"conda": conda, "status": f"✅ LUNA pronto. run.py: {run_py}", "install_enabled": True, "logs": logs, "ready": (str(py), str(run_py))}
+
+    def _apply_environment_status(self, result: dict[str, object]) -> None:
+        self.status_label.setText(str(result.get("status", "")))
+        self.btn_install_luna.setEnabled(bool(result.get("install_enabled", False)))
+        for line in result.get("logs", []):
+            self.log.appendPlainText(str(line))
+        conda = result.get("conda")
+        if conda:
+            self.conda = str(conda)
+        ready = result.get("ready")
+        if isinstance(ready, tuple) and len(ready) == 2:
+            self.luna_ready.emit(str(ready[0]), str(ready[1]))
+
+    def _detection_failed(self, message: str) -> None:
+        self.status_label.setText("❌ Falha ao verificar o ambiente.")
+        self.log.appendPlainText(f"Erro: {message}")
+
+    def _detection_finished(self) -> None:
+        self.btn_refresh.setEnabled(True)
+        self._detect_task = None
+
+    def has_running_tasks(self) -> bool:
+        detecting = self._detect_task is not None and self._detect_task.is_running
+        installing = self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning
+        return detecting or installing
 
     # ---- install ----
     def install_luna(self) -> None:
+        if self._detect_task is not None and self._detect_task.is_running:
+            return
         conda = em.find_conda()
         if not conda:
             QMessageBox.warning(self, "Conda ausente", "Instale o Miniconda primeiro.")
@@ -189,6 +222,7 @@ class SetupTab(QWidget):
             return
         self._cmd_queue = em.install_commands(conda)
         self.btn_install_luna.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
         self.log.appendPlainText("\n=== Iniciando instalação do LUNA ===")
         self.log.appendPlainText("Isso pode levar vários minutos.\n")
         self.log.appendPlainText(f"Prefixo alvo do ambiente: {prefix}")
@@ -212,19 +246,49 @@ class SetupTab(QWidget):
         self.proc.setProcessEnvironment(proc_env)
         self.proc.readyReadStandardOutput.connect(self._on_stdout)
         self.proc.finished.connect(self._on_finished)
+        self.proc.errorOccurred.connect(self._on_process_error)
         self.proc.start(cmd[0], cmd[1:])
 
     def _on_stdout(self) -> None:
+        sender = self.sender()
+        if isinstance(sender, QProcess) and sender is not self.proc:
+            return
+        if self.proc is None:
+            return
         data = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
         self.log.insertPlainText(data)
         sb = self.log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
     def _on_finished(self, code: int, _status) -> None:
+        sender = self.sender()
+        if isinstance(sender, QProcess) and sender is not self.proc:
+            return
+        proc = self.proc
+        self.proc = None
+        if proc is not None:
+            proc.deleteLater()
         self.log.appendPlainText(f"[exit code: {code}]")
         if code != 0:
             self.log.appendPlainText("⚠️  Comando falhou — abortando instalação.")
             self.btn_install_luna.setEnabled(True)
+            self.btn_refresh.setEnabled(True)
             self._cmd_queue.clear()
             return
         self._run_next()
+
+    def _on_process_error(self, error: QProcess.ProcessError) -> None:
+        sender = self.sender()
+        if isinstance(sender, QProcess) and sender is not self.proc:
+            return
+        if error != QProcess.ProcessError.FailedToStart:
+            return
+        proc = self.proc
+        detail = proc.errorString() if proc is not None else "processo não iniciado"
+        self.log.appendPlainText(f"[erro ao iniciar comando] {detail}")
+        self.btn_install_luna.setEnabled(True)
+        self.btn_refresh.setEnabled(True)
+        self._cmd_queue.clear()
+        self.proc = None
+        if proc is not None:
+            proc.deleteLater()

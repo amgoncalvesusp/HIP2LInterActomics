@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QFileDialog, QListWidget, QListWidgetItem,
     QMessageBox, QTabWidget, QSpinBox, QComboBox, QHeaderView,
 )
@@ -102,8 +102,8 @@ class ResultsTab(QWidget):
         intro.setProperty("muted", True)
         layout.addWidget(intro)
 
-        wd_row = QHBoxLayout()
-        wd_row.addWidget(QLabel("Workdir:"))
+        wd_row = QGridLayout()
+        wd_row.addWidget(QLabel("Workdir:"), 0, 0)
         self.wd_edit = QLineEdit()
         self.wd_edit.setPlaceholderText("(usa o workdir do projeto atual)")
         self.wd_edit.setToolTip("Pasta do projeto cujos resultados serão carregados nesta aba.")
@@ -122,12 +122,19 @@ class ResultsTab(QWidget):
         btn_report_pdf = QPushButton("Gerar relatório PDF")
         btn_report_pdf.setToolTip("Gera um PDF com parâmetros, explicações e interpretação básica das análises.")
         btn_report_pdf.clicked.connect(self.export_pdf_report)
-        wd_row.addWidget(self.wd_edit, 1)
-        wd_row.addWidget(btn_wd)
-        wd_row.addWidget(btn_load)
-        wd_row.addWidget(btn_export_chart)
-        wd_row.addWidget(btn_report)
-        wd_row.addWidget(btn_report_pdf)
+        wd_row.addWidget(self.wd_edit, 0, 1)
+        wd_row.addWidget(btn_wd, 0, 2)
+        primary_actions = QHBoxLayout()
+        primary_actions.addWidget(btn_load)
+        primary_actions.addWidget(btn_export_chart)
+        primary_actions.addStretch()
+        wd_row.addLayout(primary_actions, 1, 0, 1, 3)
+        self.results_secondary_actions = QHBoxLayout()
+        self.results_secondary_actions.addWidget(btn_report)
+        self.results_secondary_actions.addWidget(btn_report_pdf)
+        self.results_secondary_actions.addStretch()
+        wd_row.addLayout(self.results_secondary_actions, 2, 0, 1, 3)
+        wd_row.setColumnStretch(1, 1)
         layout.addLayout(wd_row)
 
         self.inner = QTabWidget()
@@ -200,14 +207,15 @@ class ResultsTab(QWidget):
         stats_help.setWordWrap(True)
         stats_help.setProperty("muted", True)
         st_layout.addWidget(stats_help)
-        st_ctrl = QHBoxLayout()
-        btn_st = QPushButton("Calcular estatísticas (usa luna-env)")
+        st_ctrl = QGridLayout()
+        btn_st = QPushButton("Calcular estatísticas")
         btn_st.setToolTip("Varre os resultados do projeto e gera um resumo por tipo de interação.")
         btn_st.clicked.connect(self.compute_stats)
         self.st_status = QLabel("—")
         self.st_status.setProperty("muted", True)
-        st_ctrl.addWidget(btn_st)
-        st_ctrl.addWidget(self.st_status, 1)
+        st_ctrl.addWidget(btn_st, 0, 0)
+        st_ctrl.addWidget(self.st_status, 0, 1)
+        st_ctrl.setColumnStretch(1, 1)
         st_layout.addLayout(st_ctrl)
         if HAS_MPL:
             self.st_fig = Figure(figsize=(6.2, 4.2))
@@ -226,7 +234,7 @@ class ResultsTab(QWidget):
         residue_help.setProperty("muted", True)
         hm_layout.addWidget(residue_help)
         hm_ctrl = QHBoxLayout()
-        btn_hm = QPushButton("Calcular mapa de calor (usa luna-env)")
+        btn_hm = QPushButton("Calcular mapa de calor")
         btn_hm.setToolTip("Calcula a matriz resíduo × ligante a partir dos resultados do projeto.")
         btn_hm.clicked.connect(self.compute_residue_matrix)
         hm_ctrl.addWidget(btn_hm)

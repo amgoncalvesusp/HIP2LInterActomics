@@ -4,39 +4,54 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QApplication,
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton,
     QSpinBox, QFileDialog, QLabel, QPlainTextEdit, QMessageBox, QCheckBox,
     QGroupBox, QRadioButton, QButtonGroup, QWidget, QProgressBar,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFontDatabase, QGuiApplication
 
 from ..core import env_manager as em
 from ..core.mol2_prep import split_complex_folder, detect_last_protein_atom
+from .async_task import AsyncTask
 
 
 class DockingPrepDialog(QDialog):
     """Wizard to split combined complex files into separate receptor/ligand files."""
 
+    def _fit_to_screen(self, preferred_width: int, preferred_height: int) -> None:
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(preferred_width, preferred_height)
+            return
+        available = screen.availableGeometry()
+        self.resize(
+            min(preferred_width, max(1, available.width() - 32)),
+            min(preferred_height, max(1, available.height() - 48)),
+        )
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Preparar arquivos de complexos")
-        self.resize(760, 560)
+        self._fit_to_screen(760, 560)
 
         self.result_protein_dir: str | None = None
         self.result_ligand_dir: str | None = None
         self.water_molecules_detected: int = 0
         self._detected_last_pa: int | None = None
+        self._prep_task: AsyncTask | None = None
 
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel(
+        intro = QLabel(
             "Selecione uma pasta com arquivos .mol2, .pdb ou .ent "
             "(proteína + ligante no mesmo arquivo).\n"
             "Serão geradas subpastas separadas para proteínas e ligantes compatíveis "
             "com LUNA: MOL2 quando a origem é MOL2, SDF quando a origem é PDB/ENT, "
             "com águas preservadas junto à proteína."
-        ))
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
 
         form = QFormLayout()
 
@@ -146,7 +161,8 @@ class DockingPrepDialog(QDialog):
         # --- Log ---
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        self.log.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.log.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.log, 1)
 
     # ---- helpers ----
@@ -283,16 +299,6 @@ class DockingPrepDialog(QDialog):
         self.btn_run.setEnabled(False)
         self.btn_close.setEnabled(False)
 
-        def _on_progress(processed: int, total: int, filename: str, ok: bool, error_message: str) -> None:
-            self.progress.setRange(0, max(1, total))
-            self.progress.setValue(min(processed, max(1, total)))
-            if filename:
-                status = "ok" if ok else f"erro: {error_message}"
-                self.progress_status.setText(f"{processed} / {total} — {filename} ({status})")
-            else:
-                self.progress_status.setText(f"{processed} / {total} arquivos processados")
-            QApplication.processEvents()
-
         try:
             chemistry_python = self._chemistry_python() if pdb_files else None
             if pdb_files and chemistry_python:
@@ -303,21 +309,49 @@ class DockingPrepDialog(QDialog):
                 self.log.appendPlainText(
                     "Aviso: luna-env nao foi localizado; tentando converter PDB -> SDF apenas com o Python atual."
                 )
-            r = split_complex_folder(
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", str(e))
+            self._finish_prep_task()
+            return
+
+        task: AsyncTask
+
+        def prepare():
+            def report(processed: int, total: int, filename: str, ok: bool, error_message: str) -> None:
+                task.progress.emit((processed, total, filename, ok, error_message))
+
+            return split_complex_folder(
                 src,
                 last_pa,
                 out,
-                progress_cb=_on_progress,
+                progress_cb=report,
                 chemistry_python=chemistry_python,
             )
-        except Exception as e:
-            self.btn_run.setEnabled(True)
-            self.btn_close.setEnabled(True)
-            QMessageBox.critical(self, "Erro", str(e))
-            return
-        finally:
-            self.btn_run.setEnabled(True)
-            self.btn_close.setEnabled(True)
+
+        task = AsyncTask(prepare, self)
+        self._prep_task = task
+        task.progress.connect(self._update_prep_progress)
+        task.succeeded.connect(lambda result, value=last_pa: self._complete_prep(result, value))
+        task.failed.connect(lambda message: QMessageBox.critical(self, "Erro", message))
+        task.finished.connect(self._finish_prep_task)
+        task.start()
+
+    def _update_prep_progress(self, payload: object) -> None:
+        processed, total, filename, ok, error_message = payload
+        self.progress.setRange(0, max(1, total))
+        self.progress.setValue(min(processed, max(1, total)))
+        if filename:
+            status = "ok" if ok else f"erro: {error_message}"
+            self.progress_status.setText(f"{processed} / {total} — {filename} ({status})")
+        else:
+            self.progress_status.setText(f"{processed} / {total} arquivos processados")
+
+    def _finish_prep_task(self) -> None:
+        self.btn_run.setEnabled(True)
+        self.btn_close.setEnabled(True)
+        self._prep_task = None
+
+    def _complete_prep(self, r, last_pa: int | None) -> None:
 
         self.log.appendPlainText(
             f"Arquivos lidos: {r.files_processed} | "
@@ -350,6 +384,27 @@ class DockingPrepDialog(QDialog):
             f"{r.water_molecules_detected} águas detectadas"
         )
         self.log.appendPlainText("\nConcluido com sucesso.")
+
+    def closeEvent(self, event) -> None:
+        if self._prep_task is not None and self._prep_task.is_running:
+            QMessageBox.information(
+                self,
+                "Preparação em andamento",
+                "Aguarde a preparação terminar antes de fechar esta janela.",
+            )
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        if self._prep_task is not None and self._prep_task.is_running:
+            QMessageBox.information(
+                self,
+                "Preparação em andamento",
+                "Aguarde a preparação terminar antes de fechar esta janela.",
+            )
+            return
+        super().reject()
 
     def _chemistry_python(self) -> str | None:
         try:

@@ -1,14 +1,16 @@
 """Shared Qt theme for HIP²LInterActomics."""
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtGui import QColor, QFontDatabase, QPalette
 from PyQt6.QtWidgets import QApplication
 
 
 def apply_theme(app: QApplication) -> None:
     """Apply a consistent palette and stylesheet across the application."""
     app.setStyle("Fusion")
-    app.setFont(QFont("Segoe UI", 10))
+    app_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+    app_font.setPointSize(10)
+    app.setFont(app_font)
 
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor("#ebe7df"))

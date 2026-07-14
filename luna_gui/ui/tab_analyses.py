@@ -10,7 +10,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QCheckBox,
     QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPushButton, QFileDialog,
-    QListWidget, QListWidgetItem, QLabel, QScrollArea, QMessageBox,
+    QListWidget, QListWidgetItem, QLabel, QScrollArea, QMessageBox, QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 
@@ -35,7 +35,9 @@ class AnalysesTab(QWidget):
         # Scroll area wraps everything so the advanced section doesn't clip
         outer = QVBoxLayout(self)
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        inner = QWidget(); layout = QVBoxLayout(inner)
+        inner = QWidget()
+        inner.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout = QVBoxLayout(inner)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
@@ -388,6 +390,12 @@ class AnalysesTab(QWidget):
         layout.addWidget(self.sm_box)
 
         layout.addStretch()
+
+        for form_layout in inner.findChildren(QFormLayout):
+            form_layout.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+            )
+            form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         for group in (
             self.sm_box,

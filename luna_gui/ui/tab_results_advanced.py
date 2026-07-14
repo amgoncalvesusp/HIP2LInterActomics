@@ -4,18 +4,20 @@ from __future__ import annotations
 import math
 import shutil
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QGuiApplication, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QCompleter,
     QDialog,
     QFileDialog,
     QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -77,12 +79,98 @@ from .tab_results_enhanced import (
     _apply_tick_labels,
     _sortable_item,
 )
+from .async_task import AsyncTask
 from .info import InfoButton
 
 if HAS_MPL:
     from matplotlib import colormaps
     from matplotlib.colors import BoundaryNorm, ListedColormap
     from matplotlib.patches import Patch, Rectangle
+
+
+@dataclass(frozen=True)
+class _FpDashboardRequest:
+    ifp_type: str
+    workdir: Path
+    artifact: dict
+    labels_csv: str
+    labels_id_column: str
+    labels_column: str
+    task_kind_preference: str
+    algorithm_preference: str
+    use_otsu_threshold: bool
+    random_seed: int
+    python_executable: str
+    cache_key: tuple[str, str]
+
+
+def _compute_fp_dashboard(request: _FpDashboardRequest) -> dict:
+    """Build one fingerprint dashboard without touching Qt widgets."""
+    detail_error = ""
+    if load_fp_detail_artifact(request.workdir, request.ifp_type) is None:
+        detail_result = run_fp_detail_analysis(
+            request.python_executable,
+            str(request.workdir),
+            request.ifp_type,
+        )
+        if isinstance(detail_result, dict) and detail_result.get("error"):
+            detail_error = str(detail_result.get("error") or "")
+
+    local_dashboard = build_fp_analysis_dashboard(
+        request.workdir,
+        request.artifact,
+        labels_csv=request.labels_csv,
+        labels_id_column=request.labels_id_column,
+        labels_column=request.labels_column,
+        algorithm_preference=request.algorithm_preference,
+        task_kind_preference=request.task_kind_preference,
+        use_otsu_threshold=request.use_otsu_threshold,
+        random_seed=request.random_seed,
+    )
+    dashboard = local_dashboard
+    helper_error = ""
+    local_model = str(local_dashboard.get("model_name", "") or "")
+    if request.python_executable and (
+        local_model == "Unavailable" or local_model.startswith("Fallback")
+    ):
+        helper_dashboard = run_fp_dashboard_analysis(
+            request.python_executable,
+            str(request.workdir),
+            request.ifp_type,
+            labels_csv=request.labels_csv,
+            labels_id_column=request.labels_id_column,
+            labels_column=request.labels_column,
+            algorithm_preference=request.algorithm_preference,
+            task_kind_preference=request.task_kind_preference,
+            use_otsu_threshold=request.use_otsu_threshold,
+            random_seed=request.random_seed,
+        )
+        helper_model = str(helper_dashboard.get("model_name", "") or "")
+        if (
+            "error" not in helper_dashboard
+            and helper_model != "Unavailable"
+            and not helper_model.startswith("Fallback")
+        ):
+            dashboard = helper_dashboard
+        else:
+            helper_error = str(helper_dashboard.get("error", "") or "")
+            if (
+                helper_dashboard
+                and "error" not in helper_dashboard
+                and helper_model == "Unavailable"
+            ):
+                dashboard = helper_dashboard
+
+    if helper_error and str(dashboard.get("model_name", "") or "") == "Unavailable":
+        model_note = str(dashboard.get("model_note", "") or "").strip()
+        dashboard["model_note"] = (
+            model_note
+            + (" " if model_note else "")
+            + f"Falha no helper do luna-env: {helper_error}"
+        ).strip()
+    if detail_error and not dashboard.get("detail_available"):
+        dashboard["detail_error"] = detail_error
+    return dashboard
 
 
 class ResultsTab(EnhancedResultsTab):
@@ -105,6 +193,7 @@ class ResultsTab(EnhancedResultsTab):
         self._fp_manual_feature_ids: dict[str, list[int]] = {}
         self._fullscreen_dialog: QDialog | None = None
         self._workdir_project_cache: dict[str, tuple[float, ProjectConfig | None]] = {}
+        self._async_tasks: dict[str, AsyncTask] = {}
         self._install_fullscreen_button()
         self._install_stats_scope_control()
         self._install_stats_scroll_area()
@@ -117,6 +206,43 @@ class ResultsTab(EnhancedResultsTab):
         self._install_fp_session_tab()
         self._reorder_tabs()
 
+    def _run_async(self, key: str, function, on_success, on_error) -> bool:
+        current = self._async_tasks.get(key)
+        if current is not None and current.is_running:
+            return False
+        context = self._async_context()
+        task = AsyncTask(function, self)
+        self._async_tasks[key] = task
+        task.succeeded.connect(
+            lambda result, expected=context: (
+                on_success(result) if self._async_context() == expected else None
+            )
+        )
+        task.failed.connect(
+            lambda message, expected=context: (
+                on_error(message) if self._async_context() == expected else None
+            )
+        )
+        task.finished.connect(lambda k=key, t=task: self._discard_task(k, t))
+        task.start()
+        return True
+
+    def _async_context(self) -> str:
+        workdir = self._current_wd()
+        if workdir is None:
+            return ""
+        try:
+            return str(workdir.resolve())
+        except OSError:
+            return str(workdir)
+
+    def _discard_task(self, key: str, task: AsyncTask) -> None:
+        if self._async_tasks.get(key) is task:
+            self._async_tasks.pop(key, None)
+
+    def has_running_tasks(self) -> bool:
+        return any(task.is_running for task in self._async_tasks.values())
+
     def _install_fullscreen_button(self) -> None:
         root_layout = self.layout()
         if root_layout is None or root_layout.count() < 2:
@@ -127,8 +253,18 @@ class ResultsTab(EnhancedResultsTab):
         btn_fullscreen = QPushButton("Full screen")
         btn_fullscreen.setToolTip("Abre o gráfico atual em uma janela maior para inspeção visual.")
         btn_fullscreen.clicked.connect(self.show_current_chart_fullscreen)
-        row.addWidget(btn_fullscreen)
-        row.addWidget(InfoButton("Amplia o gráfico atualmente visível. Use para inspecionar mapas de calor e barras sem mudar os dados."))
+        help_button = InfoButton(
+            "Amplia o gráfico atualmente visível. Use para inspecionar mapas de calor e barras sem mudar os dados."
+        )
+        if hasattr(self, "results_secondary_actions"):
+            self.results_secondary_actions.insertWidget(2, btn_fullscreen)
+            self.results_secondary_actions.insertWidget(3, help_button)
+        elif isinstance(row, QGridLayout):
+            row.addWidget(btn_fullscreen, 2, 2)
+            row.addWidget(help_button, 2, 3)
+        else:
+            row.addWidget(btn_fullscreen)
+            row.addWidget(help_button)
 
     def show_current_chart_fullscreen(self) -> None:
         if not HAS_MPL:
@@ -151,7 +287,15 @@ class ResultsTab(EnhancedResultsTab):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(default_name or "Grafico")
-        dlg.resize(1280, 820)
+        screen = dlg.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            dlg.resize(1280, 820)
+        else:
+            available = screen.availableGeometry()
+            dlg.resize(
+                min(1280, max(1, available.width() - 32)),
+                min(820, max(1, available.height() - 48)),
+            )
         layout = QVBoxLayout(dlg)
         toolbar = QHBoxLayout()
         btn_zoom_out = QPushButton("Afastar")
@@ -230,8 +374,7 @@ class ResultsTab(EnhancedResultsTab):
             "Alterna entre o resumo total do projeto e a distribuicao por um ligante especifico."
         )
         self.cb_stats_scope.currentIndexChanged.connect(self._render_cached_stats_chart)
-        st_ctrl.insertWidget(1, QLabel("Visao:"))
-        st_ctrl.insertWidget(2, self.cb_stats_scope)
+        scope_label = QLabel("Visao:")
         self.btn_stats_toggle_all = QPushButton("Ligar/desligar todas")
         self.btn_stats_toggle_all.setToolTip(
             "Oculta ou mostra todos os tipos de interação do gráfico de estatísticas."
@@ -251,15 +394,23 @@ class ResultsTab(EnhancedResultsTab):
         self.btn_stats_toggle_stacking.clicked.connect(
             lambda: self._toggle_stats_interaction_group("stacking")
         )
-        st_ctrl.insertWidget(3, self.btn_stats_toggle_all)
-        st_ctrl.insertWidget(4, self.btn_stats_toggle_unfavorable)
-        st_ctrl.insertWidget(5, self.btn_stats_toggle_stacking)
-        st_ctrl.insertWidget(
-            6,
-            InfoButton(
-                "Estes filtros são apenas visuais: ligam/desligam famílias de interações no gráfico de estatísticas sem alterar os arquivos do projeto."
-            ),
+        help_button = InfoButton(
+            "Estes filtros são apenas visuais: ligam/desligam famílias de interações no gráfico de estatísticas sem alterar os arquivos do projeto."
         )
+        if isinstance(st_ctrl, QGridLayout):
+            st_ctrl.addWidget(scope_label, 1, 0)
+            st_ctrl.addWidget(self.cb_stats_scope, 1, 1)
+            st_ctrl.addWidget(help_button, 1, 2)
+            st_ctrl.addWidget(self.btn_stats_toggle_all, 2, 0)
+            st_ctrl.addWidget(self.btn_stats_toggle_unfavorable, 2, 1)
+            st_ctrl.addWidget(self.btn_stats_toggle_stacking, 3, 0)
+        else:
+            st_ctrl.insertWidget(1, scope_label)
+            st_ctrl.insertWidget(2, self.cb_stats_scope)
+            st_ctrl.insertWidget(3, self.btn_stats_toggle_all)
+            st_ctrl.insertWidget(4, self.btn_stats_toggle_unfavorable)
+            st_ctrl.insertWidget(5, self.btn_stats_toggle_stacking)
+            st_ctrl.insertWidget(6, help_button)
 
     def _install_residue_heatmap_scroll_area(self) -> None:
         if not HAS_MPL or not hasattr(self, "hm_canvas"):
@@ -543,8 +694,17 @@ class ResultsTab(EnhancedResultsTab):
             output_dir = filtered_root / f"{filter_name}_{suffix}"
             suffix += 1
         self.pse_filter_status.setText("Gerando sessões filtradas...")
-        self.pse_filter_status.repaint()
-        result = generate_filtered_pse_sessions(self.py_exe, str(wd), cfg_path, str(output_dir))
+        self._run_async(
+            "pse_filter",
+            lambda py=self.py_exe, path=str(wd), cfg=cfg_path, out=str(output_dir):
+                generate_filtered_pse_sessions(py, path, cfg, out),
+            lambda result, path=wd, out=output_dir: self._handle_pse_filter_result(result, path, out),
+            lambda message: self._handle_async_error(
+                self.pse_filter_status, "Erro na filtragem PyMOL", message
+            ),
+        )
+
+    def _handle_pse_filter_result(self, result: dict, wd: Path, output_dir: Path) -> None:
         if "error" in result:
             self.pse_filter_status.setText("Falha ao gerar filtragem.")
             QMessageBox.critical(self, "Erro na filtragem PyMOL", result["error"])
@@ -1066,43 +1226,44 @@ class ResultsTab(EnhancedResultsTab):
         help_label.setProperty("muted", True)
         layout.addWidget(help_label)
 
-        ctrl = QHBoxLayout()
+        ctrl = QGridLayout()
         btn = QPushButton("Carregar análises de FP")
         btn.clicked.connect(self.compute_fp_analyses)
-        ctrl.addWidget(btn)
-        ctrl.addWidget(QLabel("Tipo:"))
+        ctrl.addWidget(btn, 0, 0)
+        ctrl.addWidget(QLabel("Tipo:"), 1, 0)
         self.cb_fp_analysis_type = QComboBox()
         self.cb_fp_analysis_type.currentIndexChanged.connect(self._on_fp_analysis_controls_changed)
-        ctrl.addWidget(self.cb_fp_analysis_type)
-        ctrl.addWidget(QLabel("Algoritmo:"))
+        ctrl.addWidget(self.cb_fp_analysis_type, 1, 1)
+        ctrl.addWidget(QLabel("Algoritmo:"), 1, 2)
         self.cb_fp_algorithm = QComboBox()
         self.cb_fp_algorithm.addItem("GradientBoosting", "gradient_boosting")
         self.cb_fp_algorithm.addItem("ExtraTrees", "extra_trees")
         self.cb_fp_algorithm.setCurrentIndex(0)
         self.cb_fp_algorithm.currentIndexChanged.connect(self._on_fp_analysis_controls_changed)
-        ctrl.addWidget(self.cb_fp_algorithm)
-        ctrl.addWidget(QLabel("Corte p-value:"))
+        ctrl.addWidget(self.cb_fp_algorithm, 1, 3)
+        ctrl.addWidget(QLabel("Corte p-value:"), 2, 0)
         self.cb_fp_pvalue_cutoff = QComboBox()
         self.cb_fp_pvalue_cutoff.addItem("0.05 Flexível", 0.05)
         self.cb_fp_pvalue_cutoff.addItem("0.02 Médio", 0.02)
         self.cb_fp_pvalue_cutoff.addItem("0.01 Conservador", 0.01)
         self.cb_fp_pvalue_cutoff.setCurrentIndex(2)
         self.cb_fp_pvalue_cutoff.currentIndexChanged.connect(self._on_fp_analysis_controls_changed)
-        ctrl.addWidget(self.cb_fp_pvalue_cutoff)
+        ctrl.addWidget(self.cb_fp_pvalue_cutoff, 2, 1)
         self.fp_analysis_status = QLabel("-")
         self.fp_analysis_status.setProperty("muted", True)
-        ctrl.addWidget(self.fp_analysis_status, 1)
+        ctrl.addWidget(self.fp_analysis_status, 0, 1, 1, 3)
+        ctrl.setColumnStretch(3, 1)
         layout.addLayout(ctrl)
 
-        manual_row = QHBoxLayout()
-        manual_row.addWidget(QLabel("Fingerprints relevantes:"))
+        manual_row = QGridLayout()
+        manual_row.addWidget(QLabel("Fingerprints relevantes:"), 0, 0)
         self.fp_manual_features_edit = QLineEdit()
         self.fp_manual_features_edit.setPlaceholderText("IDs separados por vírgula, espaço ou quebra de linha")
         self.fp_manual_features_edit.setToolTip(
             "Permite substituir a lista calculada pelo programa por fingerprints escolhidos manualmente. "
             "A escolha atualiza a tabela e os gráficos de análises FP."
         )
-        manual_row.addWidget(self.fp_manual_features_edit, 1)
+        manual_row.addWidget(self.fp_manual_features_edit, 0, 1, 1, 3)
         btn_manual_apply = QPushButton("Aplicar seleção")
         btn_manual_apply.setToolTip("Usa os IDs informados como fingerprints relevantes para os gráficos abaixo.")
         btn_manual_apply.clicked.connect(self._apply_manual_fp_selection)
@@ -1112,14 +1273,17 @@ class ResultsTab(EnhancedResultsTab):
         btn_manual_reset = QPushButton("Restabelecer calculado")
         btn_manual_reset.setToolTip("Volta ao critério automático de importância calculado pelo programa.")
         btn_manual_reset.clicked.connect(self._reset_manual_fp_selection)
-        manual_row.addWidget(btn_manual_apply)
-        manual_row.addWidget(btn_manual_from_table)
-        manual_row.addWidget(btn_manual_reset)
+        manual_row.addWidget(btn_manual_apply, 1, 0)
+        manual_row.addWidget(btn_manual_from_table, 1, 1)
+        manual_row.addWidget(btn_manual_reset, 2, 0)
         manual_row.addWidget(
             InfoButton(
                 "Substitui temporariamente os fingerprints importantes calculados por IDs escolhidos pelo usuário. Todos os gráficos de análises FP passam a usar essa seleção."
-            )
+            ),
+            2,
+            1,
         )
+        manual_row.setColumnStretch(1, 1)
         layout.addLayout(manual_row)
 
         self.fp_analysis_summary = QLabel("-")
@@ -1325,9 +1489,17 @@ class ResultsTab(EnhancedResultsTab):
                 QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba Setup.")
                 return
             self.st_status.setText("Processando... (pode levar alguns minutos)")
-            self.st_status.repaint()
-            result = run_analysis(self.py_exe, str(wd))
+            self._run_async(
+                "statistics",
+                lambda py=self.py_exe, path=str(wd): run_analysis(py, path),
+                self._handle_stats_result,
+                lambda message: self._handle_async_error(self.st_status, "Erro na análise", message),
+            )
+            return
 
+        self._handle_stats_result(result)
+
+    def _handle_stats_result(self, result: dict) -> None:
         if "error" in result:
             self.st_status.setText("Erro")
             QMessageBox.critical(self, "Erro na analise", result["error"])
@@ -1346,9 +1518,19 @@ class ResultsTab(EnhancedResultsTab):
                 QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba Setup.")
                 return
             self.hm_status.setText("Processando...")
-            self.hm_status.repaint()
-            result = run_residue_matrix(self.py_exe, str(wd), require_ligand_atoms=True)
+            self._run_async(
+                "residue_matrix",
+                lambda py=self.py_exe, path=str(wd): run_residue_matrix(
+                    py, path, require_ligand_atoms=True
+                ),
+                self._handle_residue_result,
+                lambda message: self._handle_async_error(self.hm_status, "Erro na análise", message),
+            )
+            return
 
+        self._handle_residue_result(result)
+
+    def _handle_residue_result(self, result: dict) -> None:
         if "error" in result:
             self.hm_status.setText("Erro")
             self.hm_all_status.setText("Erro")
@@ -1356,6 +1538,10 @@ class ResultsTab(EnhancedResultsTab):
             return
 
         self._apply_residue_result(result)
+
+    def _handle_async_error(self, status: QLabel, title: str, message: str) -> None:
+        status.setText("Erro")
+        QMessageBox.critical(self, title, message)
 
     def compute_fp_analyses(self) -> None:
         wd = self._current_wd()
@@ -1625,10 +1811,11 @@ class ResultsTab(EnhancedResultsTab):
             self._fp_interaction_hidden_types.remove(label)
         else:
             self._fp_interaction_hidden_types.add(label)
-        if hasattr(self, "cb_fp_analysis_type") and self.cb_fp_analysis_type.count():
-            dashboard = self._ensure_fp_dashboard(self.cb_fp_analysis_type.currentData())
-            if dashboard:
-                self._render_fp_interaction_summary_plot(self._dashboard_with_selected_cutoff(dashboard))
+        dashboard = getattr(self, "_active_fp_dashboard", None)
+        if dashboard:
+            self._render_fp_interaction_summary_plot(
+                self._dashboard_with_selected_cutoff(dashboard)
+            )
 
     @staticmethod
     def _stats_bar_label_color(fill_color: str) -> str:
@@ -1657,7 +1844,7 @@ class ResultsTab(EnhancedResultsTab):
 
     def _render_ligand_stats_chart(self, result: dict) -> None:
         self.st_fig.clear()
-        artifact = self._ensure_trajectory_matrix(allow_compute=True, require_ligand_atoms=False)
+        artifact = self._ensure_trajectory_matrix(allow_compute=False, require_ligand_atoms=False)
         if artifact is None:
             ax = self.st_fig.add_subplot(111)
             ax.text(
@@ -1720,6 +1907,7 @@ class ResultsTab(EnhancedResultsTab):
         return None
 
     def _ensure_trajectory_matrix(self, allow_compute: bool = True, require_ligand_atoms: bool = True) -> dict | None:
+        """Return an in-memory or disk-cached matrix without blocking the GUI."""
         if getattr(self, "_residue_matrix", None):
             if (
                 not allow_compute
@@ -1732,29 +1920,13 @@ class ResultsTab(EnhancedResultsTab):
             return None
         cached = load_residue_matrix_artifact(wd)
         if cached is not None:
-            if (
-                allow_compute
-                and require_ligand_atoms
-                and self.py_exe
-                and not self._residue_matrix_has_ligand_atoms(cached)
-            ):
-                result = run_residue_matrix(self.py_exe, str(wd), require_ligand_atoms=True)
-                if "error" not in result:
-                    self._residue_matrix = result
-                    return result
             self._residue_matrix = cached
             return cached
-        if not allow_compute or not self.py_exe:
-            return None
-        result = run_residue_matrix(self.py_exe, str(wd), require_ligand_atoms=require_ligand_atoms)
-        if "error" in result:
-            return None
-        self._residue_matrix = result
-        return result
+        return None
 
     def _render_trajectory_stats_chart(self, result: dict) -> None:
         self.st_fig.clear()
-        artifact = self._ensure_trajectory_matrix(allow_compute=True)
+        artifact = self._ensure_trajectory_matrix(allow_compute=False)
         if artifact is None:
             ax = self.st_fig.add_subplot(111)
             ax.text(
@@ -2411,20 +2583,17 @@ class ResultsTab(EnhancedResultsTab):
         )
         self.hm_all_canvas.draw()
 
-    def _ensure_fp_dashboard(self, ifp_type: str | None) -> dict | None:
+    def _fp_dashboard_request(self, ifp_type: str | None) -> _FpDashboardRequest | None:
         if not ifp_type:
             return None
-        labels_csv, labels_id_column, labels_column, task_kind_preference = self._results_label_settings()
-        algorithm_preference = self._selected_fp_algorithm()
-        use_otsu_threshold = bool(getattr(self.cfg, "fp_use_otsu_threshold", False))
-        artifact = self._fp_artifacts.get(ifp_type)
-        if artifact is None:
+        artifact = self._fp_artifacts.get(str(ifp_type))
+        workdir = self._current_wd()
+        if artifact is None or workdir is None:
             return None
 
-        wd = self._current_wd()
-        if wd is None:
-            return None
-
+        labels_csv, labels_id_column, labels_column, task_kind = self._results_label_settings()
+        algorithm = self._selected_fp_algorithm()
+        use_otsu = bool(getattr(self.cfg, "fp_use_otsu_threshold", False))
         seed_override = ""
         seed_file = str(getattr(self.cfg, "ifp_seed_file", "") or "").strip()
         if seed_file:
@@ -2432,75 +2601,28 @@ class ResultsTab(EnhancedResultsTab):
                 seed_path = Path(seed_file)
                 if seed_path.exists():
                     seed_override = seed_path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
+            except OSError:
                 seed_override = ""
-        random_seed = resolve_fp_random_seed(wd, artifact, seed_override)
+        random_seed = resolve_fp_random_seed(workdir, artifact, seed_override)
         cache_key = (
-            ifp_type,
-            f"{labels_csv}|{labels_id_column}|{labels_column}|{task_kind_preference}|"
-            f"{algorithm_preference}|otsu={int(use_otsu_threshold)}|seed={random_seed}",
+            str(ifp_type),
+            f"{labels_csv}|{labels_id_column}|{labels_column}|{task_kind}|"
+            f"{algorithm}|otsu={int(use_otsu)}|seed={random_seed}",
         )
-        if cache_key in self._fp_dashboards:
-            cached = self._fp_dashboards[cache_key]
-            cached_model = str(cached.get("model_name", "") or "")
-            if cached_model != "Unavailable" and not cached_model.startswith("Fallback"):
-                return cached
-
-        detail_error = ""
-        if load_fp_detail_artifact(wd, ifp_type) is None:
-            detail_result = run_fp_detail_analysis(self.py_exe or "", str(wd), str(ifp_type))
-            if isinstance(detail_result, dict) and detail_result.get("error"):
-                detail_error = str(detail_result.get("error") or "")
-
-        local_dashboard = build_fp_analysis_dashboard(
-            wd,
-            artifact,
+        return _FpDashboardRequest(
+            ifp_type=str(ifp_type),
+            workdir=workdir,
+            artifact=artifact,
             labels_csv=labels_csv,
             labels_id_column=labels_id_column,
             labels_column=labels_column,
-            algorithm_preference=algorithm_preference,
-            task_kind_preference=task_kind_preference,
-            use_otsu_threshold=use_otsu_threshold,
+            task_kind_preference=task_kind,
+            algorithm_preference=algorithm,
+            use_otsu_threshold=use_otsu,
             random_seed=random_seed,
+            python_executable=self.py_exe or "",
+            cache_key=cache_key,
         )
-        dashboard = local_dashboard
-        helper_dashboard = None
-        helper_error = ""
-        local_model = str(local_dashboard.get("model_name", "") or "")
-        if self.py_exe and (local_model == "Unavailable" or local_model.startswith("Fallback")):
-            helper_dashboard = run_fp_dashboard_analysis(
-                self.py_exe,
-                str(wd),
-                str(ifp_type),
-                labels_csv=labels_csv,
-                labels_id_column=labels_id_column,
-                labels_column=labels_column,
-                algorithm_preference=algorithm_preference,
-                task_kind_preference=task_kind_preference,
-                use_otsu_threshold=use_otsu_threshold,
-                random_seed=random_seed,
-            )
-            helper_model = str(helper_dashboard.get("model_name", "") or "")
-            if "error" not in helper_dashboard and helper_model != "Unavailable" and not helper_model.startswith("Fallback"):
-                dashboard = helper_dashboard
-            else:
-                helper_error = str(helper_dashboard.get("error", "") or "")
-                if (
-                    helper_dashboard
-                    and "error" not in helper_dashboard
-                    and str(helper_dashboard.get("model_name", "") or "") == "Unavailable"
-                ):
-                    dashboard = helper_dashboard
-        if helper_error and str(dashboard.get("model_name", "") or "") == "Unavailable":
-            dashboard["model_note"] = (
-                str(dashboard.get("model_note", "") or "").strip()
-                + (" " if str(dashboard.get("model_note", "") or "").strip() else "")
-                + f" Falha no helper do luna-env: {helper_error}"
-            ).strip()
-        if detail_error and not dashboard.get("detail_available"):
-            dashboard["detail_error"] = detail_error
-        self._fp_dashboards[cache_key] = dashboard
-        return dashboard
 
     def _selected_fp_pvalue_cutoff(self) -> float:
         if hasattr(self, "cb_fp_pvalue_cutoff") and self.cb_fp_pvalue_cutoff.count():
@@ -2644,7 +2766,8 @@ class ResultsTab(EnhancedResultsTab):
 
     def _render_fp_analysis_table(self) -> None:
         ifp_type = self.cb_fp_analysis_type.currentData() if self.cb_fp_analysis_type.count() else None
-        if not ifp_type:
+        request = self._fp_dashboard_request(ifp_type)
+        if request is None:
             self.fp_analysis_status.setText("Sem dados")
             self.fp_analysis_summary.setText("-")
             self.fp_analysis_formula.setText("-")
@@ -2654,11 +2777,38 @@ class ResultsTab(EnhancedResultsTab):
             self._clear_fp_analysis_plots("Sem dados de fingerprints.")
             return
 
+        cached = self._fp_dashboards.get(request.cache_key)
+        if cached is not None:
+            cached_model = str(cached.get("model_name", "") or "")
+            if cached_model != "Unavailable" and not cached_model.startswith("Fallback"):
+                self._apply_fp_dashboard(request.ifp_type, cached)
+                return
+
         self.fp_analysis_status.setText("Processando dashboard...")
         self.fp_analysis_status.repaint()
-        try:
-            dashboard = self._ensure_fp_dashboard(ifp_type)
-        except Exception as exc:
+        task_key = f"fp_dashboard:{hash(request.cache_key)}"
+        self._run_async(
+            task_key,
+            lambda value=request: _compute_fp_dashboard(value),
+            lambda dashboard, value=request: self._handle_fp_dashboard_result(
+                value, dashboard
+            ),
+            lambda message, value=request: self._handle_fp_dashboard_error(value, message),
+        )
+
+    def _handle_fp_dashboard_result(
+        self, request: _FpDashboardRequest, dashboard: dict
+    ) -> None:
+        self._fp_dashboards[request.cache_key] = dashboard
+        current = self._fp_dashboard_request(self._current_fp_analysis_type())
+        if current is not None and current.cache_key == request.cache_key:
+            self._apply_fp_dashboard(request.ifp_type, dashboard)
+
+    def _handle_fp_dashboard_error(
+        self, request: _FpDashboardRequest, message: str
+    ) -> None:
+        current = self._fp_dashboard_request(self._current_fp_analysis_type())
+        if current is not None and current.cache_key == request.cache_key:
             self.fp_analysis_status.setText("Erro")
             self.fp_analysis_summary.setText("-")
             self.fp_analysis_formula.setText("-")
@@ -2666,9 +2816,9 @@ class ResultsTab(EnhancedResultsTab):
             self.fp_analysis_active_context.setText("-")
             self.fp_analysis_table.setRowCount(0)
             self._clear_fp_analysis_plots("Erro ao calcular o dashboard.")
-            QMessageBox.critical(self, "Erro na analise de FP", str(exc))
-            return
+            QMessageBox.critical(self, "Erro na analise de FP", message)
 
+    def _apply_fp_dashboard(self, ifp_type: str, dashboard: dict) -> None:
         if not dashboard:
             self.fp_analysis_status.setText("Sem dados")
             self.fp_analysis_summary.setText("-")
@@ -2678,6 +2828,8 @@ class ResultsTab(EnhancedResultsTab):
             self.fp_analysis_table.setRowCount(0)
             self._clear_fp_analysis_plots("Sem dados de fingerprints.")
             return
+
+        self._active_fp_dashboard = dashboard
 
         manual_ids = self._fp_manual_feature_ids.get(str(ifp_type), [])
         if manual_ids:
@@ -3564,15 +3716,21 @@ class ResultsTab(EnhancedResultsTab):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{_safe_name(entry_name)}__feature_{int(feature_id)}.pse"
         self.fp_session_status.setText("Gerando sessão...")
-        self.fp_session_status.repaint()
-        result = generate_fp_session(
-            self.py_exe,
-            str(wd),
-            str(ifp_type),
-            str(entry_name),
-            int(feature_id),
-            str(out_path),
+        self._run_async(
+            "fp_session",
+            lambda py=self.py_exe, path=str(wd), kind=str(ifp_type), entry=str(entry_name),
+            feature=int(feature_id), output=str(out_path): generate_fp_session(
+                py, path, kind, entry, feature, output
+            ),
+            lambda result, path=wd, output=out_path: self._handle_fp_session_result(
+                result, path, output
+            ),
+            lambda message: self._handle_async_error(
+                self.fp_session_status, "Erro ao gerar sessão", message
+            ),
         )
+
+    def _handle_fp_session_result(self, result: dict, wd: Path, out_path: Path) -> None:
         if "error" in result:
             self.fp_session_status.setText("Erro")
             QMessageBox.critical(self, "Erro ao gerar sessão", result["error"])

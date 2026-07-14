@@ -83,7 +83,7 @@ Para gerar o Snap em uma máquina Linux com Snapcraft:
 ```bash
 sudo snap install snapcraft --classic
 ./dist/linux/build_snap.sh
-sudo snap install ./hip2linteractomics_0.1_amd64.snap --classic --dangerous
+sudo snap install ./hip2linteractomics_1.0.0_amd64.snap --classic --dangerous
 hip2linteractomics
 ```
 
