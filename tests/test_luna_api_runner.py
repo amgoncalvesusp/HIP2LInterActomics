@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import tempfile
 import unittest
 import json
@@ -34,6 +35,17 @@ class LunaApiRunnerTests(unittest.TestCase):
     def test_api_runner_rebuilds_similarity_from_ifp_instead_of_using_luna_internal_queue(self) -> None:
         self.assertIn("proj.ifp_sim_matrix_output = None", API_RUNNER_SCRIPT)
         self.assertIn("_write_similarity_outputs_from_ifp(", API_RUNNER_SCRIPT)
+
+    def test_api_runner_calculates_similarity_once_per_ifp_type(self) -> None:
+        tree = ast.parse(API_RUNNER_SCRIPT)
+        generator = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_generate_ifps")
+        calls = [
+            node for node in ast.walk(generator)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_write_similarity_outputs_from_ifp"
+        ]
+        self.assertEqual(len(calls), 1)
 
     def test_api_runner_saves_ifp_seed_files(self) -> None:
         self.assertIn("seed_ifp_{suffix}_importance.txt", API_RUNNER_SCRIPT)

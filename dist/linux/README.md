@@ -67,7 +67,7 @@ sudo snap install snapcraft --classic
 Instalacao local do arquivo gerado:
 
 ```bash
-sudo snap install ./hip2linteractomics_0.1_amd64.snap --classic --dangerous
+sudo snap install ./hip2linteractomics_1.0.0_amd64.snap --classic --dangerous
 hip2linteractomics
 ```
 

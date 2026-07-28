@@ -34,6 +34,15 @@ Uso
 
   .\dist\windows\run_gui.bat
 
+Pacote Nativo Para Distribuicao
+--------------------------------
+
+Para gerar um instalador Setup.exe da interface, instale PyInstaller no ambiente
+luna-gui e use HIP2LInterActomics.spec. Depois compile
+installer\HIP2LInterActomics.iss com Inno Setup, informando BundleDir como a
+pasta gerada pelo PyInstaller. O executavel inclui a GUI; o ambiente luna-env
+continua sendo criado pela aba 1. Inicio quando necessario.
+
 Snap No Windows
 ---------------
 

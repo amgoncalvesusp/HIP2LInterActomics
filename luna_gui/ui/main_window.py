@@ -3,7 +3,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QMainWindow, QTabWidget, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import (
+    QMainWindow,
+    QTabWidget,
+    QFileDialog,
+    QMessageBox,
+    QScrollArea,
+    QFrame,
+    QSizePolicy,
+    QWidget,
+)
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon
 
 from ..core.project import ProjectConfig, save_to_workdir
@@ -39,14 +49,15 @@ class MainWindow(QMainWindow):
         self.tab_run = RunTab(self.cfg)
         self.tab_results = ResultsTab(self.cfg)
         self.tab_history = HistoryTab()
+        self._tab_scroll_pages: dict[QWidget, QScrollArea] = {}
 
-        self.tabs.addTab(self.tab_setup, "1. Inicio")
-        self.tabs.addTab(self.tab_project, "2. Projeto")
-        self.tabs.addTab(self.tab_analyses, "3. Análises")
-        self.tabs.addTab(self.tab_run, "4. Executar")
-        self.tabs.addTab(self.tab_results, "5. Resultados")
+        self._add_scrollable_tab(self.tab_setup, "1. Inicio")
+        self._add_scrollable_tab(self.tab_project, "2. Projeto")
+        self._add_scrollable_tab(self.tab_analyses, "3. Análises")
+        self._add_scrollable_tab(self.tab_run, "4. Executar")
+        self._add_scrollable_tab(self.tab_results, "5. Resultados")
         self.tabs.currentChanged.connect(lambda _idx: self._sync_cfg_if_idle())
-        self.tabs.addTab(self.tab_history, "6. Histórico")
+        self._add_scrollable_tab(self.tab_history, "6. Histórico")
 
         # Wire: when LUNA is detected, hand the paths to RunTab and ResultsTab
         self.tab_setup.luna_ready.connect(self.tab_run.set_luna)
@@ -65,6 +76,28 @@ class MainWindow(QMainWindow):
 
         # Wire: history reload
         self.tab_history.project_loaded.connect(self._apply_loaded_cfg)
+
+    def _add_scrollable_tab(self, content: QWidget, label: str) -> None:
+        """Keep every main tab usable on short screens without shrinking its content."""
+        scroll = QScrollArea()
+        scroll.setObjectName("mainTabScrollArea")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        content.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        content.setMinimumHeight(
+            max(content.minimumHeight(), content.minimumSizeHint().height())
+        )
+        scroll.setWidget(content)
+        self._tab_scroll_pages[content] = scroll
+        self.tabs.addTab(scroll, label)
+
+    def _set_current_tab(self, content: QWidget) -> None:
+        self.tabs.setCurrentWidget(self._tab_scroll_pages.get(content, content))
 
     def closeEvent(self, event) -> None:
         answer = QMessageBox.question(
@@ -229,7 +262,7 @@ class MainWindow(QMainWindow):
         self.cfg.language = language()
 
     def _on_run_finished(self) -> None:
-        self.tabs.setCurrentWidget(self.tab_results)
+        self._set_current_tab(self.tab_results)
         self.tab_results.wd_edit.setText(self.cfg.workdir)
         self.tab_results.load_all()
         self.tab_history.refresh()
@@ -323,7 +356,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        self.tabs.setCurrentWidget(self.tab_project)
+        self._set_current_tab(self.tab_project)
 
     def _fit_to_screen(self) -> None:
         screen = QGuiApplication.primaryScreen()

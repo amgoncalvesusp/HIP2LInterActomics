@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -280,6 +281,7 @@ def conda_process_env(conda: str | Path) -> dict[str, str]:
     ):
         env.pop(key, None)
     env["PYTHONNOUSERSITE"] = "1"
+    _remove_snap_runtime_paths(env)
 
     conda_str = str(conda)
     if Path(conda_str).name.lower().startswith("mamba"):
@@ -333,7 +335,21 @@ def python_process_env(py: str | Path) -> dict[str, str]:
     for key in ("PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE"):
         env.pop(key, None)
     env["PYTHONNOUSERSITE"] = "1"
+    _remove_snap_runtime_paths(env)
     return env
+
+
+def _remove_snap_runtime_paths(env: dict[str, str]) -> None:
+    """Keep bundled Snap Qt libraries out of host Conda processes."""
+    if env.get("HIP2LINTERACTOMICS_SNAP") != "1":
+        return
+    for key in (
+        "LD_LIBRARY_PATH",
+        "QML2_IMPORT_PATH",
+        "QT_PLUGIN_PATH",
+        "QT_QPA_PLATFORM_PLUGIN_PATH",
+    ):
+        env.pop(key, None)
 
 
 def conda_info(conda: str) -> dict[str, object]:
@@ -344,6 +360,7 @@ def conda_info(conda: str) -> dict[str, object]:
             text=True,
             stderr=subprocess.STDOUT,
             env=conda_process_env(conda),
+            timeout=10,
         )
     except Exception:
         return {}
@@ -532,8 +549,27 @@ def install_commands(conda: str, name: str = ENV_NAME) -> list[list[str]]:
 
 
 def miniconda_download_url() -> str:
+    machine = platform.machine().lower()
     if sys.platform == "win32":
         return "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
     if sys.platform == "darwin":
-        return "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
-    return "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+        architectures = {
+            "arm64": "arm64",
+            "aarch64": "arm64",
+            "x86_64": "x86_64",
+            "amd64": "x86_64",
+        }
+        if machine not in architectures:
+            raise RuntimeError(f"Arquitetura macOS n?o suportada automaticamente: {machine}")
+        arch = architectures[machine]
+        return f"https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-{arch}.sh"
+    architectures = {
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+        "x86_64": "x86_64",
+        "amd64": "x86_64",
+    }
+    if machine not in architectures:
+        raise RuntimeError(f"Arquitetura Linux n?o suportada automaticamente: {machine}")
+    arch = architectures[machine]
+    return f"https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-{arch}.sh"

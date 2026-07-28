@@ -83,12 +83,24 @@ Para gerar o Snap em uma máquina Linux com Snapcraft:
 ```bash
 sudo snap install snapcraft --classic
 ./dist/linux/build_snap.sh
-sudo snap install ./hip2linteractomics_0.1_amd64.snap --classic --dangerous
+sudo snap install ./hip2linteractomics_1.0.0_amd64.snap --classic --dangerous
 hip2linteractomics
 ```
 
 No Windows, use o instalador PowerShell acima. Se precisar de paralelismo real
 com `nproc > 1`, use Linux ou WSL2.
+
+### Pacote Windows Nativo
+
+Para distribuir a interface como instalador Windows, gere o bundle com PyInstaller
+e empacote-o com Inno Setup. O bundle inclui a GUI, mas o `luna-env` continua
+sendo criado pela aba `1. Inicio` quando uma analise LUNA for necessaria.
+
+```powershell
+python -m pip install pyinstaller
+python -m PyInstaller --noconfirm --clean --workpath build\pyinstaller --distpath build\pyinstaller-dist HIP2LInterActomics.spec
+ISCC.exe /DBundleDir="build\pyinstaller-dist\HIP2LInterActomics" /DOutputDir="build\installer-out" installer\HIP2LInterActomics.iss
+```
 
 ## Instalação Rápida
 

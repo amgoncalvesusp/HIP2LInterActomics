@@ -1,6 +1,6 @@
 name: hip2linteractomics
-base: core22
-version: "0.1"
+base: core24
+version: "1.0.0"
 summary: GUI for LUNA protein-ligand interaction analysis
 description: |
   HIP2LInterActomics is a PyQt GUI and terminal workflow for LUNA-based
@@ -60,8 +60,13 @@ parts:
       - libxcb-render-util0
       - libxcb-shape0
       - libxcb-sync1
+      - libxcb-util1
       - libxcb-xfixes0
       - libxcb-xinerama0
+      - libxcb-xkb1
+      - libice6
+      - libsm6
+      - libxext6
       - libxkbcommon-x11-0
       - python3
       - python3-matplotlib
@@ -69,6 +74,8 @@ parts:
       - python3-pyqt6
       - python3-scipy
       - python3-sklearn
+      - qt6-qpa-plugins
+      - qt6-wayland
     override-build: |
       craftctl default
       mkdir -p "$CRAFT_PART_INSTALL/app" "$CRAFT_PART_INSTALL/bin"

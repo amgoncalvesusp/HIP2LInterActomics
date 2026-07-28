@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from luna_gui.core import env_manager as em
-from luna_gui.core import ligand_io, luna_api_runner, luna_runner
+from luna_gui.core import ligand_io, luna_api_runner, luna_runner, terminal_results
 from luna_gui.core.project import ProjectConfig, save_to_workdir
 
 
@@ -59,6 +59,13 @@ TERMINAL_KEYS = {
     "python_exe",
     "run_py",
     "selected_ligands_file",
+    "terminal_cluster_count",
+    "terminal_cluster_max_entries",
+    "terminal_cluster_method",
+    "terminal_interactive_max_entries",
+    "terminal_matrix_max_entries",
+    "terminal_results",
+    "fp_session",
 }
 
 
@@ -92,7 +99,20 @@ EXAMPLE_CONFIG = """{
 
   "python_exe": "",
   "conda_exe": "",
-  "allow_hydrogen_warnings": false
+  "allow_hydrogen_warnings": false,
+
+  "terminal_results": true,
+  "terminal_cluster_method": "average",
+  "terminal_cluster_count": 4,
+  "terminal_matrix_max_entries": 5000,
+  "terminal_cluster_max_entries": 5000,
+  "terminal_interactive_max_entries": 2500,
+  "fp_session": {
+    "ifp_type": "EIFP",
+    "entry_name": "",
+    "feature_id": "",
+    "output_path": ""
+  }
 }
 """
 
@@ -387,9 +407,36 @@ def run_from_config(config_path: Path, dry_run: bool = False) -> int:
     code = _run_command(cmd, env, log_path)
     if code == 0:
         print(f"\n[terminal] Analise concluida. Resultados em: {cfg.workdir}")
+        if _as_bool(terminal_data.get("terminal_results", True)):
+            manifest = terminal_results.run_terminal_results(cfg, str(py_exe), terminal_data)
+            manifest_path = manifest.get("outputs", {}).get("manifest", "")
+            print(f"[terminal] Artefatos de Resultados: {manifest_path or 'results/terminal'}")
+            if manifest.get("errors"):
+                print("[terminal] Alguns artefatos de Resultados falharam; consulte o manifesto.")
     else:
         print(f"\n[terminal] LUNA finalizou com exit code {code}. Veja o log: {log_path}")
     return code
+
+
+def run_results_from_config(config_path: Path) -> int:
+    raw = _read_dict_file(config_path)
+    project_data, terminal_data = _normalize_project_data(raw)
+    cfg = ProjectConfig(**project_data)
+    if not cfg.workdir:
+        raise ValueError("workdir e obrigatorio para --results-only.")
+
+    try:
+        py_exe = _resolve_luna_python(terminal_data)
+    except Exception as exc:
+        py_exe = Path(sys.executable)
+        print(f"[terminal] Aviso: Python do luna-env nao resolvido ({exc}); usando caches disponiveis.")
+
+    manifest = terminal_results.run_terminal_results(cfg, str(py_exe), terminal_data)
+    manifest_path = manifest.get("outputs", {}).get("manifest", "")
+    print(f"[terminal] Artefatos de Resultados: {manifest_path or 'results/terminal'}")
+    if manifest.get("errors"):
+        print("[terminal] Alguns artefatos falharam; consulte o manifesto.")
+    return 0 if manifest.get("outputs") else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -411,6 +458,11 @@ def main(argv: list[str] | None = None) -> int:
         metavar="ARQUIVO",
         help="Grava um exemplo de configuracao e sai.",
     )
+    parser.add_argument(
+        "--results-only",
+        action="store_true",
+        help="Gera os artefatos de Resultados para um workdir concluido sem reexecutar o LUNA.",
+    )
     args = parser.parse_args(argv)
 
     if args.write_template:
@@ -423,6 +475,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("informe um arquivo de configuracao ou use --write-template")
 
     try:
+        if args.results_only:
+            if args.dry_run:
+                parser.error("--results-only nao pode ser usado com --dry-run")
+            return run_results_from_config(Path(args.config))
         return run_from_config(Path(args.config), dry_run=bool(args.dry_run))
     except Exception as exc:
         print(f"[terminal] ERRO: {exc}", file=sys.stderr)

@@ -220,5 +220,44 @@ class EnvManagerTests(unittest.TestCase):
         self.assertIn("scikit-learn", commands[0])
 
 
+    def test_snap_qt_paths_are_removed_from_external_conda_environment(self) -> None:
+        with mock.patch.dict(
+            env_manager.os.environ,
+            {
+                "PATH": r"C:\Windows\System32",
+                "HIP2LINTERACTOMICS_SNAP": "1",
+                "LD_LIBRARY_PATH": "/snap/lib",
+                "QML2_IMPORT_PATH": "/snap/qml",
+                "QT_PLUGIN_PATH": "/snap/plugins",
+                "QT_QPA_PLATFORM_PLUGIN_PATH": "/snap/platforms",
+            },
+            clear=True,
+        ):
+            env = env_manager.python_process_env(r"C:\envs\luna-env\python.exe")
+
+        self.assertEqual(env["HIP2LINTERACTOMICS_SNAP"], "1")
+        self.assertNotIn("LD_LIBRARY_PATH", env)
+        self.assertNotIn("QML2_IMPORT_PATH", env)
+        self.assertNotIn("QT_PLUGIN_PATH", env)
+        self.assertNotIn("QT_QPA_PLATFORM_PLUGIN_PATH", env)
+
+    def test_miniconda_download_url_uses_linux_arm64_build(self) -> None:
+        with (
+            mock.patch.object(env_manager.sys, "platform", "linux"),
+            mock.patch.object(env_manager.platform, "machine", return_value="aarch64"),
+        ):
+            url = env_manager.miniconda_download_url()
+
+        self.assertTrue(url.endswith("Linux-aarch64.sh"))
+
+    def test_miniconda_download_url_rejects_unknown_linux_architecture(self) -> None:
+        with (
+            mock.patch.object(env_manager.sys, "platform", "linux"),
+            mock.patch.object(env_manager.platform, "machine", return_value="riscv64"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "riscv64"):
+                env_manager.miniconda_download_url()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -600,7 +600,7 @@ class ResultsTab(EnhancedResultsTab):
 
     def _resize_heatmap_canvas(self, fig, canvas, n_residues: int, n_entries: int) -> None:
         width = max(9.0, 2.5 + (0.34 * max(1, n_residues)))
-        height = max(5.4, 2.5 + (0.12 * max(1, n_entries)))
+        height = max(5.4, 2.5 + (0.12 * self._render_entry_count(n_entries)))
         self._resize_canvas(fig, canvas, width, height)
 
     def _residue_xticklabels(self, residues: list[str]) -> list[str]:
@@ -965,8 +965,9 @@ class ResultsTab(EnhancedResultsTab):
             self._sim_matrix = self._sim_matrix[np.ix_(order, order)]
 
         label_count = max(1, len(self._sim_labels))
-        width_in = max(8.4, 3.2 + ((0.5 / 2.54) * label_count))
-        height_in = max(7.0, 3.0 + ((0.5 / 2.54) * label_count))
+        rendered_count = self._render_entry_count(label_count)
+        width_in = max(8.4, 3.2 + ((0.5 / 2.54) * rendered_count))
+        height_in = max(7.0, 3.0 + ((0.5 / 2.54) * rendered_count))
         self._resize_canvas(self.fig, self.canvas, width_in=width_in, height_in=height_in)
         self.fig.clear()
         ax = self.fig.add_subplot(111)
@@ -2225,7 +2226,7 @@ class ResultsTab(EnhancedResultsTab):
         width_in = max(7.5 / 2.54, 2.2 + (0.5 / 2.54) * max(1, len(residue_labels)))
         title_width_in = 4.5 + (0.115 * len(str(interaction_type)))
         width_in = max(9.0, width_in, title_width_in)
-        height_in = max(5.0, 2.5 + (0.16 * max(1, arr.shape[0] if arr.ndim == 2 else 0)))
+        height_in = max(5.0, 2.5 + (0.16 * self._render_entry_count(arr.shape[0] if arr.ndim == 2 else 0)))
         self._resize_canvas(
             self.hm_fig,
             self.hm_canvas,
@@ -2325,7 +2326,7 @@ class ResultsTab(EnhancedResultsTab):
         width_in = max(5.0 / 2.54, 2.2 + (0.5 / 2.54) * max(1, len(residue_labels)))
         legend_cols = max(1, min(3, len(interaction_types) or 1))
         legend_rows = max(1, math.ceil(max(1, len(interaction_types)) / legend_cols))
-        height_in = max(5.8, 2.5 + (0.16 * max(1, len(entries))) + (0.36 * legend_rows))
+        height_in = max(5.8, 2.5 + (0.16 * self._render_entry_count(len(entries))) + (0.36 * legend_rows))
         self._resize_canvas(
             self.hm_all_fig,
             self.hm_all_canvas,
@@ -3082,7 +3083,7 @@ class ResultsTab(EnhancedResultsTab):
             self.fp_heatmap_fig,
             self.fp_heatmap_canvas,
             width_in=max(9.5, 0.34 * max(1, len(features)) + 3.5),
-            height_in=max(7.5, 0.12 * max(1, len(entries)) + 3.0),
+            height_in=max(7.5, 0.12 * self._render_entry_count(len(entries)) + 3.0),
         )
         self.fp_heatmap_fig.clear()
         ax = self.fp_heatmap_fig.add_subplot(111)
@@ -3356,7 +3357,7 @@ class ResultsTab(EnhancedResultsTab):
             self.fp_interaction_heatmap_fig,
             self.fp_interaction_heatmap_canvas,
             width_in=max(9.5, 0.34 * max(1, len(features)) + 3.5),
-            height_in=max(7.5, 0.12 * max(1, len(entries)) + 3.0),
+            height_in=max(7.5, 0.12 * self._render_entry_count(len(entries)) + 3.0),
         )
         self.fp_interaction_heatmap_fig.clear()
         ax = self.fp_interaction_heatmap_fig.add_subplot(111)

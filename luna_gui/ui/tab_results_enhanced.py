@@ -179,6 +179,12 @@ class ResultsTab(QWidget):
         self.cb_sim_type.setToolTip("Escolhe qual matriz de similaridade carregada será exibida.")
         self.cb_sim_type.currentIndexChanged.connect(self._reload_similarity_preview)
         sim_ctrl.addWidget(self.cb_sim_type)
+        self.btn_generate_similarity = QPushButton("Calcular matriz")
+        self.btn_generate_similarity.setToolTip(
+            "Calcula e salva a matriz de similaridade a partir do fingerprint selecionado."
+        )
+        self.btn_generate_similarity.clicked.connect(self._generate_similarity_matrix)
+        sim_ctrl.addWidget(self.btn_generate_similarity)
         sim_ctrl.addStretch()
         sim_layout.addLayout(sim_ctrl)
         self.sm_path_label = QLabel("—")
@@ -481,6 +487,60 @@ class ResultsTab(QWidget):
                 return candidate
         return self._find_first(self._sim_matrix_candidates(wd))
 
+    @staticmethod
+    def _render_entry_count(entry_count: int) -> int:
+        return min(200, max(1, int(entry_count)))
+
+    def _similarity_output_paths(self, wd: Path, fp_path: Path) -> tuple[Path, Path]:
+        if self.cfg.sim_matrix_output:
+            edge_path = Path(self.cfg.sim_matrix_output)
+        else:
+            ifp_type, _label = self._normalize_ifp_source_key(fp_path)
+            suffix = {"EIFP": "E", "FIFP": "F", "HIFP": "H"}.get(ifp_type, "")
+            filename = f"sim_matrix_{suffix}.csv" if suffix else "sim_matrix.csv"
+            edge_path = wd / filename
+        square_path = edge_path.with_name(f"{edge_path.stem}_square.csv")
+        return edge_path, square_path
+
+    @staticmethod
+    def _write_similarity_outputs(labels: list[str], matrix, edge_path: Path, square_path: Path) -> None:
+        edge_path.parent.mkdir(parents=True, exist_ok=True)
+        with edge_path.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["entry1", "entry2", "similarity"])
+            for i, entry1 in enumerate(labels):
+                for j in range(i + 1, len(labels)):
+                    writer.writerow([entry1, labels[j], f"{float(matrix[i, j]):.6f}"])
+        with square_path.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow([""] + labels)
+            for label, values in zip(labels, matrix):
+                writer.writerow([label] + [f"{float(value):.6f}" for value in values])
+
+    def _generate_similarity_matrix(self) -> None:
+        wd = self._current_wd()
+        if not wd:
+            return
+        fp_path = self._selected_fingerprint_path(wd)
+        if fp_path is None or not fp_path.exists():
+            QMessageBox.information(self, "Matriz de similaridade", "Nenhum fingerprint calculado foi encontrado para gerar a matriz.")
+            return
+        self.btn_generate_similarity.setEnabled(False)
+        self.btn_generate_similarity.setText("Calculando...")
+        try:
+            labels, _feature_ids, fp_matrix = load_ifp_sparse_matrix(fp_path)
+            matrix = count_tanimoto_similarity(fp_matrix)
+            edge_path, square_path = self._similarity_output_paths(wd, fp_path)
+            self._write_similarity_outputs(labels, matrix, edge_path, square_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Erro ao calcular matriz", str(exc))
+            return
+        finally:
+            self.btn_generate_similarity.setText("Calcular matriz")
+            self.btn_generate_similarity.setEnabled(True)
+        self._populate_similarity_sources(wd)
+        self._load_sim_matrix(wd)
+
     def _load_fingerprints(self, wd: Path) -> None:
         file_path = self._selected_fingerprint_path(wd)
         if not file_path:
@@ -525,49 +585,34 @@ class ResultsTab(QWidget):
         file_path = self._selected_similarity_path(wd)
         if not file_path:
             fp_path = self._selected_fingerprint_path(wd)
-            if fp_path and fp_path.exists():
-                try:
-                    labels, _feature_ids, fp_matrix = load_ifp_sparse_matrix(fp_path)
-                    self._sim_labels = labels
-                    self._sim_matrix = count_tanimoto_similarity(fp_matrix)
-                    self.sm_path_label.setText(f"Reconstruida a partir de {fp_path.name}")
-                except Exception as exc:
-                    self._sim_labels = []
-                    self._sim_matrix = None
-                    self.sm_path_label.setText("Nenhuma matriz de similaridade calculada foi encontrada")
-                    if HAS_MPL:
-                        self.fig.clear()
-                        self.canvas.draw()
-                    self._clear_clusters("Matriz de similaridade não encontrada.")
-                    QMessageBox.critical(self, "Erro ao reconstruir matriz", str(exc))
-                    return
-            else:
-                self._sim_labels = []
-                self._sim_matrix = None
-                self.sm_path_label.setText("Nenhuma matriz de similaridade calculada foi encontrada")
-                if HAS_MPL:
-                    self.fig.clear()
-                    self.canvas.draw()
-                self._clear_clusters("Matriz de similaridade não encontrada.")
-                return
-        else:
-            self.sm_path_label.setText(str(file_path))
-            try:
-                labels, matrix = load_similarity_matrix(file_path)
-            except Exception as exc:
-                self._sim_labels = []
-                self._sim_matrix = None
-                self._clear_clusters("Erro ao carregar a matriz.")
-                QMessageBox.critical(self, "Erro ao ler matriz", str(exc))
-                return
-
-            self._sim_labels = labels
-            self._sim_matrix = matrix
-
+            self._sim_labels = []
+            self._sim_matrix = None
+            self.btn_generate_similarity.setEnabled(bool(fp_path and fp_path.exists()))
+            self.sm_path_label.setText(
+                "Nenhuma matriz de similaridade calculada foi encontrada. Use o botao Calcular matriz."
+            )
+            if HAS_MPL:
+                self.fig.clear()
+                self.canvas.draw()
+            self._clear_clusters("Matriz de similaridade nao encontrada.")
+            return
+        self.btn_generate_similarity.setEnabled(False)
+        self.sm_path_label.setText(str(file_path))
+        try:
+            labels, matrix = load_similarity_matrix(file_path)
+        except Exception as exc:
+            self._sim_labels = []
+            self._sim_matrix = None
+            self._clear_clusters("Erro ao carregar a matriz.")
+            QMessageBox.critical(self, "Erro ao ler matriz", str(exc))
+            return
+        self._sim_labels = labels
+        self._sim_matrix = matrix
         if HAS_MPL:
             label_count = max(1, len(self._sim_labels))
-            width_in = max(8.4, 3.2 + ((0.5 / 2.54) * label_count))
-            height_in = max(7.0, 3.0 + ((0.5 / 2.54) * label_count))
+            rendered_count = self._render_entry_count(label_count)
+            width_in = max(8.4, 3.2 + ((0.5 / 2.54) * rendered_count))
+            height_in = max(7.0, 3.0 + ((0.5 / 2.54) * rendered_count))
             self.fig.set_dpi(120)
             self.fig.set_size_inches(width_in, height_in, forward=True)
             self.canvas.setMinimumSize(int(width_in * self.fig.dpi), int(height_in * self.fig.dpi))
@@ -579,7 +624,6 @@ class ResultsTab(QWidget):
             self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
             self.fig.tight_layout()
             self.canvas.draw()
-
         self.refresh_clusters()
 
     def _load_pse(self, wd: Path) -> None:
@@ -746,8 +790,9 @@ class ResultsTab(QWidget):
         if not (HAS_MPL and HAS_CLUSTERING):
             return
         label_count = max(1, len(result.labels))
-        width_in = max(9.0, 4.4 + ((0.5 / 2.54) * label_count))
-        height_in = max(8.0, 4.2 + ((0.5 / 2.54) * label_count))
+        rendered_count = self._render_entry_count(label_count)
+        width_in = max(9.0, 4.4 + ((0.5 / 2.54) * rendered_count))
+        height_in = max(8.0, 4.2 + ((0.5 / 2.54) * rendered_count))
         self.cluster_fig.set_dpi(120)
         self.cluster_fig.set_size_inches(width_in, height_in, forward=True)
         self.cluster_canvas.setMinimumSize(int(width_in * self.cluster_fig.dpi), int(height_in * self.cluster_fig.dpi))

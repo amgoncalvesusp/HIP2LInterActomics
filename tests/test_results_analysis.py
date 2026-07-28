@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 import numpy as np
+
+import luna_gui.core.results_analysis as results_analysis
 
 from luna_gui.core.results_analysis import (
     CLASS_INTRAPROTEIN,
@@ -42,6 +46,12 @@ from luna_gui.core.results_analysis import (
 
 
 class ResultsAnalysisTests(unittest.TestCase):
+    def test_fp_analysis_uses_one_canonical_implementation_per_helper(self) -> None:
+        tree = ast.parse(inspect.getsource(results_analysis))
+        for name in ("build_fp_analysis_dashboard", "_resolve_training_labels", "_compute_feature_importances"):
+            definitions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
+            self.assertEqual(len(definitions), 1, name)
+
     def test_trajectory_frame_number_uses_full_trailing_number(self) -> None:
         entries = [
             "gold_soln_pose_19",
@@ -70,6 +80,21 @@ class ResultsAnalysisTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tmp_root = Path("tests/.tmp")
         cls.tmp_root.mkdir(parents=True, exist_ok=True)
+
+    def test_load_external_fp_labels_uses_maximum_for_duplicate_numeric_scores(self) -> None:
+        path = self.tmp_root / "duplicate_scores.tsv"
+        path.write_text(
+            "ligand_id\tscore\n"
+            "ligA\t11.2\n"
+            "ligA\t14.7\n"
+            "ligB\t3.0\n",
+            encoding="utf-8",
+        )
+
+        labels = load_external_fp_labels(path, label_column="score", id_column="ligand_id")
+
+        self.assertEqual(labels["ligA"], "14.7")
+        self.assertEqual(labels["ligB"], "3.0")
 
     def test_load_similarity_matrix_normalizes_labels_and_symmetry(self) -> None:
         path = self.tmp_root / "sim_matrix.csv"

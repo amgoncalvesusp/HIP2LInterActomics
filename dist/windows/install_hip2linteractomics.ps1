@@ -73,14 +73,10 @@ function Install-Miniforge {
     Invoke-WebRequest -Uri $url -OutFile $installer
 
     Write-Step "Instalando Miniforge em $CondaRoot"
-    $args = @(
-        "/S",
-        "/InstallationType=JustMe",
-        "/RegisterPython=0",
-        "/AddToPath=0",
-        "/D=$CondaRoot"
-    )
-    $process = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+    # /D precisa ser o ultimo argumento do instalador NSIS. Start-Process com
+    # -Wait garante que a criacao dos ambientes so comece apos a instalacao.
+    $argumentLine = "/S /InstallationType=JustMe /RegisterPython=0 /AddToPath=0 /D=`"$CondaRoot`""
+    $process = Start-Process -FilePath $installer -ArgumentList $argumentLine -Wait -PassThru -WindowStyle Hidden
     if ($process.ExitCode -ne 0) {
         throw "Falha ao instalar Miniforge. Exit code: $($process.ExitCode)"
     }
@@ -139,11 +135,16 @@ function New-Launcher {
     $guiPython = (& $script:CondaExe run -n $GuiEnv python -c "import sys; print(sys.executable)" | Select-Object -Last 1)
     $content = @(
         "@echo off",
-        "set HIP2LINTERACTOMICS_GUI_CONDA=$script:CondaExe",
-        "set HIP2LINTERACTOMICS_GUI_PYTHON=$guiPython",
+        "chcp 65001 >nul",
+        "set `"HIP2LINTERACTOMICS_GUI_CONDA=$script:CondaExe`"",
+        "set `"HIP2LINTERACTOMICS_GUI_PYTHON=$guiPython`"",
         "call `"$runBat`""
     )
-    Set-Content -Path $launcher -Value $content -Encoding ASCII
+    [System.IO.File]::WriteAllLines(
+        $launcher,
+        $content,
+        [System.Text.UTF8Encoding]::new($false)
+    )
     Write-Step "Atalho criado em $launcher"
 }
 

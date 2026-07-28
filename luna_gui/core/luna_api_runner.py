@@ -1013,29 +1013,16 @@ def _generate_ifps(proj, params):
             print(f"[luna-api] IFP {type_name} salvo em {proj.ifp_output}", flush=True)
         print(f"[luna-api-progress] {end_pct}% - fingerprint {type_name} salvo", flush=True)
         sim_output_path = sim_outputs.get(type_name) if wants_similarity else None
-        if sim_output_path:
-            square_path = str(Path(sim_output_path).with_name(Path(sim_output_path).stem + "_square.csv"))
-            saved_edge = None
-            saved_square = None
-            if proj.ifp_output and Path(proj.ifp_output).exists():
-                saved_edge, saved_square = _write_similarity_outputs_from_ifp(
-                    proj.ifp_output,
-                    sim_output_path,
-                    square_path,
-                )
-                if saved_edge:
-                    print(f"[luna-api] Similaridade {type_name} reconstruida e salva em {saved_edge}", flush=True)
-            if saved_square:
-                print(f"[luna-api] Similaridade quadrada {type_name} salva em {saved_square}", flush=True)
         _export_fp_artifacts(proj, params, type_name)
         if sim_output_path and proj.ifp_output and Path(proj.ifp_output).exists():
+            square_path = str(Path(sim_output_path).with_name(Path(sim_output_path).stem + "_square.csv"))
             saved_edge, saved_square = _write_similarity_outputs_from_ifp(
                 proj.ifp_output,
                 sim_output_path,
                 square_path,
             )
             if saved_edge:
-                print(f"[luna-api] Similaridade {type_name} atualizada com niveis assinados em {saved_edge}", flush=True)
+                print(f"[luna-api] Similaridade {type_name} salva em {saved_edge}", flush=True)
             if saved_square:
                 print(f"[luna-api] Similaridade quadrada {type_name} atualizada com niveis assinados em {saved_square}", flush=True)
 
