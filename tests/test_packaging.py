@@ -17,6 +17,7 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
 
     assert '("luna_gui", "luna_gui")' in spec
     assert 'icon="luna_gui/assets/hip2l_interactomics_icon.ico"' in spec
+    assert 'contents_directory="."' in spec
     assert "os.add_dll_directory" in hook
     assert "PrivilegesRequired=lowest" in inno
     assert '#define MyAppVersion "1.0.0"' in inno
@@ -27,6 +28,8 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     windows = _read("installer/build_windows.ps1")
     linux = _read("installer/build_linux.sh")
     workflow = _read(".github/workflows/build-installers.yml")
+    app_run = _read("installer/AppRun")
+    desktop = _read("installer/hip2linteractomics.desktop")
 
     assert "pip install -r requirements.txt" in windows
     assert "PyInstaller" in windows
@@ -34,8 +37,16 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     assert "pip install -r" in linux
     assert "PyInstaller" in linux
     assert "linux-" in linux and ".tar.gz" in linux
+    assert "appimagetool" in linux
+    assert ".AppImage" in linux
+    assert "HIP2LInterActomics/HIP2LInterActomics" in app_run
+    assert "Type=Application" in desktop
+    assert "Icon=hip2linteractomics" in desktop
     assert "runs-on: windows-latest" in workflow
-    assert "runs-on: ubuntu-24.04" in workflow
+    assert "runs-on: ubuntu-22.04" in workflow
+    assert "gh release create" in workflow
+    assert "HIP2LInterActomics-Setup.exe" in workflow
+    assert "HIP2LInterActomics-*.AppImage" in workflow
 
 
 def test_pyproject_registers_gui_and_headless_commands() -> None:

@@ -4,6 +4,13 @@ Fluxos gráfico e headless para preparação molecular, execução do LUNA e an�
 
 [Português](#português) · [Español](#español) · [English](#english)
 
+## Downloads
+
+- [Windows 10/11 - instalador `.exe`](../../releases/latest/download/HIP2LInterActomics-Setup.exe)
+- [Linux x86_64 - aplicativo `.AppImage`](../../releases/latest/download/HIP2LInterActomics-x86_64.AppImage)
+
+Os instaladores incluem a interface e suas dependências. Não é necessário instalar Python ou PyQt6. Na primeira análise, o próprio aplicativo orienta a instalação do ambiente científico LUNA.
+
 ---
 
 ## Português
@@ -341,7 +348,7 @@ Linux:
 bash installer/build_linux.sh
 ~~~
 
-O PyInstaller não faz compilação cruzada. O Windows produz o bundle e, quando Inno Setup 6 está disponível, <code>HIP2LInterActomics-Setup.exe</code>. O Linux produz um bundle nativo compactado em <code>.tar.gz</code>. O workflow <code>.github/workflows/build-installers.yml</code> também publica wheel/sdist, artefato Windows e artefato Linux.
+O PyInstaller não faz compilação cruzada. O Windows produz <code>HIP2LInterActomics-Setup.exe</code> com Inno Setup 6. O Linux produz <code>HIP2LInterActomics-x86_64.AppImage</code> e um bundle <code>.tar.gz</code>. Em uma tag de versão, o workflow <code>.github/workflows/build-installers.yml</code> publica automaticamente o instalador Windows e a AppImage na release do GitHub.
 
 #### Inclusão física do YAML nas distribuições
 
@@ -686,7 +693,7 @@ Linux:
 bash installer/build_linux.sh
 ~~~
 
-PyInstaller no realiza compilación cruzada. Windows produce un bundle y, con Inno Setup 6, <code>HIP2LInterActomics-Setup.exe</code>. Linux produce un bundle nativo <code>.tar.gz</code>. GitHub Actions también publica wheel/sdist y artefactos para Windows y Linux.
+PyInstaller no realiza compilación cruzada. Windows produce <code>HIP2LInterActomics-Setup.exe</code> con Inno Setup 6. Linux produce <code>HIP2LInterActomics-x86_64.AppImage</code> y un bundle <code>.tar.gz</code>. Para una etiqueta de versión, GitHub Actions publica automáticamente el instalador de Windows y la AppImage en la release.
 
 #### Inclusión física del YAML
 
@@ -1018,7 +1025,7 @@ Linux:
 bash installer/build_linux.sh
 ~~~
 
-PyInstaller does not cross-compile. Windows produces a portable bundle and, when Inno Setup 6 is installed, <code>HIP2LInterActomics-Setup.exe</code>. Linux produces a native <code>.tar.gz</code> bundle. The GitHub Actions workflow also publishes wheel/sdist, Windows, and Linux artifacts.
+PyInstaller does not cross-compile. Windows produces <code>HIP2LInterActomics-Setup.exe</code> with Inno Setup 6. Linux produces <code>HIP2LInterActomics-x86_64.AppImage</code> and a native <code>.tar.gz</code> bundle. For a version tag, GitHub Actions automatically publishes the Windows installer and AppImage to the GitHub release.
 
 #### Physical YAML inclusion
 

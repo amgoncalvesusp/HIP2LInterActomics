@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=HIP2LInterActomics
+Comment=Intermolecular interaction analysis with LUNA
+Exec=HIP2LInterActomics
+Icon=hip2linteractomics
+Categories=Science;Chemistry;
+Terminal=false

@@ -99,6 +99,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon="luna_gui/assets/hip2l_interactomics_icon.ico" if is_windows else None,
+    contents_directory=".",
 )
 
 coll = COLLECT(

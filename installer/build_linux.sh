@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a native Linux PyInstaller bundle and a portable tar.gz archive.
+# Build a native Linux PyInstaller bundle, AppImage, and tar.gz archive.
 
 set -euo pipefail
 
@@ -18,6 +18,8 @@ SITE_DIR="${OUTPUT_ROOT}/build-site"
 WORK_DIR="${OUTPUT_ROOT}/pyinstaller-work"
 BUNDLE_ROOT="${OUTPUT_ROOT}/bundle"
 ARCHIVE_ROOT="${OUTPUT_ROOT}/installer"
+APPDIR="${OUTPUT_ROOT}/appimage/HIP2LInterActomics.AppDir"
+APP_VERSION="${APP_VERSION:-1.0.0}"
 
 mkdir -p "${OUTPUT_ROOT}" "${WORK_DIR}" "${BUNDLE_ROOT}" "${ARCHIVE_ROOT}"
 if "${PYTHON_BIN}" -c "import ensurepip" >/dev/null 2>&1 \
@@ -66,9 +68,67 @@ for cli_file in hipplinteractomics_terminal.py hipplinteractomics_multiple_run.p
 done
 
 ARCH="$(uname -m)"
-ARCHIVE="${ARCHIVE_ROOT}/HIP2LInterActomics-1.0.0-linux-${ARCH}.tar.gz"
+case "${ARCH}" in
+    x86_64)
+        APPIMAGE_ARCH="x86_64"
+        ;;
+    aarch64|arm64)
+        APPIMAGE_ARCH="aarch64"
+        ;;
+    *)
+        echo "[ERRO] Arquitetura sem suporte para AppImage: ${ARCH}" >&2
+        exit 1
+        ;;
+esac
+
+ARCHIVE="${ARCHIVE_ROOT}/HIP2LInterActomics-${APP_VERSION}-linux-${ARCH}.tar.gz"
 tar -C "${BUNDLE_ROOT}" -czf "${ARCHIVE}" HIP2LInterActomics
+
+rm -rf "${APPDIR}"
+mkdir -p \
+    "${APPDIR}/usr/bin" \
+    "${APPDIR}/usr/share/applications" \
+    "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+cp -a "${BUNDLE_ROOT}/HIP2LInterActomics" "${APPDIR}/usr/bin/HIP2LInterActomics"
+install -m 755 "${REPO_ROOT}/installer/AppRun" "${APPDIR}/AppRun"
+install -m 644 \
+    "${REPO_ROOT}/installer/hip2linteractomics.desktop" \
+    "${APPDIR}/hip2linteractomics.desktop"
+install -m 644 \
+    "${REPO_ROOT}/installer/hip2linteractomics.desktop" \
+    "${APPDIR}/usr/share/applications/hip2linteractomics.desktop"
+install -m 644 \
+    "${REPO_ROOT}/luna_gui/assets/hip2l_interactomics_icon.png" \
+    "${APPDIR}/hip2linteractomics.png"
+install -m 644 \
+    "${REPO_ROOT}/luna_gui/assets/hip2l_interactomics_icon.png" \
+    "${APPDIR}/.DirIcon"
+install -m 644 \
+    "${REPO_ROOT}/luna_gui/assets/hip2l_interactomics_icon.png" \
+    "${APPDIR}/usr/share/icons/hicolor/256x256/apps/hip2linteractomics.png"
+
+if [[ -n "${APPIMAGETOOL:-}" ]]; then
+    APPIMAGETOOL_BIN="${APPIMAGETOOL}"
+elif command -v appimagetool >/dev/null 2>&1; then
+    APPIMAGETOOL_BIN="$(command -v appimagetool)"
+else
+    TOOLS_DIR="${OUTPUT_ROOT}/tools"
+    APPIMAGETOOL_BIN="${TOOLS_DIR}/appimagetool-${APPIMAGE_ARCH}.AppImage"
+    mkdir -p "${TOOLS_DIR}"
+    if [[ ! -x "${APPIMAGETOOL_BIN}" ]]; then
+        curl --fail --location --show-error \
+            --output "${APPIMAGETOOL_BIN}" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage"
+        chmod +x "${APPIMAGETOOL_BIN}"
+    fi
+fi
+
+APPIMAGE="${ARCHIVE_ROOT}/HIP2LInterActomics-${APPIMAGE_ARCH}.AppImage"
+ARCH="${APPIMAGE_ARCH}" APPIMAGE_EXTRACT_AND_RUN=1 \
+    "${APPIMAGETOOL_BIN}" "${APPDIR}" "${APPIMAGE}"
+chmod +x "${APPIMAGE}"
 
 echo "Binario: ${EXECUTABLE}"
 echo "Ambiente terminal-only: ${ENVIRONMENT_FILE}"
 echo "Pacote: ${ARCHIVE}"
+echo "AppImage: ${APPIMAGE}"
