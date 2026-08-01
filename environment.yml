@@ -1,0 +1,33 @@
+name: luna-env
+
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  # Runtime compatible with the current LUNA release.
+  - python=3.9
+  - pip>=23
+
+  # Molecular stack; PyMOL is retained for headless PSE export.
+  - biopython=1.79
+  - rdkit
+  - openbabel
+  - pymol-open-source
+  - networkx
+
+  # Numerical analysis and static, headless reporting.
+  - numpy<2
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib-base
+  - seaborn-base
+
+  # Phase 1: install pip prerequisites before LUNA metadata is evaluated.
+  # Phase 2 is documented in README: pip install --no-build-isolation -U luna.
+  - pip:
+      - pdbecif
+      - mmh3<4
+      - xopen
+      - colorlog

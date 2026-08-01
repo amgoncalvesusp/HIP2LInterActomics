@@ -1,9 +1,8 @@
-"""Run HIP2LInterActomics/LUNA from a text configuration file.
+"""Headless HIP²LInterActomics/LUNA command-line entry point.
 
-The input file may be JSON or a Python literal dictionary. The dictionary keys
-are the same fields stored by the GUI in ``.luna_gui.json``. Extra terminal-only
-keys are accepted for environment discovery, for example ``python_exe`` or
-``conda_exe``.
+Settings may come from JSON (or a legacy Python literal dictionary), direct
+command-line options, or both. Direct options override the configuration file.
+This module never imports the Qt UI package or creates a GUI event loop.
 """
 from __future__ import annotations
 
@@ -17,9 +16,20 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
+
+def _configure_headless_environment() -> None:
+    """Force non-interactive rendering before scientific modules are imported."""
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+_configure_headless_environment()
+
 from luna_gui.core import env_manager as em
 from luna_gui.core import ligand_io, luna_api_runner, luna_runner, terminal_results
+from luna_gui.core.process_control import TerminationController, signal_exit_code
 from luna_gui.core.project import ProjectConfig, save_to_workdir
+from luna_gui.core.runtime_resources import detect_cpu_allocation, effective_nproc
 
 
 PROJECT_FIELDS = {field.name for field in fields(ProjectConfig)}
@@ -83,7 +93,7 @@ EXAMPLE_CONFIG = """{
   "ifp_length": 4096,
   "ifp_bit": true,
   "sim_matrix": true,
-  "out_pse": true,
+  "out_pse": false,
 
   "include_waters": true,
   "add_h": true,
@@ -312,45 +322,93 @@ def _write_entries_and_project(cfg: ProjectConfig) -> Path:
 
 def _run_command(cmd: list[str], env: dict[str, str], log_path: Path) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("w", encoding="utf-8", errors="replace") as log:
-        log.write("=== HIP2LInterActomics terminal ===\n")
-        log.write("$ " + " ".join(cmd) + "\n\n")
-        log.flush()
-
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
+    termination = TerminationController()
+    with termination.installed():
+        with log_path.open(
+            "w",
             encoding="utf-8",
             errors="replace",
-            bufsize=1,
-            env=env,
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            print(line, end="")
-            log.write(line)
-            log.flush()
-        return process.wait()
+            buffering=64 * 1024,
+        ) as log:
+            log.write("=== HIP2LInterActomics terminal ===\n")
+            log.write("$ " + " ".join(cmd) + "\n\n")
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                env=env,
+            )
+            termination.attach(process)
+            try:
+                assert process.stdout is not None
+                for line in process.stdout:
+                    print(line, end="")
+                    log.write(line)
+                returncode = process.wait()
+            finally:
+                if process.stdout is not None:
+                    process.stdout.close()
+                termination.detach(process)
+
+    if termination.received_signal is not None:
+        return signal_exit_code(termination.received_signal)
+    return returncode
 
 
-def run_from_config(config_path: Path, dry_run: bool = False) -> int:
-    raw = _read_dict_file(config_path)
+def _effective_settings(
+    config_path: Path | None,
+    project_overrides: dict[str, Any] | None = None,
+    terminal_overrides: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw = _read_dict_file(config_path) if config_path is not None else {}
     project_data, terminal_data = _normalize_project_data(raw)
+    project_data.update(project_overrides or {})
+
+    supplied_terminal = dict(terminal_overrides or {})
+    fp_session = supplied_terminal.pop("fp_session", None)
+    terminal_data.update(supplied_terminal)
+    if fp_session:
+        merged_session = dict(terminal_data.get("fp_session") or {})
+        merged_session.update(fp_session)
+        terminal_data["fp_session"] = merged_session
+    return project_data, terminal_data
+
+
+def run_from_config(
+    config_path: Path | None,
+    dry_run: bool = False,
+    project_overrides: dict[str, Any] | None = None,
+    terminal_overrides: dict[str, Any] | None = None,
+) -> int:
+    project_data, terminal_data = _effective_settings(
+        config_path,
+        project_overrides,
+        terminal_overrides,
+    )
     if dry_run:
         terminal_data["dry_run"] = True
 
     cfg = ProjectConfig(**project_data)
     _resolve_selected_ligands(cfg, terminal_data)
     cfg.force_python_api = True
-    safe_nproc = luna_runner.safe_nproc(cfg.nproc)
-    if cfg.nproc != safe_nproc:
+    allocation = detect_cpu_allocation()
+    selected_nproc = effective_nproc(cfg.nproc)
+    safe_nproc = luna_runner.safe_nproc(selected_nproc)
+    print(
+        f"[terminal] nproc={safe_nproc} "
+        f"(resource source: {allocation.source})"
+    )
+    if selected_nproc != safe_nproc:
         print(
             "[terminal] Aviso: no Windows nativo o LUNA foi limitado para nproc=1. "
             "Use Linux ou WSL2 para paralelismo real."
         )
-        cfg.nproc = safe_nproc
+    cfg.nproc = safe_nproc
 
     py_exe = _resolve_luna_python(terminal_data)
     if not em.luna_installed(py_exe):
@@ -418,9 +476,16 @@ def run_from_config(config_path: Path, dry_run: bool = False) -> int:
     return code
 
 
-def run_results_from_config(config_path: Path) -> int:
-    raw = _read_dict_file(config_path)
-    project_data, terminal_data = _normalize_project_data(raw)
+def run_results_from_config(
+    config_path: Path | None,
+    project_overrides: dict[str, Any] | None = None,
+    terminal_overrides: dict[str, Any] | None = None,
+) -> int:
+    project_data, terminal_data = _effective_settings(
+        config_path,
+        project_overrides,
+        terminal_overrides,
+    )
     cfg = ProjectConfig(**project_data)
     if not cfg.workdir:
         raise ValueError("workdir e obrigatorio para --results-only.")
@@ -439,47 +504,384 @@ def run_results_from_config(config_path: Path) -> int:
     return 0 if manifest.get("outputs") else 1
 
 
-def main(argv: list[str] | None = None) -> int:
+def _add_boolean_option(
+    group: argparse._ArgumentGroup,
+    option: str,
+    *,
+    dest: str | None = None,
+    help_text: str,
+) -> None:
+    group.add_argument(
+        option,
+        dest=dest,
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=help_text,
+    )
+
+
+def _json_object_argument(value: str) -> dict[str, Any]:
+    candidate = Path(value).expanduser()
+    try:
+        text = candidate.read_text(encoding="utf-8") if candidate.is_file() else value
+        parsed = json.loads(text)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise argparse.ArgumentTypeError(
+            "expected a JSON object or a path to a JSON object"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError("the value must resolve to a JSON object")
+    return parsed
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Executa HIP2LInterActomics/LUNA sem abrir a interface grafica.",
+        prog="hipplinteractomics-terminal",
+        description=(
+            "Run HIP²LInterActomics/LUNA in fully headless mode. Options supplied "
+            "on the command line override values from the optional JSON config."
+        ),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "config",
+        "config_path",
         nargs="?",
-        help="Arquivo .txt/.json contendo um dicionario de configuracao.",
+        help="JSON or legacy Python-literal configuration file.",
+    )
+    parser.add_argument(
+        "--config",
+        dest="config_option",
+        metavar="PATH",
+        help="Explicit configuration path (alternative to the positional argument).",
+    )
+    parser.add_argument(
+        "--write-template",
+        metavar="PATH",
+        help="Write a complete JSON configuration template and exit.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Valida a configuracao, escreve os temporarios e mostra o comando sem executar.",
-    )
-    parser.add_argument(
-        "--write-template",
-        metavar="ARQUIVO",
-        help="Grava um exemplo de configuracao e sai.",
+        help="Validate and print the generated LUNA command without executing it.",
     )
     parser.add_argument(
         "--results-only",
         action="store_true",
-        help="Gera os artefatos de Resultados para um workdir concluido sem reexecutar o LUNA.",
+        help="Regenerate cached result artifacts without running LUNA.",
     )
+
+    inputs = parser.add_argument_group("project inputs and outputs")
+    inputs.add_argument("--protein-file", metavar="PATH")
+    inputs.add_argument("--ligand-file", metavar="PATH")
+    inputs.add_argument("--workdir", metavar="PATH")
+    inputs.add_argument(
+        "--selected-ligand",
+        dest="selected_ligands",
+        action="append",
+        default=None,
+        metavar="ID",
+        help="Select one ligand; repeat for multiple IDs. Omit to auto-detect all.",
+    )
+    inputs.add_argument("--entries-file", metavar="PATH")
+    inputs.add_argument("--fork-from", metavar="PATH")
+    inputs.add_argument("--language", choices=("pt", "en", "es"))
+    _add_boolean_option(
+        inputs,
+        "--trajectory-analysis",
+        help_text="Treat entries as ordered trajectory frames or docking poses.",
+    )
+    _add_boolean_option(
+        inputs,
+        "--include-waters",
+        help_text="Preserve water-mediated interactions.",
+    )
+
+    fingerprints = parser.add_argument_group("fingerprints and supervised labels")
+    _add_boolean_option(
+        fingerprints,
+        "--out-ifp",
+        help_text="Generate interaction fingerprints.",
+    )
+    fingerprints.add_argument(
+        "--ifp-type",
+        choices=("EIFP", "HIFP", "FIFP", "ALL"),
+    )
+    fingerprints.add_argument("--ifp-levels", type=int, metavar="N")
+    fingerprints.add_argument(
+        "--ifp-radius",
+        type=float,
+        metavar="VALUE",
+        help="LUNA shell growth ratio/radius.",
+    )
+    fingerprints.add_argument("--ifp-length", type=int, metavar="BITS")
+    fingerprints.add_argument(
+        "--ifp-format",
+        choices=("binary", "bin", "count", "cnt"),
+        help="Convenience alias that sets --ifp-bit/--no-ifp-bit.",
+    )
+    _add_boolean_option(
+        fingerprints,
+        "--ifp-bit",
+        help_text="Use binary fingerprints; disable for count fingerprints.",
+    )
+    fingerprints.add_argument("--ifp-output", metavar="PATH")
+    fingerprints.add_argument("--ifp-seed-file", metavar="PATH")
+    fingerprints.add_argument("--fp-labels-csv", metavar="PATH")
+    fingerprints.add_argument("--fp-labels-id-column", metavar="NAME")
+    fingerprints.add_argument("--fp-labels-column", metavar="NAME")
+    fingerprints.add_argument(
+        "--fp-label-task",
+        choices=("regression", "classification"),
+    )
+    _add_boolean_option(
+        fingerprints,
+        "--fp-use-otsu-threshold",
+        help_text="Use Otsu as a fallback feature-importance threshold.",
+    )
+
+    analyses = parser.add_argument_group("analyses and LUNA execution")
+    _add_boolean_option(
+        analyses,
+        "--sim-matrix",
+        help_text="Generate Tanimoto similarity matrices.",
+    )
+    analyses.add_argument("--sim-matrix-output", metavar="PATH")
+    _add_boolean_option(
+        analyses,
+        "--out-pse",
+        help_text="Generate PyMOL sessions.",
+    )
+    analyses.add_argument("--pse-path", metavar="PATH")
+    analyses.add_argument(
+        "--pse-interaction-type",
+        dest="pse_interaction_types",
+        action="append",
+        default=None,
+        metavar="TYPE",
+        help="Interaction type retained in PSE output; repeat as needed.",
+    )
+    _add_boolean_option(
+        analyses,
+        "--add-h",
+        help_text="Allow LUNA to add hydrogens.",
+    )
+    analyses.add_argument("--ph", type=float)
+    _add_boolean_option(
+        analyses,
+        "--filter-binding-modes",
+        help_text="Enable the binding-mode filter configuration.",
+    )
+    analyses.add_argument("--binding-modes-cfg", metavar="PATH")
+    analyses.add_argument("--interaction-config-file", metavar="PATH")
+    analyses.add_argument(
+        "--inter-config-overrides",
+        type=_json_object_argument,
+        metavar="JSON_OR_PATH",
+    )
+    analyses.add_argument("--inter-max-distance-cap", type=float)
+    analyses.add_argument("--nproc", type=int)
+    _add_boolean_option(
+        analyses,
+        "--overwrite",
+        help_text="Allow an existing project workdir to be overwritten.",
+    )
+    _add_boolean_option(
+        analyses,
+        "--force-python-api",
+        help_text="Force the LUNA Python API runner.",
+    )
+
+    advanced = parser.add_argument_group("advanced InteractionCalculator flags")
+    for option, help_text in (
+        ("--ic-add-proximal", "Enable proximal contacts."),
+        ("--ic-add-atom-atom", "Enable atom-atom contacts."),
+        ("--ic-add-dependent-inter", "Enable dependent interactions."),
+        (
+            "--ic-add-h2o-pairs-with-no-target",
+            "Include water pairs that do not have a target interaction.",
+        ),
+        ("--ic-ignore-self-inter", "Ignore self interactions."),
+    ):
+        _add_boolean_option(advanced, option, help_text=help_text)
+
+    runtime = parser.add_argument_group("headless runtime and result export")
+    runtime.add_argument(
+        "--python-exe",
+        "--luna-python",
+        dest="python_exe",
+        metavar="PATH",
+        help="Python executable inside luna-env.",
+    )
+    runtime.add_argument(
+        "--conda-exe",
+        "--conda",
+        dest="conda_exe",
+        metavar="PATH",
+    )
+    runtime.add_argument("--env-name", default=None)
+    _add_boolean_option(
+        runtime,
+        "--allow-hydrogen-warnings",
+        help_text="Continue after recoverable hydrogen validation warnings.",
+    )
+    _add_boolean_option(
+        runtime,
+        "--terminal-results",
+        help_text="Export terminal result tables, plots, and manifests.",
+    )
+    runtime.add_argument("--terminal-cluster-method")
+    runtime.add_argument("--terminal-cluster-count", type=int)
+    runtime.add_argument("--terminal-matrix-max-entries", type=int)
+    runtime.add_argument("--terminal-cluster-max-entries", type=int)
+    runtime.add_argument("--terminal-interactive-max-entries", type=int)
+    runtime.add_argument("--fp-session-ifp-type", choices=("EIFP", "HIFP", "FIFP"))
+    runtime.add_argument("--fp-session-entry-name")
+    runtime.add_argument("--fp-session-feature-id")
+    runtime.add_argument("--fp-session-output-path", metavar="PATH")
+    return parser
+
+
+_PROJECT_OVERRIDE_NAMES = (
+    "language",
+    "protein_file",
+    "ligand_file",
+    "selected_ligands",
+    "trajectory_analysis",
+    "workdir",
+    "out_ifp",
+    "ifp_type",
+    "ifp_levels",
+    "ifp_radius",
+    "ifp_length",
+    "ifp_bit",
+    "ifp_output",
+    "ifp_seed_file",
+    "fp_labels_csv",
+    "fp_labels_id_column",
+    "fp_labels_column",
+    "fp_label_task",
+    "fp_use_otsu_threshold",
+    "sim_matrix",
+    "sim_matrix_output",
+    "out_pse",
+    "pse_path",
+    "add_h",
+    "ph",
+    "filter_binding_modes",
+    "binding_modes_cfg",
+    "fork_from",
+    "nproc",
+    "overwrite",
+    "include_waters",
+    "ic_add_proximal",
+    "ic_add_atom_atom",
+    "ic_add_dependent_inter",
+    "ic_add_h2o_pairs_with_no_target",
+    "ic_ignore_self_inter",
+    "inter_config_overrides",
+    "inter_max_distance_cap",
+    "interaction_config_file",
+    "pse_interaction_types",
+    "force_python_api",
+)
+
+_TERMINAL_OVERRIDE_NAMES = (
+    "entries_file",
+    "python_exe",
+    "conda_exe",
+    "env_name",
+    "allow_hydrogen_warnings",
+    "terminal_results",
+    "terminal_cluster_method",
+    "terminal_cluster_count",
+    "terminal_matrix_max_entries",
+    "terminal_cluster_max_entries",
+    "terminal_interactive_max_entries",
+)
+
+
+def _collect_cli_overrides(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    project = {
+        name: getattr(args, name)
+        for name in _PROJECT_OVERRIDE_NAMES
+        if getattr(args, name, None) is not None
+    }
+    terminal = {
+        name: getattr(args, name)
+        for name in _TERMINAL_OVERRIDE_NAMES
+        if getattr(args, name, None) is not None
+    }
+
+    if args.ifp_format:
+        format_is_binary = args.ifp_format in {"binary", "bin"}
+        if args.ifp_bit is not None and args.ifp_bit != format_is_binary:
+            parser.error("--ifp-format conflicts with --ifp-bit/--no-ifp-bit")
+        project["ifp_bit"] = format_is_binary
+
+    session_names = {
+        "ifp_type": "fp_session_ifp_type",
+        "entry_name": "fp_session_entry_name",
+        "feature_id": "fp_session_feature_id",
+        "output_path": "fp_session_output_path",
+    }
+    fp_session = {
+        key: getattr(args, attribute)
+        for key, attribute in session_names.items()
+        if getattr(args, attribute) is not None
+    }
+    if fp_session:
+        terminal["fp_session"] = fp_session
+    return project, terminal
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.write_template:
-        out = Path(args.write_template)
-        out.write_text(EXAMPLE_CONFIG, encoding="utf-8")
-        print(f"Template salvo em: {out}")
+        output = Path(args.write_template).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+        print(f"Template salvo em: {output}")
         return 0
 
-    if not args.config:
-        parser.error("informe um arquivo de configuracao ou use --write-template")
+    if args.config_path and args.config_option:
+        parser.error("use either the positional config or --config, not both")
+    config_value = args.config_option or args.config_path
+    config_path = Path(config_value).expanduser() if config_value else None
+    project_overrides, terminal_overrides = _collect_cli_overrides(args, parser)
+
+    if args.results_only and args.dry_run:
+        parser.error("--results-only cannot be combined with --dry-run")
+    if config_path is None:
+        required = ("workdir",) if args.results_only else (
+            "protein_file",
+            "ligand_file",
+            "workdir",
+        )
+        missing = [name for name in required if not project_overrides.get(name)]
+        if missing:
+            options = ", ".join("--" + name.replace("_", "-") for name in missing)
+            parser.error(
+                "without a config file the following options are required: " + options
+            )
 
     try:
         if args.results_only:
-            if args.dry_run:
-                parser.error("--results-only nao pode ser usado com --dry-run")
-            return run_results_from_config(Path(args.config))
-        return run_from_config(Path(args.config), dry_run=bool(args.dry_run))
+            return run_results_from_config(
+                config_path,
+                project_overrides,
+                terminal_overrides,
+            )
+        return run_from_config(
+            config_path,
+            dry_run=bool(args.dry_run),
+            project_overrides=project_overrides,
+            terminal_overrides=terminal_overrides,
+        )
     except Exception as exc:
         print(f"[terminal] ERRO: {exc}", file=sys.stderr)
         return 2

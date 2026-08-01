@@ -1,9 +1,12 @@
 """Main window — assembles all tabs and wires shared state."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
+    QApplication,
     QMainWindow,
     QTabWidget,
     QFileDialog,
@@ -12,9 +15,12 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QWidget,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon
+from PyQt6.QtCore import QSettings, Qt, QTimer
+from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
 
 from ..core.project import ProjectConfig, save_to_workdir
 from ..i18n import LANGUAGES, install_translation_hooks, language, retranslate_ui, set_language, t
@@ -22,8 +28,14 @@ from .tab_setup import SetupTab
 from .tab_project import ProjectTab
 from .tab_analyses import AnalysesTab
 from .tab_run import RunTab
-from .tab_results_advanced import ResultsTab
 from .tab_history import HistoryTab
+from .theme import THEME_MODES, apply_theme
+
+if TYPE_CHECKING:
+    from .tab_results_advanced import ResultsTab
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -31,10 +43,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         install_translation_hooks()
         self.setWindowTitle("HIP²LInterActomics")
-        icon_path = Path(__file__).resolve().parents[1] / "assets" / "hip2l_interactomics_icon.png"
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
         self._fit_to_screen()
+        self._settings = QSettings()
 
         self.cfg = ProjectConfig()
         set_language(getattr(self.cfg, "language", "pt"))
@@ -47,7 +57,9 @@ class MainWindow(QMainWindow):
         self.tab_project = ProjectTab(self.cfg)
         self.tab_analyses = AnalysesTab(self.cfg)
         self.tab_run = RunTab(self.cfg)
-        self.tab_results = ResultsTab(self.cfg)
+        self.tab_results: ResultsTab | None = None
+        self._results_python = ""
+        self._results_placeholder = self._build_results_placeholder()
         self.tab_history = HistoryTab()
         self._tab_scroll_pages: dict[QWidget, QScrollArea] = {}
 
@@ -55,15 +67,13 @@ class MainWindow(QMainWindow):
         self._add_scrollable_tab(self.tab_project, "2. Projeto")
         self._add_scrollable_tab(self.tab_analyses, "3. Análises")
         self._add_scrollable_tab(self.tab_run, "4. Executar")
-        self._add_scrollable_tab(self.tab_results, "5. Resultados")
-        self.tabs.currentChanged.connect(lambda _idx: self._sync_cfg_if_idle())
+        self._add_scrollable_tab(self._results_placeholder, "5. Resultados")
+        self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self._add_scrollable_tab(self.tab_history, "6. Histórico")
 
         # Wire: when LUNA is detected, hand the paths to RunTab and ResultsTab
         self.tab_setup.luna_ready.connect(self.tab_run.set_luna)
-        self.tab_setup.luna_ready.connect(
-            lambda py, _run: self.tab_results.set_python(py)
-        )
+        self.tab_setup.luna_ready.connect(lambda py, _run: self._set_results_python(py))
 
         self._build_menu()
         self.statusBar().showMessage(t("Pronto"))
@@ -77,24 +87,91 @@ class MainWindow(QMainWindow):
         # Wire: history reload
         self.tab_history.project_loaded.connect(self._apply_loaded_cfg)
 
-    def _add_scrollable_tab(self, content: QWidget, label: str) -> None:
-        """Keep every main tab usable on short screens without shrinking its content."""
+    def _create_scroll_page(self, content: QWidget) -> QScrollArea:
+        """Create a responsive scroll page for one main workflow step."""
         scroll = QScrollArea()
         scroll.setObjectName("mainTabScrollArea")
         scroll.setWidgetResizable(True)
+        scroll.setAlignment(Qt.AlignmentFlag.AlignTop)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Ignored,
             QSizePolicy.Policy.Preferred,
-        )
-        content.setMinimumHeight(
-            max(content.minimumHeight(), content.minimumSizeHint().height())
         )
         scroll.setWidget(content)
         self._tab_scroll_pages[content] = scroll
+        return scroll
+
+    def _add_scrollable_tab(self, content: QWidget, label: str) -> None:
+        """Keep every main tab usable on short screens without shrinking its content."""
+        scroll = self._create_scroll_page(content)
         self.tabs.addTab(scroll, label)
+
+    def _build_results_placeholder(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 28, 28, 28)
+        layout.addStretch()
+        title = QLabel("Resultados sob demanda")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 20px; font-weight: 650;")
+        description = QLabel(
+            "Os módulos científicos e gráficos serão carregados somente quando necessários, "
+            "reduzindo a memória e acelerando a abertura do aplicativo."
+        )
+        description.setWordWrap(True)
+        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        description.setProperty("muted", True)
+        button = QPushButton("Abrir resultados")
+        button.setMaximumWidth(220)
+        button.clicked.connect(self._ensure_results_tab)
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch()
+        return page
+
+    def _ensure_results_tab(self) -> ResultsTab:
+        if self.tab_results is not None:
+            return self.tab_results
+
+        from .tab_results_advanced import ResultsTab
+
+        old_scroll = self._tab_scroll_pages.pop(self._results_placeholder)
+        index = self.tabs.indexOf(old_scroll)
+        label = self.tabs.tabText(index) if index >= 0 else "5. Resultados"
+        was_current = self.tabs.currentWidget() is old_scroll
+
+        results = ResultsTab(self.cfg)
+        if self._results_python:
+            results.set_python(self._results_python)
+        new_scroll = self._create_scroll_page(results)
+
+        self.tabs.blockSignals(True)
+        if index >= 0:
+            self.tabs.removeTab(index)
+            self.tabs.insertTab(index, new_scroll, label)
+        else:
+            index = self.tabs.addTab(new_scroll, label)
+        self.tabs.blockSignals(False)
+        old_scroll.deleteLater()
+        self.tab_results = results
+        if was_current:
+            self.tabs.setCurrentIndex(index)
+        return results
+
+    def _set_results_python(self, python_path: str) -> None:
+        self._results_python = python_path
+        if self.tab_results is not None:
+            self.tab_results.set_python(python_path)
+
+    def _on_main_tab_changed(self, _index: int) -> None:
+        placeholder_scroll = self._tab_scroll_pages.get(self._results_placeholder)
+        if placeholder_scroll is not None and self.tabs.currentWidget() is placeholder_scroll:
+            QTimer.singleShot(0, self._ensure_results_tab)
+        self._sync_cfg_if_idle()
 
     def _set_current_tab(self, content: QWidget) -> None:
         self.tabs.setCurrentWidget(self._tab_scroll_pages.get(content, content))
@@ -117,15 +194,18 @@ class MainWindow(QMainWindow):
         m_file = bar.addMenu("&Arquivo")
 
         act_open = QAction("Abrir projeto...", self)
+        act_open.setShortcut(QKeySequence.StandardKey.Open)
         act_open.triggered.connect(self._open_project)
         m_file.addAction(act_open)
 
         act_save = QAction("Salvar projeto", self)
+        act_save.setShortcut(QKeySequence.StandardKey.Save)
         act_save.triggered.connect(self._save_project)
         m_file.addAction(act_save)
 
         m_file.addSeparator()
         act_quit = QAction("Sair", self)
+        act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
         m_file.addAction(act_quit)
 
@@ -142,6 +222,25 @@ class MainWindow(QMainWindow):
             lang_group.addAction(act_lang)
             m_lang.addAction(act_lang)
             self._language_actions[code] = act_lang
+
+        m_theme = bar.addMenu("&Aparência")
+        self._theme_actions: dict[str, QAction] = {}
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        preferred_theme = str(self._settings.value("appearance/theme", "system") or "system")
+        theme_labels = {
+            "system": "Tema do sistema",
+            "light": "Claro",
+            "dark": "Escuro",
+        }
+        for mode in THEME_MODES:
+            action = QAction(theme_labels[mode], self)
+            action.setCheckable(True)
+            action.setChecked(mode == preferred_theme)
+            action.triggered.connect(lambda _checked=False, value=mode: self._set_theme(value))
+            theme_group.addAction(action)
+            m_theme.addAction(action)
+            self._theme_actions[mode] = action
 
         m_help = bar.addMenu("Aj&uda")
         act_about = QAction("Sobre", self)
@@ -160,6 +259,20 @@ class MainWindow(QMainWindow):
             action.setChecked(lang_code == code)
         retranslate_ui(self)
         self.statusBar().showMessage(t(f"Idioma alterado para {LANGUAGES[code]}"), 4000)
+
+    def _set_theme(self, mode: str) -> None:
+        if mode not in THEME_MODES:
+            mode = "system"
+        self._settings.setValue("appearance/theme", mode)
+        app = QApplication.instance()
+        if app is not None:
+            resolved = apply_theme(app, mode)
+            self.statusBar().showMessage(
+                t("Tema atualizado") + f": {resolved}",
+                3500,
+            )
+        for theme_mode, action in self._theme_actions.items():
+            action.setChecked(theme_mode == mode)
 
     def _open_project(self) -> None:
         f, _ = QFileDialog.getOpenFileName(
@@ -262,9 +375,10 @@ class MainWindow(QMainWindow):
         self.cfg.language = language()
 
     def _on_run_finished(self) -> None:
-        self._set_current_tab(self.tab_results)
-        self.tab_results.wd_edit.setText(self.cfg.workdir)
-        self.tab_results.load_all()
+        results = self._ensure_results_tab()
+        self._set_current_tab(results)
+        results.wd_edit.setText(self.cfg.workdir)
+        results.load_all()
         self.tab_history.refresh()
 
     def _apply_loaded_cfg(self, cfg: ProjectConfig) -> None:
@@ -281,7 +395,6 @@ class MainWindow(QMainWindow):
             try:
                 self.tab_project._load_ligands(self.cfg.ligand_file)
                 # restore selection
-                from PyQt6.QtCore import Qt
                 selected = set(self.cfg.selected_ligands)
                 lst = self.tab_project.lig_list
                 for i in range(lst.count()):
@@ -291,8 +404,13 @@ class MainWindow(QMainWindow):
                         Qt.CheckState.Checked if name in selected else Qt.CheckState.Unchecked
                     )
                 self.tab_project._update_count()
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Não foi possível restaurar a seleção de ligantes", exc_info=True)
+                self.statusBar().showMessage(
+                    t("Projeto aberto, mas a seleção de ligantes não pôde ser restaurada")
+                    + f": {exc}",
+                    7000,
+                )
         a = self.tab_analyses
         a.cb_add_h.setChecked(self.cfg.add_h)
         a.sp_ph.setValue(self.cfg.ph)
@@ -339,7 +457,6 @@ class MainWindow(QMainWindow):
         a.cb_ic_self.setChecked(self.cfg.ic_ignore_self_inter)
         a.sp_inter_max_cap.setValue(float(getattr(self.cfg, "inter_max_distance_cap", 0.0) or 0.0))
         if self.cfg.pse_interaction_types:
-            from PyQt6.QtCore import Qt
             a.pse_filter_box.setChecked(True)
             selected = set(self.cfg.pse_interaction_types)
             for i in range(a.pse_types_list.count()):
@@ -350,11 +467,17 @@ class MainWindow(QMainWindow):
 
         # Auto-populate Results from the loaded workdir (T2.8)
         if self.cfg.workdir and Path(self.cfg.workdir).exists():
-            self.tab_results.wd_edit.setText(self.cfg.workdir)
+            results = self._ensure_results_tab()
+            results.wd_edit.setText(self.cfg.workdir)
             try:
-                self.tab_results.load_all()
-            except Exception:
-                pass
+                results.load_all()
+            except Exception as exc:
+                LOGGER.warning("Não foi possível carregar os resultados do projeto", exc_info=True)
+                self.statusBar().showMessage(
+                    t("Projeto aberto, mas os resultados não puderam ser carregados")
+                    + f": {exc}",
+                    7000,
+                )
 
         self._set_current_tab(self.tab_project)
 

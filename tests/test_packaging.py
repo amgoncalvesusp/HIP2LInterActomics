@@ -10,32 +10,7 @@ def _read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
-def test_snap_uses_qt6_runtime_with_the_current_release_version() -> None:
-    snapcraft = _read("snap/snapcraft.yaml")
-    assert "base: core24" in snapcraft
-    assert 'version: "1.0.0"' in snapcraft
-    assert "python3-pyqt6" in snapcraft
-    assert "qt6-qpa-plugins" in snapcraft
-    assert "qt6-wayland" in snapcraft
-
-
-def test_linux_installer_validates_qt_and_generates_a_quoted_launcher() -> None:
-    installer = _read("dist/linux/install_hip2linteractomics.sh")
-    assert "check_qt_runtime" in installer
-    assert "ldd" in installer
-    assert "printf 'exec %q" in installer
-    assert "--conda-root requer um diretorio" in installer
-
-
-def test_windows_conda_installer_writes_a_utf8_launcher() -> None:
-    installer = _read("dist/windows/install_hip2linteractomics.ps1")
-    assert "UTF8Encoding" in installer
-    assert "-Encoding ASCII" not in installer
-    assert "chcp 65001" in installer
-    assert "-Wait -PassThru -WindowStyle Hidden" in installer
-
-
-def test_native_windows_distribution_has_the_required_build_artifacts() -> None:
+def test_native_windows_distribution_has_required_build_artifacts() -> None:
     spec = _read("HIP2LInterActomics.spec")
     inno = _read("installer/HIP2LInterActomics.iss")
     hook = _read("rthook_qt_bundled.py")
@@ -46,3 +21,79 @@ def test_native_windows_distribution_has_the_required_build_artifacts() -> None:
     assert "PrivilegesRequired=lowest" in inno
     assert '#define MyAppVersion "1.0.0"' in inno
     assert (ROOT / "luna_gui/assets/hip2l_interactomics_icon.ico").is_file()
+
+
+def test_native_build_scripts_cover_windows_and_linux() -> None:
+    windows = _read("installer/build_windows.ps1")
+    linux = _read("installer/build_linux.sh")
+    workflow = _read(".github/workflows/build-installers.yml")
+
+    assert "pip install -r requirements.txt" in windows
+    assert "PyInstaller" in windows
+    assert "HIP2LInterActomics.exe" in windows
+    assert "pip install -r" in linux
+    assert "PyInstaller" in linux
+    assert "linux-" in linux and ".tar.gz" in linux
+    assert "runs-on: windows-latest" in workflow
+    assert "runs-on: ubuntu-24.04" in workflow
+
+
+def test_pyproject_registers_gui_and_headless_commands() -> None:
+    metadata = _read("pyproject.toml")
+    assert '[project.scripts]' in metadata
+    assert 'hipplinteractomics-terminal = "hipplinteractomics_terminal:main"' in metadata
+    assert 'hipplinteractomics-multiple-run = "hipplinteractomics_multiple_run:main"' in metadata
+    assert 'hip2linteractomics = "luna_gui.main:main"' in metadata
+
+
+def test_package_manifest_includes_cli_modules_and_assets() -> None:
+    metadata = _read("pyproject.toml")
+    assert '"hipplinteractomics_terminal"' in metadata
+    assert '"hipplinteractomics_multiple_run"' in metadata
+    assert '"assets/*"' in metadata
+    assert '"examples/*"' in metadata
+    assert '"share/hip2linteractomics" = ["environment.yml"]' in metadata
+
+
+def test_terminal_only_environment_keeps_pymol_without_app_gui_dependencies() -> None:
+    environment = _read("environment.yml")
+    lowered = environment.lower()
+    assert "python=3.9" in environment
+    assert "matplotlib-base" in environment
+    assert "seaborn-base" in environment
+    assert "biopython=1.79" in environment
+    assert "pymol-open-source" in environment
+    assert "mmh3<4" in environment
+    assert "- pdbecif" in environment
+    assert "pip install --no-build-isolation -U luna" in _read("README.md")
+    assert "pip install --no-deps -e ." in _read("README.md")
+    for forbidden in ("pyqt6", "pyside", "tkinter"):
+        assert forbidden not in lowered
+
+
+def test_all_distribution_paths_include_environment_yml() -> None:
+    manifest = _read("MANIFEST.in")
+    spec = _read("HIP2LInterActomics.spec")
+    inno = _read("installer/HIP2LInterActomics.iss")
+    windows = _read("installer/build_windows.ps1")
+    linux = _read("installer/build_linux.sh")
+
+    assert "include environment.yml" in manifest
+    assert '("environment.yml", ".")' in spec
+    assert "recursesubdirs" in inno
+    assert "environment.yml" in windows
+    assert "environment.yml" in linux
+
+
+def test_desktop_bundles_include_headless_cli_sources() -> None:
+    spec = _read("HIP2LInterActomics.spec")
+    windows = _read("installer/build_windows.ps1")
+    linux = _read("installer/build_linux.sh")
+
+    for cli in (
+        "hipplinteractomics_terminal.py",
+        "hipplinteractomics_multiple_run.py",
+    ):
+        assert f'("{cli}", ".")' in spec
+        assert cli in windows
+        assert cli in linux

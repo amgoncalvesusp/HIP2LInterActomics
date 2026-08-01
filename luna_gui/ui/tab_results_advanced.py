@@ -105,6 +105,8 @@ class ResultsTab(EnhancedResultsTab):
         self._fp_manual_feature_ids: dict[str, list[int]] = {}
         self._fullscreen_dialog: QDialog | None = None
         self._workdir_project_cache: dict[str, tuple[float, ProjectConfig | None]] = {}
+        self._fp_plot_canvases_ready = False
+        self._fp_plot_specs: list[tuple[str, str, QWidget, tuple[float, float], QLabel]] = []
         self._install_fullscreen_button()
         self._install_stats_scope_control()
         self._install_stats_scroll_area()
@@ -1176,59 +1178,26 @@ class ResultsTab(EnhancedResultsTab):
         layout.addWidget(self.fp_analysis_table, 1)
 
         if HAS_MPL:
-            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-            from matplotlib.figure import Figure
-
             self.fp_plot_tabs = QTabWidget()
-
-            self.fp_class_tab = QWidget()
-            cls_layout = QVBoxLayout(self.fp_class_tab)
-            self.fp_class_fig = Figure(figsize=(7.2, 4.4))
-            self.fp_class_canvas = FigureCanvas(self.fp_class_fig)
-            cls_layout.addWidget(self._build_canvas_scroll_area(self.fp_class_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_class_tab, "Classes importantes")
-
-            self.fp_assign_tab = QWidget()
-            assign_layout = QVBoxLayout(self.fp_assign_tab)
-            self.fp_assign_fig = Figure(figsize=(7.2, 5.2))
-            self.fp_assign_canvas = FigureCanvas(self.fp_assign_fig)
-            assign_layout.addWidget(self._build_canvas_scroll_area(self.fp_assign_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_assign_tab, "Frequência por classe")
-
-            self.fp_cover_tab = QWidget()
-            cover_layout = QVBoxLayout(self.fp_cover_tab)
-            self.fp_cover_fig = Figure(figsize=(7.2, 5.2))
-            self.fp_cover_canvas = FigureCanvas(self.fp_cover_fig)
-            cover_layout.addWidget(self._build_canvas_scroll_area(self.fp_cover_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_cover_tab, "Cobertura e importância")
-
-            self.fp_heatmap_tab = QWidget()
-            heatmap_layout = QVBoxLayout(self.fp_heatmap_tab)
-            self.fp_heatmap_fig = Figure(figsize=(9.6, 7.2))
-            self.fp_heatmap_canvas = FigureCanvas(self.fp_heatmap_fig)
-            heatmap_layout.addWidget(self._build_canvas_scroll_area(self.fp_heatmap_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_heatmap_tab, "Mapa de calor de importância")
-
-            self.fp_interaction_assign_tab = QWidget()
-            interaction_assign_layout = QVBoxLayout(self.fp_interaction_assign_tab)
-            self.fp_interaction_assign_fig = Figure(figsize=(9.2, 5.4))
-            self.fp_interaction_assign_canvas = FigureCanvas(self.fp_interaction_assign_fig)
-            interaction_assign_layout.addWidget(self._build_canvas_scroll_area(self.fp_interaction_assign_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_interaction_assign_tab, "Frequência de interações")
-
-            self.fp_interaction_tab = QWidget()
-            interaction_layout = QVBoxLayout(self.fp_interaction_tab)
-            self.fp_interaction_fig = Figure(figsize=(9.2, 5.4))
-            self.fp_interaction_canvas = FigureCanvas(self.fp_interaction_fig)
-            interaction_layout.addWidget(self._build_canvas_scroll_area(self.fp_interaction_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_interaction_tab, "Interações prevalentes")
-
-            self.fp_interaction_heatmap_tab = QWidget()
-            interaction_hm_layout = QVBoxLayout(self.fp_interaction_heatmap_tab)
-            self.fp_interaction_heatmap_fig = Figure(figsize=(9.6, 7.2))
-            self.fp_interaction_heatmap_canvas = FigureCanvas(self.fp_interaction_heatmap_fig)
-            interaction_hm_layout.addWidget(self._build_canvas_scroll_area(self.fp_interaction_heatmap_canvas), 1)
-            self.fp_plot_tabs.addTab(self.fp_interaction_heatmap_tab, "Mapa de calor de interações")
+            plot_specs = [
+                ("fp_class_tab", "fp_class_fig", "fp_class_canvas", "Classes importantes", (7.2, 4.4)),
+                ("fp_assign_tab", "fp_assign_fig", "fp_assign_canvas", "Frequência por classe", (7.2, 5.2)),
+                ("fp_cover_tab", "fp_cover_fig", "fp_cover_canvas", "Cobertura e importância", (7.2, 5.2)),
+                ("fp_heatmap_tab", "fp_heatmap_fig", "fp_heatmap_canvas", "Mapa de calor de importância", (9.6, 7.2)),
+                ("fp_interaction_assign_tab", "fp_interaction_assign_fig", "fp_interaction_assign_canvas", "Frequência de interações", (9.2, 5.4)),
+                ("fp_interaction_tab", "fp_interaction_fig", "fp_interaction_canvas", "Interações prevalentes", (9.2, 5.4)),
+                ("fp_interaction_heatmap_tab", "fp_interaction_heatmap_fig", "fp_interaction_heatmap_canvas", "Mapa de calor de interações", (9.6, 7.2)),
+            ]
+            for tab_attr, fig_attr, canvas_attr, label, size in plot_specs:
+                tab = QWidget()
+                tab_layout = QVBoxLayout(tab)
+                placeholder = QLabel("O gráfico será criado quando uma análise FP for carregada.")
+                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                placeholder.setProperty("muted", True)
+                tab_layout.addWidget(placeholder, 1)
+                setattr(self, tab_attr, tab)
+                self._fp_plot_specs.append((fig_attr, canvas_attr, tab, size, placeholder))
+                self.fp_plot_tabs.addTab(tab, label)
 
             layout.addWidget(self.fp_plot_tabs, 1)
         else:
@@ -1236,6 +1205,24 @@ class ResultsTab(EnhancedResultsTab):
             layout.addWidget(QLabel("matplotlib não está instalado."))
         scroll.setWidget(content)
         outer_layout.addWidget(scroll, 1)
+
+    def _ensure_fp_plot_canvases(self) -> None:
+        if not HAS_MPL or self.fp_plot_tabs is None or self._fp_plot_canvases_ready:
+            return
+
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+
+        for fig_attr, canvas_attr, tab, size, placeholder in self._fp_plot_specs:
+            tab_layout = tab.layout()
+            tab_layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+            figure = Figure(figsize=size)
+            canvas = FigureCanvas(figure)
+            setattr(self, fig_attr, figure)
+            setattr(self, canvas_attr, canvas)
+            tab_layout.addWidget(self._build_canvas_scroll_area(canvas), 1)
+        self._fp_plot_canvases_ready = True
 
     def _install_fp_session_tab(self) -> None:
         self.fp_session_tab = QWidget()
@@ -2868,6 +2855,7 @@ class ResultsTab(EnhancedResultsTab):
     def _clear_fp_analysis_plots(self, message: str) -> None:
         if not HAS_MPL or self.fp_plot_tabs is None:
             return
+        self._ensure_fp_plot_canvases()
         for fig, canvas in (
             (self.fp_class_fig, self.fp_class_canvas),
             (self.fp_assign_fig, self.fp_assign_canvas),
@@ -2886,6 +2874,7 @@ class ResultsTab(EnhancedResultsTab):
     def _render_fp_analysis_plots(self, dashboard: dict) -> None:
         if not HAS_MPL or self.fp_plot_tabs is None:
             return
+        self._ensure_fp_plot_canvases()
         self._render_fp_class_summary_plot(dashboard)
         self._render_fp_assignment_plot(dashboard)
         self._render_fp_coverage_plot(dashboard)
@@ -3754,7 +3743,12 @@ class ResultsTab(EnhancedResultsTab):
         current = self.inner.currentWidget()
         if HAS_MPL and current is self.complete_heatmap_tab:
             return self.hm_all_fig, "heatmap_completo"
-        if HAS_MPL and current is self.fp_analysis_tab and self.fp_plot_tabs is not None:
+        if (
+            HAS_MPL
+            and current is self.fp_analysis_tab
+            and self.fp_plot_tabs is not None
+            and self._fp_plot_canvases_ready
+        ):
             current_plot = self.fp_plot_tabs.currentWidget()
             if current_plot is self.fp_class_tab:
                 return self.fp_class_fig, "fp_classes_importantes"

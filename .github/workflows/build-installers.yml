@@ -1,0 +1,70 @@
+name: Build desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  python-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Build wheel and source distribution
+        run: python -m pip install build && python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIP2LInterActomics-Python-Package
+          path: dist/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install runtime and build dependencies
+        run: python -m pip install -r requirements.txt "pyinstaller>=6.10,<7"
+      - name: Build native executable
+        shell: pwsh
+        run: ./installer/build_windows.ps1 -Python python
+      - name: Install Inno Setup when needed
+        if: ${{ hashFiles('build/release-windows/installer/HIP2LInterActomics-Setup.exe') == '' }}
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows installer
+        if: ${{ hashFiles('build/release-windows/installer/HIP2LInterActomics-Setup.exe') == '' }}
+        shell: pwsh
+        run: >-
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          "/DBundleDir=$((Resolve-Path 'build/release-windows/bundle/HIP2LInterActomics').Path)"
+          "/DOutputDir=$((Resolve-Path 'build/release-windows/installer').Path)"
+          "installer/HIP2LInterActomics.iss"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIP2LInterActomics-Windows
+          path: |
+            build/release-windows/bundle/HIP2LInterActomics/**
+            build/release-windows/installer/*.exe
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt runtime libraries
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4
+          libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0
+      - name: Build native Linux bundle
+        run: bash installer/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIP2LInterActomics-Linux
+          path: build/release-linux/installer/*.tar.gz

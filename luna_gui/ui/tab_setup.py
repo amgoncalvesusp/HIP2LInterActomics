@@ -4,8 +4,8 @@ from __future__ import annotations
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize, QProcess, QProcessEnvironment, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt, QSize, QProcess, QProcessEnvironment, QThread, pyqtSignal
+from PyQt6.QtGui import QFontDatabase, QImageReader, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit,
     QMessageBox, QGroupBox,
@@ -13,6 +13,88 @@ from PyQt6.QtWidgets import (
 
 from ..core import env_manager as em
 from .info import InfoButton
+
+
+def _probe_environment() -> dict[str, object]:
+    """Inspect the LUNA runtime without touching Qt widgets."""
+    logs = ["=== Verificação de ambiente ==="]
+    result: dict[str, object] = {
+        "logs": logs,
+        "install_enabled": False,
+        "ready": None,
+    }
+    conda = em.find_conda()
+    if not conda:
+        result["status"] = "Erro — Conda não encontrado. Instale o Miniconda primeiro."
+        logs.append("Conda: NÃO encontrado.")
+        return result
+
+    result["conda"] = conda
+    result["install_enabled"] = True
+    logs.append(f"Conda: {conda}")
+    prefix = em.env_prefix(conda)
+    logs.append(f"Prefixo do env: {prefix}")
+
+    if em.env_is_partial(conda):
+        result["status"] = (
+            "Atenção — Conda OK. Ambiente 'luna-env' está incompleto e será recriado ao "
+            "clicar em 'Instalar LUNA'."
+        )
+        return result
+    if not em.env_exists(conda):
+        result["status"] = (
+            "Atenção — Conda OK. Ambiente 'luna-env' não existe — clique em 'Instalar LUNA'."
+        )
+        return result
+
+    python_path = em.env_python(conda)
+    if not python_path:
+        result["status"] = "Atenção — luna-env existe mas python não foi localizado."
+        return result
+    logs.append(f"Python do env: {python_path}")
+
+    if not em.luna_installed(python_path):
+        result["status"] = "Atenção — luna-env existe mas LUNA não está instalado."
+        return result
+    run_py = em.luna_run_py_path(python_path)
+    if not run_py:
+        result["status"] = "Atenção — LUNA importado mas run.py não foi localizado."
+        return result
+
+    missing = em.missing_runtime_packages(python_path)
+    result["ready"] = (str(python_path), str(run_py))
+    if missing:
+        result["status"] = (
+            "Atenção — LUNA pronto, mas faltam dependências para análises avançadas: "
+            + ", ".join(missing)
+            + ". Clique em 'Instalar LUNA' para atualizar o luna-env."
+        )
+        logs.append(
+            "Dependências ausentes no luna-env: "
+            + ", ".join(missing)
+            + "\nUse 'Instalar LUNA' para executar conda install/update com scikit-learn."
+        )
+        return result
+
+    result["status"] = f"LUNA pronto — run.py: {run_py}"
+    logs.append(f"run.py: {run_py}")
+    return result
+
+
+class _EnvironmentProbeThread(QThread):
+    detected = pyqtSignal(object)
+
+    def run(self) -> None:
+        try:
+            result = _probe_environment()
+        except Exception as exc:
+            result = {
+                "status": f"Erro — Falha ao verificar o ambiente: {exc}",
+                "logs": ["=== Verificação de ambiente ===", repr(exc)],
+                "install_enabled": True,
+                "ready": None,
+            }
+        self.detected.emit(result)
 
 
 class SetupTab(QWidget):
@@ -23,6 +105,7 @@ class SetupTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.proc: QProcess | None = None
+        self._probe_thread: _EnvironmentProbeThread | None = None
         self._cmd_queue: list[list[str]] = []
 
         layout = QVBoxLayout(self)
@@ -39,14 +122,12 @@ class SetupTab(QWidget):
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_path = Path(__file__).resolve().parents[1] / "assets" / "hip2l_interactomics_icon.png"
         if icon_path.exists():
-            pixmap = QPixmap(str(icon_path))
-            icon_label.setPixmap(
-                pixmap.scaled(
-                    QSize(190, 190),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+            reader = QImageReader(str(icon_path))
+            reader.setAutoTransform(True)
+            reader.setScaledSize(QSize(190, 190))
+            image = reader.read()
+            if not image.isNull():
+                icon_label.setPixmap(QPixmap.fromImage(image))
         icon_label.setFixedHeight(200)
         about_layout.addWidget(icon_label)
 
@@ -68,13 +149,8 @@ class SetupTab(QWidget):
         )
         workflow.setWordWrap(True)
         workflow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        workflow.setStyleSheet(
-            "padding: 10px; border: 1px solid #9db2c8; border-radius: 8px; "
-            "background: #f4f8fc; color: #0b2b45; font-weight: 600;"
-        )
+        workflow.setObjectName("workflowSummary")
         about_layout.addWidget(workflow)
-        layout.addWidget(about_box, 2)
-
         env_box = QGroupBox("Configuração do ambiente e instalação de pacotes")
         env_layout = QVBoxLayout(env_box)
         env_layout.addWidget(self.status_label)
@@ -100,76 +176,48 @@ class SetupTab(QWidget):
         btn_row.addStretch()
         env_layout.addLayout(btn_row)
         layout.addWidget(env_box)
+        layout.addWidget(about_box, 2)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setToolTip("Mostra o passo a passo da verificação e da instalação do ambiente.")
-        self.log.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        log_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        log_font.setPointSize(10)
+        self.log.setFont(log_font)
         layout.addWidget(self.log, 1)
 
         self.detect()
 
     # ---- detection ----
     def detect(self) -> None:
-        self.log.appendPlainText("=== Verificação de ambiente ===")
-        conda = em.find_conda()
-        if not conda:
-            self.status_label.setText("❌ Conda não encontrado. Instale o Miniconda primeiro.")
-            self.btn_install_luna.setEnabled(False)
-            self.log.appendPlainText("Conda: NÃO encontrado.")
+        if self._probe_thread is not None and self._probe_thread.isRunning():
             return
-        self.log.appendPlainText(f"Conda: {conda}")
-        self.conda = conda
-        prefix = em.env_prefix(conda)
-        self.log.appendPlainText(f"Prefixo do env: {prefix}")
+        self.status_label.setText("Verificando ambiente em segundo plano...")
+        self.btn_refresh.setEnabled(False)
+        thread = _EnvironmentProbeThread(self)
+        thread.detected.connect(self._apply_probe_result)
+        thread.finished.connect(self._probe_finished)
+        self._probe_thread = thread
+        thread.start()
 
-        if em.env_is_partial(conda):
-            self.status_label.setText(
-                "⚠️  Conda OK. Ambiente 'luna-env' está incompleto e será recriado ao clicar em 'Instalar LUNA'."
-            )
-            self.btn_install_luna.setEnabled(True)
-            return
+    def _apply_probe_result(self, result: dict[str, object]) -> None:
+        for line in result.get("logs", []):
+            self.log.appendPlainText(str(line))
+        self.status_label.setText(str(result.get("status", "Verificação concluída.")))
+        self.btn_install_luna.setEnabled(bool(result.get("install_enabled", False)))
+        conda = result.get("conda")
+        if conda:
+            self.conda = str(conda)
+        ready = result.get("ready")
+        if isinstance(ready, tuple) and len(ready) == 2:
+            self.luna_ready.emit(str(ready[0]), str(ready[1]))
 
-        if not em.env_exists(conda):
-            self.status_label.setText("⚠️  Conda OK. Ambiente 'luna-env' não existe — clique em 'Instalar LUNA'.")
-            self.btn_install_luna.setEnabled(True)
-            return
-
-        py = em.env_python(conda)
-        if not py:
-            self.status_label.setText("⚠️  luna-env existe mas python não foi localizado.")
-            return
-        self.log.appendPlainText(f"Python do env: {py}")
-
-        if not em.luna_installed(py):
-            self.status_label.setText("⚠️  luna-env existe mas LUNA não está instalado.")
-            self.btn_install_luna.setEnabled(True)
-            return
-
-        run_py = em.luna_run_py_path(py)
-        if not run_py:
-            self.status_label.setText("⚠️  LUNA importado mas run.py não foi localizado.")
-            return
-
-        missing = em.missing_runtime_packages(py)
-        if missing:
-            self.status_label.setText(
-                "⚠️  LUNA pronto, mas faltam dependências para análises avançadas: "
-                + ", ".join(missing)
-                + ". Clique em 'Instalar LUNA' para atualizar o luna-env."
-            )
-            self.log.appendPlainText(
-                "Dependências ausentes no luna-env: "
-                + ", ".join(missing)
-                + "\nUse 'Instalar LUNA' para executar conda install/update com scikit-learn."
-            )
-            self.btn_install_luna.setEnabled(True)
-            self.luna_ready.emit(str(py), str(run_py))
-            return
-
-        self.status_label.setText(f"✅ LUNA pronto. run.py: {run_py}")
-        self.log.appendPlainText(f"run.py: {run_py}")
-        self.luna_ready.emit(str(py), str(run_py))
+    def _probe_finished(self) -> None:
+        thread = self._probe_thread
+        self._probe_thread = None
+        self.btn_refresh.setEnabled(True)
+        if thread is not None:
+            thread.deleteLater()
 
     # ---- install ----
     def install_luna(self) -> None:
@@ -223,7 +271,7 @@ class SetupTab(QWidget):
     def _on_finished(self, code: int, _status) -> None:
         self.log.appendPlainText(f"[exit code: {code}]")
         if code != 0:
-            self.log.appendPlainText("⚠️  Comando falhou — abortando instalação.")
+            self.log.appendPlainText("Atenção — comando falhou; instalação interrompida.")
             self.btn_install_luna.setEnabled(True)
             self._cmd_queue.clear()
             return

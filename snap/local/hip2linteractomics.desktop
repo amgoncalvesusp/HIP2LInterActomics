@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=HIP2LInterActomics
-Comment=Protein-ligand interaction analysis with LUNA
-Exec=hip2linteractomics
-Icon=${SNAP}/app/luna_gui/assets/hip2l_interactomics_icon.png
-Terminal=false
-Categories=Science;Education;

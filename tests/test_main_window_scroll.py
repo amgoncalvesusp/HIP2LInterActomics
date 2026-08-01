@@ -21,13 +21,52 @@ class MainWindowScrollTests(unittest.TestCase):
         }
 
         self.assertIn("_add_scrollable_tab", methods)
+        self.assertIn("_create_scroll_page", methods)
         self.assertIn("_set_current_tab", methods)
-        helper_source = ast.get_source_segment(source, methods["_add_scrollable_tab"]) or ""
+        helper_source = ast.get_source_segment(source, methods["_create_scroll_page"]) or ""
         self.assertIn("QScrollArea", helper_source)
-        self.assertIn("ScrollBarAsNeeded", helper_source)
+        self.assertIn("ScrollBarAlwaysOff", helper_source)
+        self.assertIn("QSizePolicy.Policy.Ignored", helper_source)
 
         init_source = ast.get_source_segment(source, methods["__init__"]) or ""
         self.assertEqual(init_source.count("self._add_scrollable_tab("), 6)
+
+    def test_results_module_is_loaded_only_when_the_tab_is_opened(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "luna_gui" / "ui" / "main_window.py").read_text(
+            encoding="utf-8"
+        )
+        tree = ast.parse(source)
+        runtime_imports = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom) and node.module == "tab_results_advanced"
+        ]
+        self.assertEqual(runtime_imports, [])
+        self.assertIn("def _ensure_results_tab", source)
+        self.assertIn("QTimer.singleShot(0, self._ensure_results_tab)", source)
+
+    def test_fp_plot_canvases_are_created_lazily(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "luna_gui"
+            / "ui"
+            / "tab_results_advanced.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        results_tab = next(
+            node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "ResultsTab"
+        )
+        methods = {
+            node.name: node
+            for node in results_tab.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        installer_source = ast.get_source_segment(source, methods["_install_fp_analysis_tab"]) or ""
+        ensure_source = ast.get_source_segment(source, methods["_ensure_fp_plot_canvases"]) or ""
+
+        self.assertNotIn("Figure(figsize=", installer_source)
+        self.assertIn("Figure(figsize=size)", ensure_source)
+        self.assertIn("self._ensure_fp_plot_canvases()", source)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+.venv/
+*.egg-info/
+generated_configs/
+build/
+dist/
 .claude/
 tests/.tmp/
 _tmp_verify_run/
@@ -9,13 +14,9 @@ _tmp_verify_run/
 parts/
 prime/
 stage/
-test_anhydrated/
-test_hydrated/
-test_trajectory/
-test_anhydrated_linux/
-test_anhydrated_windows/
-test_hydrated_linux/
-test_hydrated_chemplp_linux/
-test_hydrated_windows/
-test_trajectory_linux/
-test_trajectory_windows/
+test_*/
+
+# Site-specific HPC submission templates intentionally kept local.
+job_grid_unesp.sh
+job_cenapad.pbs
+tests/test_hpc_submission_scripts.py

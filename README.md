@@ -1,338 +1,1065 @@
 # HIP²LInterActomics
 
-`HIP²LInterActomics` é uma interface gráfica e também um fluxo executável por terminal para preparar, calcular, organizar e interpretar interações intermoleculares usando o LUNA. O aplicativo foi pensado para análise racional de triagem virtual, poses de docking, complexos hidratados e trajetórias de dinâmica molecular representadas como frames ou conformações.
+Fluxos gráfico e headless para preparação molecular, execução do LUNA e análise de interações intermoleculares.
 
-O programa transforma arquivos estruturais em tabelas, mapas de calor, fingerprints de interação, sessões PyMOL, análises de importância de features e relatórios exportáveis. A ideia central é permitir que o usuário saia de um conjunto de complexos proteína-ligante ou proteína-proteína e chegue a uma leitura química interpretável: quais contatos aparecem, onde aparecem, quais resíduos participam, quais fingerprints são mais informativos e quais ligantes compartilham padrões de interação.
+[Português](#português) · [Español](#español) · [English](#english)
 
-## Manual De Uso
+---
 
-O passo a passo completo do aplicativo está em [MANUAL_USO.md](MANUAL_USO.md).
+## Português
 
-## O Que O Aplicativo Faz
+### Visão geral
 
-- Prepara complexos de docking separando proteína, ligante e moléculas de água.
-- Preserva águas estruturais quando a análise hidratada está ativada.
-- Mantém numeração de resíduos e cadeias sempre que possível durante conversões.
-- Executa o LUNA para calcular interações intermoleculares.
-- Gera fingerprints de interação `HIFP`, `EIFP` e `FIFP`.
-- Calcula matriz de similaridade de Tanimoto entre ligantes.
-- Agrupa ligantes por perfis de interação.
-- Filtra sessões PyMOL por binding modes ou tipos de interação.
-- Gera mapas de calor ligante x resíduo e mapas completos com múltiplos tipos de interação por célula.
-- Calcula importância de fingerprints por modelos supervisionados de classificação ou regressão.
-- Atribui classes e níveis de shell aos fingerprints, tratando colisões e features não confiáveis.
-- Gera gráficos e relatórios HTML/PDF para inspeção e documentação.
-- Oferece um script terminal para rodar o mesmo fluxo por arquivo de configuração.
+HIP²LInterActomics oferece uma interface PyQt6 e dois comandos de terminal independentes da interface:
 
-## Fluxo De Trabalho
+- <code>hipplinteractomics-terminal</code>: executa um projeto LUNA a partir de JSON ou de argumentos diretos.
+- <code>hipplinteractomics-multiple-run</code>: gera o produto cartesiano de configurações e executa cada projeto em série.
+- <code>hip2linteractomics</code>: abre a interface gráfica.
 
-1. Configure o ambiente Conda e instale o `luna-env` pela aba `1. Início`.
-2. Informe proteína, ligantes, água e modo de trajetória/poses na aba `2. Projeto`.
-3. Escolha fingerprints, similaridade, rótulos, filtros e configurações LUNA na aba `3. Análises`.
-4. Execute o cálculo na aba `4. Executar`.
-5. Explore tabelas, mapas de calor, clusters, análises FP e sessões PyMOL na aba `5. Resultados`.
-6. Reabra projetos já calculados usando o `workdir` salvo.
+O modo de terminal é realmente headless: não importa PyQt, não cria <code>QApplication</code> e não inicia loop gráfico. O backend Matplotlib é fixado em <code>Agg</code> e o Qt, quando alcançado indiretamente por alguma dependência, recebe <code>QT_QPA_PLATFORM=offscreen</code>.
 
-## Estrutura Do Repositório
+A aplicação produz tabelas de interações, fingerprints HIFP/EIFP/FIFP, matrizes de Tanimoto, agrupamentos, mapas de calor, análise de importância de features, sessões PyMOL e relatórios HTML/PDF.
 
-```text
-luna_gui/
-  luna_gui/                         Código-fonte da interface e dos runtimes
-  tests/                            Testes automatizados principais
-  dist/conda/                       Especificações dos ambientes luna-gui/luna-env
-  dist/linux/install_hip2linteractomics.sh  Instalador Linux completo
-  dist/linux/run_gui.sh             Launcher Linux
-  dist/linux/build_snap.sh          Build do pacote .snap em Linux
-  dist/windows/install_hip2linteractomics.ps1  Instalador Windows completo
-  dist/windows/run_gui.bat          Launcher Windows
-  snap/snapcraft.yaml               Receita Snapcraft Linux
-  hipplinteractomics_terminal.py    Execução completa por arquivo de configuração
-  requirements.txt                  Dependências da GUI
-  run.py                            Launcher simples: python run.py
-```
+As melhorias científicas propostas, ainda não implementadas, estão organizadas em [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
-Pastas de resultados, workdirs de teste e arquivos temporários gerados durante análises podem ser grandes e não devem ser versionados.
+### Requisitos
 
-## Instalação Automática
+- Windows 10/11 de 64 bits ou Linux x86_64.
+- Python 3.9 ou superior; Python 3.11 é recomendado.
+- Miniconda, Anaconda ou Miniforge para criar o ambiente científico <code>luna-env</code>.
+- Acesso à internet na primeira instalação do LUNA.
 
-Para uma máquina nova, prefira os instaladores completos. Eles detectam Conda,
-instalam Miniforge quando necessário, criam os ambientes `luna-gui` e
-`luna-env`, instalam LUNA/RDKit/Open Babel/PyMOL e aplicam o patch de
-compatibilidade do projeto.
+São usados dois ambientes separados:
 
-### Linux
+- ambiente do aplicativo: PyQt6, Matplotlib, NumPy, SciPy e scikit-learn;
+- <code>luna-env</code>: LUNA, RDKit, Open Babel, PyMOL, Biopython e dependências químicas.
 
-```bash
-chmod +x dist/linux/install_hip2linteractomics.sh
-./dist/linux/install_hip2linteractomics.sh
-./dist/linux/run_gui.sh
-```
+Os comandos headless podem ser usados em servidores sem X11, Wayland ou desktop. PyMOL interativo continua exigindo uma sessão gráfica; a geração normal do pipeline não exige a GUI do aplicativo.
 
-### Windows
+### Opção Terminal-Only
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\dist\windows\install_hip2linteractomics.ps1
-.\dist\windows\run_gui.bat
-```
+O arquivo <code>environment.yml</code> prepara o aplicativo e a pilha científica no mesmo <code>luna-env</code>, sem a GUI PyQt6 do aplicativo. LUNA é instalado logo após a ativação, em uma segunda fase, porque seu metadata exige <code>pdbecif</code> já presente. PyMOL open source permanece no ambiente para gerar shells e sessões <code>.pse</code> diretamente com <code>pymol -cq</code>. O pacote Conda do PyMOL pode trazer Qt/PyQt5 como dependência transitiva própria; isso não inicializa a interface HIP²LInterActomics. <code>matplotlib-base</code> mantém os demais relatórios em <code>Agg</code>.
 
-### Pacote Snap Linux
+Conteúdo completo:
 
-`.snap` é um formato Linux. Ele não é o instalador apropriado para Windows.
-Para gerar o Snap em uma máquina Linux com Snapcraft:
+~~~yaml
+name: luna-env
 
-```bash
-sudo snap install snapcraft --classic
-./dist/linux/build_snap.sh
-sudo snap install ./hip2linteractomics_1.0.0_amd64.snap --classic --dangerous
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  # Runtime compatible with the current LUNA release.
+  - python=3.9
+  - pip>=23
+
+  # Molecular stack; PyMOL is retained for headless PSE export.
+  - biopython=1.79
+  - rdkit
+  - openbabel
+  - pymol-open-source
+  - networkx
+
+  # Numerical analysis and static, headless reporting.
+  - numpy<2
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib-base
+  - seaborn-base
+
+  # Phase 1: install pip prerequisites before LUNA metadata is evaluated.
+  # Phase 2 is documented below: pip install --no-build-isolation -U luna.
+  - pip:
+      - pdbecif
+      - mmh3<4
+      - xopen
+      - colorlog
+~~~
+
+Windows, no PowerShell ou Anaconda Prompt:
+
+~~~powershell
+conda env create -f environment.yml
+conda activate luna-env
+python -m pip install --no-build-isolation -U luna
+python luna_gui\core\_luna_patch.py
+python -m pip install --no-deps -e .
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hipplinteractomics-terminal --config projeto.json
+~~~
+
+Linux:
+
+~~~bash
+conda env create -f environment.yml
+conda activate luna-env
+python -m pip install --no-build-isolation -U luna
+python luna_gui/core/_luna_patch.py
+python -m pip install --no-deps -e .
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hipplinteractomics-terminal --config projeto.json
+~~~
+
+Execute os comandos a partir da raiz clonada do repositório; o comando <code>pip install --no-deps -e .</code> registra as CLIs sem reinstalar a pilha resolvida pelo Conda. Para atualizar um ambiente existente após alterar o YAML:
+
+~~~bash
+conda env update -n luna-env -f environment.yml --prune
+~~~
+
+### Instalação do pacote e comandos globais
+
+O arquivo <code>pyproject.toml</code> registra automaticamente os três comandos. A instalação cria wrappers em <code>Scripts\</code> no Windows e <code>bin/</code> no Linux.
+
+#### Windows — ambiente virtual
+
+~~~powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install ".[gui]"
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
 hip2linteractomics
-```
+~~~
 
-No Windows, use o instalador PowerShell acima. Se precisar de paralelismo real
-com `nproc > 1`, use Linux ou WSL2.
+#### Linux — ambiente virtual
 
-### Pacote Windows Nativo
+~~~bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ".[gui]"
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hip2linteractomics
+~~~
 
-Para distribuir a interface como instalador Windows, gere o bundle com PyInstaller
-e empacote-o com Inno Setup. O bundle inclui a GUI, mas o `luna-env` continua
-sendo criado pela aba `1. Inicio` quando uma analise LUNA for necessaria.
+#### Instalação isolada e disponível no PATH com pipx
 
-```powershell
-python -m pip install pyinstaller
-python -m PyInstaller --noconfirm --clean --workpath build\pyinstaller --distpath build\pyinstaller-dist HIP2LInterActomics.spec
-ISCC.exe /DBundleDir="build\pyinstaller-dist\HIP2LInterActomics" /DOutputDir="build\installer-out" installer\HIP2LInterActomics.iss
-```
+Windows:
 
-## Instalação Rápida
+~~~powershell
+py -m pip install --user pipx
+py -m pipx ensurepath
+pipx install ".[gui]"
+~~~
 
-O projeto usa dois ambientes separados:
+Linux:
 
-- `luna-gui`: ambiente da interface gráfica.
-- `luna-env`: ambiente interno onde o LUNA é instalado e executado.
+~~~bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install ".[gui]"
+~~~
 
-Essa separação evita conflitos entre PyQt6, matplotlib, PyMOL, OpenBabel e as dependências do LUNA.
+Abra um novo terminal após <code>ensurepath</code>. O <code>pipx</code> expõe todos os comandos do pacote sem misturar dependências com o Python do sistema.
 
-### 1. Instale Miniconda Ou Anaconda
+Para desenvolvimento editável:
 
-Instale Miniconda ou Anaconda e confirme que o comando `conda` funciona:
+~~~bash
+python -m pip install -e .
+~~~
 
-```bash
-conda --version
-```
+Para construir e instalar a distribuição oficial:
 
-### 2. Crie O Ambiente Da GUI
+~~~bash
+python -m pip install build
+python -m build
+python -m pip install dist/hip2linteractomics-1.0.0-py3-none-any.whl
+~~~
 
-No Windows, abra PowerShell ou Anaconda Prompt:
+### Preparação do LUNA
 
-```powershell
-cd D:\projeto_LUNA_GUIDE\luna_gui
-conda create -n luna-gui python=3.11 -y
-conda activate luna-gui
-pip install -r requirements.txt
-python run.py
-```
+A forma mais simples é abrir <code>hip2linteractomics</code>, acessar a aba inicial e escolher <strong>Instalar LUNA</strong>. O comando headless também aceita o Python de um ambiente já preparado:
 
-No Linux:
+~~~bash
+hipplinteractomics-terminal --config projeto.json \
+  --python-exe /caminho/para/luna-env/bin/python
+~~~
 
-```bash
-cd /caminho/para/luna_gui
-conda create -n luna-gui python=3.11 -y
-conda activate luna-gui
-pip install -r requirements.txt
-python run.py
-```
+No PowerShell:
 
-### 3. Instale O Ambiente LUNA Pela GUI
+~~~powershell
+hipplinteractomics-terminal --config projeto.json --python-exe C:\caminho\para\luna-env\python.exe
+~~~
 
-Ao abrir o aplicativo pela primeira vez:
+Quando <code>--python-exe</code> não é fornecido, o programa procura o Conda e resolve o ambiente indicado por <code>--env-name</code>, cujo padrão é <code>luna-env</code>.
 
-1. Vá para `1. Início`.
-2. Clique em `Verificar novamente`.
-3. Clique em `Instalar LUNA`.
-4. Aguarde a criação do ambiente `luna-env`.
+### Comando headless individual
 
-Depois disso, a GUI passa a usar o `luna-env` para rodar os cálculos do LUNA.
+Gere um JSON completo:
 
-## Uso Pelo Launcher
+~~~bash
+hipplinteractomics-terminal --write-template projeto.json
+~~~
 
-### Windows
+Valide e mostre o comando LUNA sem executar:
 
-```powershell
-cd D:\projeto_LUNA_GUIDE\luna_gui\dist\windows
-.\run_gui.bat
-```
+~~~bash
+hipplinteractomics-terminal --config projeto.json --dry-run
+~~~
 
-Se o launcher não encontrar o Python da GUI automaticamente:
+Execute:
 
-```powershell
-set LUNA_GUI_PYTHON=C:\caminho\para\python.exe
-.\run_gui.bat
-```
+~~~bash
+hipplinteractomics-terminal --config projeto.json
+~~~
 
-### Linux
+Regenere somente artefatos de um projeto concluído:
 
-```bash
-cd /caminho/para/luna_gui/dist/linux
-chmod +x run_gui.sh
-./run_gui.sh
-```
+~~~bash
+hipplinteractomics-terminal --config projeto.json --results-only
+~~~
 
-Se o ambiente da GUI tiver outro nome:
+Argumentos diretos podem substituir qualquer valor do JSON:
 
-```bash
-HIP2LINTERACTOMICS_GUI_ENV=meu-env ./run_gui.sh
-```
+~~~bash
+hipplinteractomics-terminal \
+  --protein-file /dados/receptor.pdb \
+  --ligand-file /dados/ligantes \
+  --workdir /resultados/ensaio-01 \
+  --ifp-type EIFP \
+  --ifp-levels 2 \
+  --ifp-radius 10 \
+  --ifp-length 2048 \
+  --ifp-format bin \
+  --sim-matrix \
+  --nproc 4
+~~~
 
-Se quiser apontar diretamente para um Python:
+Um JSON mínimo tem esta forma:
 
-```bash
-HIP2LINTERACTOMICS_GUI_PYTHON=/caminho/para/python ./run_gui.sh
-```
-
-## Dependências Gráficas No Linux
-
-Para PyQt6, PyMOL e OpenGL funcionarem corretamente no Linux:
-
-```bash
-# Debian / Ubuntu
-sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1
-
-# Fedora / RHEL
-sudo dnf install xcb-util-cursor libxkbcommon-x11 mesa-libGL mesa-libEGL
-```
-
-Em WSL2, use um servidor gráfico compatível ou o WSLg atualizado.
-
-## Execução Por Terminal
-
-O arquivo `hipplinteractomics_terminal.py` permite rodar o fluxo completo sem abrir a interface gráfica. Ele recebe um arquivo JSON ou um dicionário Python literal com os mesmos campos salvos pela GUI.
-
-Exemplo:
-
-```bash
-conda activate luna-gui
-python hipplinteractomics_terminal.py config_projeto.json
-```
-
-O arquivo de configuração pode conter, por exemplo:
-
-```json
+~~~json
 {
-  "protein_file": "/caminho/para/receptor.pdb",
-  "ligand_file": "/caminho/para/ligantes",
+  "protein_file": "/dados/receptor.pdb",
+  "ligand_file": "/dados/ligantes",
   "selected_ligands": "ALL",
-  "trajectory_analysis": false,
-  "workdir": "/caminho/para/workdir",
+  "workdir": "/resultados/base",
   "out_ifp": true,
-  "ifp_type": "ALL",
-  "ifp_levels": 6,
-  "ifp_radius": 2.0,
-  "ifp_length": 4096,
+  "ifp_type": "EIFP",
+  "ifp_levels": 2,
+  "ifp_radius": 10,
+  "ifp_length": 2048,
   "ifp_bit": true,
   "sim_matrix": true,
-  "out_pse": true,
-  "include_waters": true,
-  "add_h": true,
-  "ph": 7.4,
   "nproc": 1,
-  "overwrite": true,
-  "fp_labels_csv": "",
-  "fp_labels_id_column": "",
-  "fp_labels_column": "",
-  "fp_label_task": "regression",
-  "fp_use_otsu_threshold": true
+  "overwrite": false,
+  "python_exe": "/opt/conda/envs/luna-env/bin/python",
+  "terminal_results": true
 }
-```
+~~~
 
-Os outputs são gerados no mesmo formato usado pela GUI, então um projeto calculado por terminal pode ser aberto depois em `5. Resultados`.
+Também é aceita a forma aninhada com objetos <code>project</code> e <code>terminal</code>. Argumentos da CLI têm precedência sobre o arquivo. Use <code>hipplinteractomics-terminal --help</code> para a lista completa de entradas, saídas, filtros, parâmetros de fingerprint, runtime e exportação.
 
-## Análises FP
+### Execução múltipla em série
 
-A aba `5. Resultados > Análises FP` integra os fingerprints brutos do LUNA com informações de shells, colisões, classes de interação, níveis e modelos de importância.
+O orquestrador executa duas etapas estritas:
 
-O fluxo geral é:
+1. cria todos os JSONs do produto cartesiano;
+2. chama <code>hipplinteractomics-terminal</code> uma vez para cada JSON, aguardando o término antes de iniciar o seguinte.
 
-1. Carregar matriz `entries x FP`.
-2. Carregar detalhes de shells e ocorrências de fingerprints.
-3. Classificar a natureza dominante de cada feature.
-4. Resolver colisões por prevalência, z-score e Otsu quando necessário.
-5. Atribuir nível de shell predominante.
-6. Desconsiderar features não confiáveis por classe ou nível.
-7. Treinar modelos separados por nível assinado.
-8. Calcular importância das features em cada modelo.
-9. Transformar z-scores dos coeficientes de importância em p-values pela equação de Keiser and Hert [1].
-10. Gerar tabelas, gráficos e mapas de calor usando labels no formato `FP_nível`.
+Exemplo portável para PowerShell e Bash:
 
-Quando um projeto antigo é carregado e a matriz de fingerprints ainda não possui níveis assinados, a GUI tenta reconstruir os labels e regravar os CSVs compatíveis com a análise atual.
+~~~bash
+hipplinteractomics-multiple-run \
+  --base-config projeto-base.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5 6:2 \
+  --config-dir generated_configs
+~~~
 
-## Principais Resultados Gerados
+A sintaxe literal solicitada também é aceita no PowerShell:
 
-- Tabelas de interações por ligante, frame ou pose.
-- Mapas de calor por tipo de interação.
-- Mapa de calor completo ligantes x resíduos.
-- Estatísticas globais de interações.
-- Gráficos por átomo do ligante em análises de trajetória/poses.
-- Matrizes de fingerprints.
-- Matrizes de similaridade.
-- Clusters hierárquicos.
-- Dashboards de importância de fingerprints.
-- Sessões PyMOL filtradas.
-- Sessões PyMOL para shells de fingerprints.
-- Relatórios HTML e PDF.
+~~~powershell
+hipplinteractomics-multiple-run --base-config projeto-base.json --bits '[1024, 2048]' --formats '["bin", "cnt"]' --levels-growth '[(2,10), (3,5), (6,2)]' --config-dir generated_configs
+~~~
 
-## Solução De Problemas
+As combinações acima geram 12 execuções. Cada configuração recebe:
 
-### Conda Não É Encontrado
+- <code>ifp_length</code> a partir de <code>--bits</code>;
+- <code>ifp_bit=true</code> para <code>bin</code> e <code>false</code> para <code>cnt</code>;
+- <code>ifp_levels</code> e <code>ifp_radius</code> a partir de cada par <code>(nível, growth_ratio)</code>;
+- um <code>workdir</code> exclusivo, evitando colisão entre resultados.
 
-Verifique se `conda` está no PATH:
+Os JSONs são gravados atomicamente com temporários únicos antes do primeiro subprocesso. A saída combinada de stdout/stderr é mostrada no terminal e salva com buffer de 64 KiB em <code>generated_configs/logs/</code>, sem <code>flush()</code> por linha. O estado fica em <code>generated_configs/pipeline_summary.json</code>: ele é criado antes da execução e atualizado atomicamente após cada run. Por padrão o lote para no primeiro exit code diferente de zero; <code>--continue-on-error</code> processa os itens restantes.
 
-```bash
-conda info
-```
+Ao repetir o mesmo comando, o orquestrador compara o SHA-256 de cada configuração com o resumo e pula somente runs marcados como <code>completed</code> cujo conteúdo continua idêntico. Runs <code>failed</code>, <code>interrupted</code> ou modificados são executados novamente. Assim, uma queda após a 30ª de 50 simulações retoma na 31ª sem uma opção adicional:
 
-Se necessário, configure a variável usada pela GUI:
+~~~bash
+# Primeira execução ou retomada: use exatamente o mesmo comando.
+hipplinteractomics-multiple-run \
+  --base-config projeto-base.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5 6:2 \
+  --config-dir generated_configs
+~~~
 
-```bash
-# Linux
-export HIP2LINTERACTOMICS_GUI_CONDA=/caminho/para/conda
+<code>SIGTERM</code> e <code>SIGINT</code> são encaminhados ao subprocesso ativo; o run é marcado como <code>interrupted</code>, o resumo é persistido e o processo retorna <code>128 + sinal</code>. Em Slurm, <code>nproc</code> deriva de <code>SLURM_CPUS_PER_TASK</code> ou <code>SLURM_JOB_CPUS_PER_NODE</code>. Em PBS/Torque, usa <code>PBS_NUM_PPN</code> ou os slots locais de <code>PBS_NODEFILE</code>. Fora de um scheduler, usa o pedido limitado por <code>os.cpu_count()</code>; no Windows nativo, a proteção do LUNA mantém <code>nproc=1</code>. A lista estática de ligantes é lida uma vez pelo orquestrador e materializada nos JSONs filhos.
 
-# Windows PowerShell
-$env:HIP2LINTERACTOMICS_GUI_CONDA="C:\caminho\para\conda.exe"
-```
+Para chamar um arquivo ou executável específico:
 
-### PyMOL Ou OpenGL Falha No Linux
+~~~bash
+hipplinteractomics-multiple-run \
+  --base-config projeto-base.json \
+  --bits 2048 \
+  --formats bin \
+  --levels-growth 2:10 \
+  --terminal-executable ./hipplinteractomics_terminal.py
+~~~
 
-Instale as dependências gráficas do sistema e confirme que a sessão X11/Wayland está funcionando. Em ambientes remotos, WSL ou containers, erros nativos de PyMOL/OpenGL geralmente indicam bibliotecas gráficas ausentes ou incompatíveis.
+### Execução direta pelo código-fonte
 
-### Paralelização No Windows
+A instalação do pacote é recomendada. Durante desenvolvimento, os equivalentes são:
 
-No Windows nativo, o LUNA usa `multiprocessing` em modo `spawn`, que falha em
-fluxos internos quando `nproc > 1`. Por estabilidade, a GUI e o script terminal
-limitam `nproc` para `1` no Windows. Para bibliotecas grandes e uso real de
-vários núcleos, rode a versão Linux em uma máquina Linux ou no WSL2.
+~~~bash
+python hipplinteractomics_terminal.py --config projeto.json
+python hipplinteractomics_multiple_run.py \
+  --base-config projeto-base.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5
+python run.py
+~~~
 
-### Projetos Antigos
+### Pacotes desktop
 
-Projetos calculados antes das atribuições de nível em fingerprints podem ser carregados normalmente. A GUI tenta atualizar as matrizes e recalcular os dashboards FP no formato atual.
+Windows:
 
-## Testes
+~~~powershell
+.\installer\build_windows.ps1 -InstallBuildDependencies
+~~~
 
-Para rodar os testes principais:
+Linux:
 
-```bash
-conda activate luna-gui
-python -m pytest tests
-```
+~~~bash
+bash installer/build_linux.sh
+~~~
 
-Para uma verificação rápida dos módulos ligados a LUNA/PyMOL:
+O PyInstaller não faz compilação cruzada. O Windows produz o bundle e, quando Inno Setup 6 está disponível, <code>HIP2LInterActomics-Setup.exe</code>. O Linux produz um bundle nativo compactado em <code>.tar.gz</code>. O workflow <code>.github/workflows/build-installers.yml</code> também publica wheel/sdist, artefato Windows e artefato Linux.
 
-```bash
-python -B -m pytest tests/test_pymol_launcher.py tests/test_luna_api_runner.py
-```
+#### Inclusão física do YAML nas distribuições
 
-## Nome Do Projeto
+A distribuição Python usa:
 
-O nome público do software é `HIP²LInterActomics`. O nome técnico do repositório pode continuar como `LUNA_GUI` ou `HIP2LInterActomics_GUI`, e o pacote Python interno permanece `luna_gui` para manter compatibilidade com imports e projetos salvos.
+~~~text
+# MANIFEST.in
+include environment.yml
+~~~
 
-## Referência
+~~~toml
+[tool.setuptools.data-files]
+"share/hip2linteractomics" = ["environment.yml"]
+~~~
 
-[1] Keiser, M. J.; Hert, J. In Chemogenomics: Methods and Applications; Jacoby, E., Ed.; Methods in Molecular Biology; Humana Press: Totowa, NJ, 2009; pp 195-205.
+O bundle nativo usa a entrada <code>("environment.yml", ".")</code> em <code>HIP2LInterActomics.spec</code>. No Windows, a regra recursiva de <code>[Files]</code> do Inno Setup copia o YAML para <code>{app}\environment.yml</code>. No Linux, <code>installer/build_linux.sh</code> valida o arquivo no bundle antes de criar o <code>.tar.gz</code>. Os dois scripts de build falham explicitamente se o asset estiver ausente.
+
+
+### Testes
+
+~~~bash
+python -m pytest -q
+python -m compileall -q luna_gui tests tools \
+  hipplinteractomics_terminal.py hipplinteractomics_multiple_run.py
+~~~
+
+### Estrutura relevante
+
+~~~text
+hipplinteractomics_terminal.py       CLI headless individual
+hipplinteractomics_multiple_run.py   matriz JSON e execução serial
+pyproject.toml                       metadados e comandos instaláveis
+luna_gui/                            pacote e interface PyQt6
+tests/                               testes automatizados
+installer/                           builds PyInstaller/Inno Setup
+.github/workflows/                   CI multiplataforma
+~~~
+
+Dados experimentais, ambientes Conda, workdirs, logs e diretórios de build não devem ser versionados.
+
+### Solução de problemas
+
+- <strong>Comando não encontrado:</strong> ative o ambiente virtual ou execute novamente <code>pipx ensurepath</code> e abra outro terminal.
+- <strong>Conda não encontrado:</strong> use <code>--conda-exe</code>, <code>--python-exe</code> ou defina <code>HIP2LINTERACTOMICS_GUI_CONDA</code>.
+- <strong>LUNA não instalado:</strong> crie o <code>luna-env</code> pela interface ou informe um Python que consiga executar <code>import luna</code>.
+- <strong>Falha multinúcleo no Windows:</strong> use <code>--nproc 1</code>; para paralelismo real, use Linux ou WSL2.
+- <strong>Lote interrompido:</strong> consulte o arquivo <code>.log</code> da combinação e <code>pipeline_summary.json</code>.
+- <strong>PyMOL/OpenGL:</strong> a visualização interativa exige sessão gráfica, mesmo quando o cálculo é headless.
+
+### Licença e referência
+
+Licença MIT; consulte [LICENSE](LICENSE).
+
+Keiser, M. J.; Hert, J. In <em>Chemogenomics: Methods and Applications</em>; Jacoby, E., Ed.; Methods in Molecular Biology; Humana Press: Totowa, NJ, 2009; pp. 195–205.
+
+---
+
+
+## Español
+
+### Descripción general
+
+HIP²LInterActomics ofrece una aplicación PyQt6 y dos comandos de terminal independientes de la interfaz:
+
+- <code>hipplinteractomics-terminal</code> ejecuta un proyecto LUNA desde JSON y/o argumentos directos.
+- <code>hipplinteractomics-multiple-run</code> genera una matriz cartesiana de configuraciones y la procesa en serie.
+- <code>hip2linteractomics</code> abre la interfaz gráfica.
+
+El flujo de terminal es completamente headless: no importa PyQt, no crea <code>QApplication</code> ni inicia un loop gráfico. Matplotlib utiliza <code>Agg</code> y cualquier acceso indirecto a Qt recibe <code>QT_QPA_PLATFORM=offscreen</code>.
+
+La aplicación puede producir tablas de interacciones, fingerprints HIFP/EIFP/FIFP, matrices de Tanimoto, clusters, mapas de calor, análisis supervisados de importancia, sesiones PyMOL e informes HTML/PDF.
+
+Las mejoras científicas propuestas, todavía no implementadas, están organizadas en [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
+
+### Requisitos
+
+- Windows 10/11 de 64 bits o Linux x86_64.
+- Python 3.9 o superior; se recomienda Python 3.11.
+- Miniconda, Anaconda o Miniforge para el entorno científico <code>luna-env</code>.
+- Acceso a internet durante la primera instalación de LUNA.
+
+El entorno de la aplicación contiene PyQt6 y la pila de análisis/visualización. El entorno separado <code>luna-env</code> contiene LUNA, RDKit, Open Babel, PyMOL, Biopython y las dependencias químicas.
+
+Los comandos headless funcionan en servidores sin X11, Wayland o escritorio. La visualización interactiva con PyMOL sí requiere una sesión gráfica.
+
+### Opción Terminal-Only
+
+El archivo <code>environment.yml</code> prepara la aplicación y la pila científica en el mismo <code>luna-env</code>, sin la GUI PyQt6 de la aplicación. LUNA se instala después de activar el entorno, en una segunda fase, porque su metadata requiere que <code>pdbecif</code> ya exista. PyMOL open source permanece disponible para generar shells y sesiones <code>.pse</code> con <code>pymol -cq</code>. El paquete Conda de PyMOL puede incorporar Qt/PyQt5 como dependencia transitiva propia, pero no inicializa la interfaz HIP²LInterActomics. <code>matplotlib-base</code> mantiene los demás informes en <code>Agg</code>.
+
+~~~yaml
+name: luna-env
+
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  # Runtime compatible with the current LUNA release.
+  - python=3.9
+  - pip>=23
+
+  # Molecular stack; PyMOL is retained for headless PSE export.
+  - biopython=1.79
+  - rdkit
+  - openbabel
+  - pymol-open-source
+  - networkx
+
+  # Numerical analysis and static, headless reporting.
+  - numpy<2
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib-base
+  - seaborn-base
+
+  # Phase 1: install pip prerequisites before LUNA metadata is evaluated.
+  # Phase 2 is documented below: pip install --no-build-isolation -U luna.
+  - pip:
+      - pdbecif
+      - mmh3<4
+      - xopen
+      - colorlog
+~~~
+
+Windows, desde PowerShell o Anaconda Prompt:
+
+~~~powershell
+conda env create -f environment.yml
+conda activate luna-env
+python -m pip install --no-build-isolation -U luna
+python luna_gui\core\_luna_patch.py
+python -m pip install --no-deps -e .
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hipplinteractomics-terminal --config proyecto.json
+~~~
+
+Linux:
+
+~~~bash
+conda env create -f environment.yml
+conda activate luna-env
+python -m pip install --no-build-isolation -U luna
+python luna_gui/core/_luna_patch.py
+python -m pip install --no-deps -e .
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hipplinteractomics-terminal --config proyecto.json
+~~~
+
+Ejecute estos pasos desde la raíz clonada; <code>pip install --no-deps -e .</code> registra las CLIs sin reinstalar la pila resuelta por Conda. Para actualizar el entorno:
+
+~~~bash
+conda env update -n luna-env -f environment.yml --prune
+~~~
+
+
+### Instalación del paquete y comandos globales
+
+<code>pyproject.toml</code> registra los tres comandos. La instalación crea wrappers nativos en <code>Scripts\</code> en Windows y <code>bin/</code> en Linux.
+
+#### Windows — entorno virtual
+
+~~~powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install ".[gui]"
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hip2linteractomics
+~~~
+
+#### Linux — entorno virtual
+
+~~~bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ".[gui]"
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hip2linteractomics
+~~~
+
+#### Instalación aislada en PATH con pipx
+
+Windows:
+
+~~~powershell
+py -m pip install --user pipx
+py -m pipx ensurepath
+pipx install ".[gui]"
+~~~
+
+Linux:
+
+~~~bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install ".[gui]"
+~~~
+
+Abra otra terminal después de <code>ensurepath</code>. Para desarrollo editable utilice <code>python -m pip install -e .</code>.
+
+Para construir e instalar el wheel oficial:
+
+~~~bash
+python -m pip install build
+python -m build
+python -m pip install dist/hip2linteractomics-1.0.0-py3-none-any.whl
+~~~
+
+### Preparación de LUNA
+
+La opción más sencilla es ejecutar <code>hip2linteractomics</code> y seleccionar <strong>Instalar LUNA</strong> en la primera pestaña. También puede indicar un entorno ya preparado:
+
+~~~bash
+hipplinteractomics-terminal --config proyecto.json \
+  --python-exe /ruta/a/luna-env/bin/python
+~~~
+
+PowerShell:
+
+~~~powershell
+hipplinteractomics-terminal --config proyecto.json --python-exe C:\ruta\a\luna-env\python.exe
+~~~
+
+Sin <code>--python-exe</code>, el comando resuelve Conda y el entorno indicado por <code>--env-name</code>, cuyo valor predeterminado es <code>luna-env</code>.
+
+### Ejecución headless individual
+
+~~~bash
+hipplinteractomics-terminal --write-template proyecto.json
+hipplinteractomics-terminal --config proyecto.json --dry-run
+hipplinteractomics-terminal --config proyecto.json
+hipplinteractomics-terminal --config proyecto.json --results-only
+~~~
+
+Los argumentos directos sustituyen los valores del JSON:
+
+~~~bash
+hipplinteractomics-terminal \
+  --protein-file /datos/receptor.pdb \
+  --ligand-file /datos/ligandos \
+  --workdir /resultados/ejecucion-01 \
+  --ifp-type EIFP \
+  --ifp-levels 2 \
+  --ifp-radius 10 \
+  --ifp-length 2048 \
+  --ifp-format bin \
+  --sim-matrix \
+  --nproc 4
+~~~
+
+JSON mínimo:
+
+~~~json
+{
+  "protein_file": "/datos/receptor.pdb",
+  "ligand_file": "/datos/ligandos",
+  "selected_ligands": "ALL",
+  "workdir": "/resultados/base",
+  "out_ifp": true,
+  "ifp_type": "EIFP",
+  "ifp_levels": 2,
+  "ifp_radius": 10,
+  "ifp_length": 2048,
+  "ifp_bit": true,
+  "sim_matrix": true,
+  "nproc": 1,
+  "overwrite": false,
+  "python_exe": "/opt/conda/envs/luna-env/bin/python",
+  "terminal_results": true
+}
+~~~
+
+También se aceptan objetos anidados <code>project</code> y <code>terminal</code>. Ejecute <code>hipplinteractomics-terminal --help</code> para consultar todas las entradas, salidas, opciones de fingerprint, filtros, runtime y exportación.
+
+### Ejecución múltiple en serie
+
+El orquestador siempre realiza dos etapas ordenadas: primero escribe todos los JSON del producto cartesiano y después inicia un subprocess síncrono por configuración.
+
+~~~bash
+hipplinteractomics-multiple-run \
+  --base-config proyecto-base.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5 6:2 \
+  --config-dir generated_configs
+~~~
+
+También se admite la sintaxis literal solicitada:
+
+~~~powershell
+hipplinteractomics-multiple-run --base-config proyecto-base.json --bits '[1024, 2048]' --formats '["bin", "cnt"]' --levels-growth '[(2,10), (3,5), (6,2)]' --config-dir generated_configs
+~~~
+
+Este ejemplo genera 12 ejecuciones. Cada una recibe un directorio exclusivo y asigna bits a <code>ifp_length</code>, formato a <code>ifp_bit</code>, nivel a <code>ifp_levels</code> y growth ratio a <code>ifp_radius</code>.
+
+Todos los JSON se escriben atómicamente con nombres temporales únicos antes de iniciar la ejecución. stdout/stderr se muestran y se guardan con un búfer de 64 KiB en <code>generated_configs/logs/</code>, sin <code>flush()</code> por línea. <code>generated_configs/pipeline_summary.json</code> se crea antes del primer run y se actualiza atómicamente después de cada resultado. El lote se detiene con el primer exit code distinto de cero, salvo que se utilice <code>--continue-on-error</code>.
+
+Al repetir exactamente el mismo comando, el orquestador compara el SHA-256 de cada configuración y omite solo los runs <code>completed</code> cuyo contenido no cambió. Los estados <code>failed</code> e <code>interrupted</code>, así como cualquier JSON modificado, se ejecutan nuevamente. Por ejemplo, una caída después de la simulación 30 de 50 reanuda automáticamente en la 31:
+
+~~~bash
+hipplinteractomics-multiple-run \
+  --base-config proyecto-base.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5 6:2 \
+  --config-dir generated_configs
+~~~
+
+<code>SIGTERM</code> y <code>SIGINT</code> se transmiten al subprocess activo; el run queda como <code>interrupted</code>, el resumen se persiste y el proceso devuelve <code>128 + señal</code>. En Slurm, <code>nproc</code> se obtiene de <code>SLURM_CPUS_PER_TASK</code> o <code>SLURM_JOB_CPUS_PER_NODE</code>. En PBS/Torque utiliza <code>PBS_NUM_PPN</code> o los slots locales de <code>PBS_NODEFILE</code>. Sin scheduler, la solicitud queda limitada por <code>os.cpu_count()</code>; en Windows nativo, la protección de LUNA conserva <code>nproc=1</code>. La lista estática de ligandos se lee una sola vez y se materializa en los JSON hijos.
+
+Utilice <code>--terminal-executable PATH</code> para seleccionar un script o ejecutable específico.
+
+### Ejecución desde el código fuente
+
+~~~bash
+python hipplinteractomics_terminal.py --config proyecto.json
+python hipplinteractomics_multiple_run.py \
+  --base-config proyecto-base.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5
+python run.py
+~~~
+
+### Builds de escritorio
+
+Windows:
+
+~~~powershell
+.\installer\build_windows.ps1 -InstallBuildDependencies
+~~~
+
+Linux:
+
+~~~bash
+bash installer/build_linux.sh
+~~~
+
+PyInstaller no realiza compilación cruzada. Windows produce un bundle y, con Inno Setup 6, <code>HIP2LInterActomics-Setup.exe</code>. Linux produce un bundle nativo <code>.tar.gz</code>. GitHub Actions también publica wheel/sdist y artefactos para Windows y Linux.
+
+#### Inclusión física del YAML
+
+<code>MANIFEST.in</code> contiene <code>include environment.yml</code> y <code>pyproject.toml</code> instala el asset en <code>share/hip2linteractomics</code>. PyInstaller usa <code>("environment.yml", ".")</code>. La regla recursiva de Inno Setup lo copia a <code>{app}\environment.yml</code> y el script Linux valida el archivo antes de crear el <code>.tar.gz</code>. Ambos builds fallan si falta el asset.
+
+
+### Pruebas
+
+~~~bash
+python -m pytest -q
+python -m compileall -q luna_gui tests tools \
+  hipplinteractomics_terminal.py hipplinteractomics_multiple_run.py
+~~~
+
+### Estructura relevante
+
+~~~text
+hipplinteractomics_terminal.py       CLI headless individual
+hipplinteractomics_multiple_run.py   matriz JSON y ejecución serial
+pyproject.toml                       metadatos y comandos instalables
+luna_gui/                            paquete e interfaz PyQt6
+tests/                               pruebas automatizadas
+installer/                           builds PyInstaller/Inno Setup
+.github/workflows/                   CI multiplataforma
+~~~
+
+No deben versionarse datos experimentales, entornos Conda, workdirs, logs ni intermediarios de build.
+
+### Solución de problemas
+
+- <strong>Comando no encontrado:</strong> active el entorno virtual o ejecute <code>pipx ensurepath</code> y abra otra terminal.
+- <strong>Conda no encontrado:</strong> use <code>--conda-exe</code>, <code>--python-exe</code> o <code>HIP2LINTERACTOMICS_GUI_CONDA</code>.
+- <strong>LUNA no instalado:</strong> cree <code>luna-env</code> desde la GUI o seleccione un Python capaz de ejecutar <code>import luna</code>.
+- <strong>Error multiproceso en Windows:</strong> use <code>--nproc 1</code>; utilice Linux o WSL2 para paralelismo real.
+- <strong>Lote interrumpido:</strong> revise el log de la combinación y <code>pipeline_summary.json</code>.
+- <strong>PyMOL/OpenGL:</strong> la visualización interactiva necesita una sesión gráfica aunque el cálculo sea headless.
+
+### Licencia y referencia
+
+Licencia MIT; consulte [LICENSE](LICENSE).
+
+Keiser, M. J.; Hert, J. In <em>Chemogenomics: Methods and Applications</em>; Jacoby, E., Ed.; Methods in Molecular Biology; Humana Press: Totowa, NJ, 2009; pp. 195–205.
+
+
+
+## English
+
+### Overview
+
+HIP²LInterActomics provides a PyQt6 desktop application and two UI-independent terminal commands:
+
+- <code>hipplinteractomics-terminal</code> runs one LUNA project from JSON and/or direct arguments.
+- <code>hipplinteractomics-multiple-run</code> generates a Cartesian configuration matrix and processes it serially.
+- <code>hip2linteractomics</code> opens the desktop interface.
+
+The terminal path is fully headless. It does not import PyQt, create a <code>QApplication</code>, or start an event loop. Matplotlib uses <code>Agg</code>, and indirect Qt access is constrained with <code>QT_QPA_PLATFORM=offscreen</code>.
+
+The application can produce interaction tables, HIFP/EIFP/FIFP fingerprints, Tanimoto matrices, clusters, heatmaps, supervised feature-importance analyses, PyMOL sessions, and HTML/PDF reports.
+
+Proposed scientific improvements that are not yet implemented are organized in the [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
+
+### Requirements
+
+- 64-bit Windows 10/11 or x86_64 Linux.
+- Python 3.9 or newer; Python 3.11 is recommended.
+- Miniconda, Anaconda, or Miniforge for the scientific <code>luna-env</code>.
+- Internet access during the initial LUNA installation.
+
+The application environment contains PyQt6 and the analysis/visualization stack. The separate <code>luna-env</code> contains LUNA, RDKit, Open Babel, PyMOL, Biopython, and chemistry dependencies.
+
+Headless commands work on servers without X11, Wayland, or a desktop. Interactive PyMOL visualization still requires a graphical session.
+
+### Terminal-Only option
+
+<code>environment.yml</code> prepares the application and scientific stack in one <code>luna-env</code>, without the application's PyQt6 GUI. LUNA is installed immediately after activation in a second phase because its metadata requires <code>pdbecif</code> to exist first. Open-source PyMOL remains available to generate shells and <code>.pse</code> sessions through <code>pymol -cq</code>. PyMOL's Conda package may bring Qt/PyQt5 as its own transitive dependency, but it does not initialize the HIP²LInterActomics interface. <code>matplotlib-base</code> keeps all other reports on <code>Agg</code>.
+
+~~~yaml
+name: luna-env
+
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  # Runtime compatible with the current LUNA release.
+  - python=3.9
+  - pip>=23
+
+  # Molecular stack; PyMOL is retained for headless PSE export.
+  - biopython=1.79
+  - rdkit
+  - openbabel
+  - pymol-open-source
+  - networkx
+
+  # Numerical analysis and static, headless reporting.
+  - numpy<2
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib-base
+  - seaborn-base
+
+  # Phase 1: install pip prerequisites before LUNA metadata is evaluated.
+  # Phase 2 is documented below: pip install --no-build-isolation -U luna.
+  - pip:
+      - pdbecif
+      - mmh3<4
+      - xopen
+      - colorlog
+~~~
+
+Windows PowerShell or Anaconda Prompt:
+
+~~~powershell
+conda env create -f environment.yml
+conda activate luna-env
+python -m pip install --no-build-isolation -U luna
+python luna_gui\core\_luna_patch.py
+python -m pip install --no-deps -e .
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hipplinteractomics-terminal --config project.json
+~~~
+
+Linux:
+
+~~~bash
+conda env create -f environment.yml
+conda activate luna-env
+python -m pip install --no-build-isolation -U luna
+python luna_gui/core/_luna_patch.py
+python -m pip install --no-deps -e .
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hipplinteractomics-terminal --config project.json
+~~~
+
+Run these steps from the cloned repository root; <code>pip install --no-deps -e .</code> registers the CLIs without reinstalling the stack resolved by Conda. Update an existing environment with:
+
+~~~bash
+conda env update -n luna-env -f environment.yml --prune
+~~~
+
+
+### Package installation and global commands
+
+<code>pyproject.toml</code> registers all three commands. Installation creates native wrappers under <code>Scripts\</code> on Windows and <code>bin/</code> on Linux.
+
+#### Windows virtual environment
+
+~~~powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install ".[gui]"
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hip2linteractomics
+~~~
+
+#### Linux virtual environment
+
+~~~bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ".[gui]"
+hipplinteractomics-terminal --help
+hipplinteractomics-multiple-run --help
+hip2linteractomics
+~~~
+
+#### Isolated PATH installation with pipx
+
+Windows:
+
+~~~powershell
+py -m pip install --user pipx
+py -m pipx ensurepath
+pipx install ".[gui]"
+~~~
+
+Linux:
+
+~~~bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install ".[gui]"
+~~~
+
+Open a new terminal after <code>ensurepath</code>. For editable development use <code>python -m pip install -e .</code>.
+
+Build and install the official wheel with:
+
+~~~bash
+python -m pip install build
+python -m build
+python -m pip install dist/hip2linteractomics-1.0.0-py3-none-any.whl
+~~~
+
+### Preparing LUNA
+
+The simplest setup is to run <code>hip2linteractomics</code> and select <strong>Install LUNA</strong> on the first tab. A prepared environment can be selected directly:
+
+~~~bash
+hipplinteractomics-terminal --config project.json \
+  --python-exe /path/to/luna-env/bin/python
+~~~
+
+PowerShell:
+
+~~~powershell
+hipplinteractomics-terminal --config project.json --python-exe C:\path\to\luna-env\python.exe
+~~~
+
+Without <code>--python-exe</code>, the command resolves Conda and the environment selected by <code>--env-name</code>, which defaults to <code>luna-env</code>.
+
+### Single headless run
+
+~~~bash
+hipplinteractomics-terminal --write-template project.json
+hipplinteractomics-terminal --config project.json --dry-run
+hipplinteractomics-terminal --config project.json
+hipplinteractomics-terminal --config project.json --results-only
+~~~
+
+Direct options override values loaded from JSON:
+
+~~~bash
+hipplinteractomics-terminal \
+  --protein-file /data/receptor.pdb \
+  --ligand-file /data/ligands \
+  --workdir /results/run-01 \
+  --ifp-type EIFP \
+  --ifp-levels 2 \
+  --ifp-radius 10 \
+  --ifp-length 2048 \
+  --ifp-format bin \
+  --sim-matrix \
+  --nproc 4
+~~~
+
+Minimal JSON:
+
+~~~json
+{
+  "protein_file": "/data/receptor.pdb",
+  "ligand_file": "/data/ligands",
+  "selected_ligands": "ALL",
+  "workdir": "/results/base",
+  "out_ifp": true,
+  "ifp_type": "EIFP",
+  "ifp_levels": 2,
+  "ifp_radius": 10,
+  "ifp_length": 2048,
+  "ifp_bit": true,
+  "sim_matrix": true,
+  "nproc": 1,
+  "overwrite": false,
+  "python_exe": "/opt/conda/envs/luna-env/bin/python",
+  "terminal_results": true
+}
+~~~
+
+Nested <code>project</code> and <code>terminal</code> objects are also accepted. Run <code>hipplinteractomics-terminal --help</code> for every input, output, fingerprint, filter, runtime, and export option.
+
+### Serial batch execution
+
+The orchestrator always completes two ordered stages: it first writes every Cartesian-product JSON and then launches one synchronous subprocess per configuration.
+
+~~~bash
+hipplinteractomics-multiple-run \
+  --base-config base-project.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5 6:2 \
+  --config-dir generated_configs
+~~~
+
+The requested literal syntax is also supported:
+
+~~~powershell
+hipplinteractomics-multiple-run --base-config base-project.json --bits '[1024, 2048]' --formats '["bin", "cnt"]' --levels-growth '[(2,10), (3,5), (6,2)]' --config-dir generated_configs
+~~~
+
+This example generates 12 runs. Each run receives a unique work directory and maps bits to <code>ifp_length</code>, format to <code>ifp_bit</code>, level to <code>ifp_levels</code>, and growth ratio to <code>ifp_radius</code>.
+
+All JSON files are written atomically through unique temporary names before execution starts. Combined stdout/stderr is streamed and saved with a 64 KiB buffer under <code>generated_configs/logs/</code>, without line-by-line <code>flush()</code>. <code>generated_configs/pipeline_summary.json</code> is created before the first run and atomically updated after every result. Processing stops on the first nonzero exit code unless <code>--continue-on-error</code> is supplied.
+
+Repeating the same command compares each configuration's SHA-256 digest with the summary and skips only unchanged runs marked <code>completed</code>. Runs marked <code>failed</code> or <code>interrupted</code>, and configurations whose contents changed, execute again. If a 50-run batch stops after run 30, the same command resumes with run 31:
+
+~~~bash
+hipplinteractomics-multiple-run \
+  --base-config base-project.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5 6:2 \
+  --config-dir generated_configs
+~~~
+
+<code>SIGTERM</code> and <code>SIGINT</code> are relayed to the active child; the run is recorded as <code>interrupted</code>, the summary is persisted, and the process exits with <code>128 + signal</code>. Under Slurm, <code>nproc</code> is derived from <code>SLURM_CPUS_PER_TASK</code> or <code>SLURM_JOB_CPUS_PER_NODE</code>. PBS/Torque uses <code>PBS_NUM_PPN</code> or the local slots in <code>PBS_NODEFILE</code>. Without a scheduler, the requested value is capped by <code>os.cpu_count()</code>; native Windows retains LUNA's safety limit of <code>nproc=1</code>. The static ligand list is read once by the orchestrator and materialized into every child JSON.
+
+Use a specific source script or packaged executable with <code>--terminal-executable PATH</code>.
+
+### Running from the source tree
+
+~~~bash
+python hipplinteractomics_terminal.py --config project.json
+python hipplinteractomics_multiple_run.py \
+  --base-config base-project.json \
+  --bits 1024 2048 \
+  --formats bin cnt \
+  --levels-growth 2:10 3:5
+python run.py
+~~~
+
+### Desktop builds
+
+Windows:
+
+~~~powershell
+.\installer\build_windows.ps1 -InstallBuildDependencies
+~~~
+
+Linux:
+
+~~~bash
+bash installer/build_linux.sh
+~~~
+
+PyInstaller does not cross-compile. Windows produces a portable bundle and, when Inno Setup 6 is installed, <code>HIP2LInterActomics-Setup.exe</code>. Linux produces a native <code>.tar.gz</code> bundle. The GitHub Actions workflow also publishes wheel/sdist, Windows, and Linux artifacts.
+
+#### Physical YAML inclusion
+
+<code>MANIFEST.in</code> contains <code>include environment.yml</code>, while <code>pyproject.toml</code> installs the asset under <code>share/hip2linteractomics</code>. PyInstaller uses <code>("environment.yml", ".")</code>. Inno Setup's recursive rule copies it to <code>{app}\environment.yml</code>, and the Linux build validates the file before creating the <code>.tar.gz</code>. Both builds fail when the asset is absent.
+
+
+### Tests
+
+~~~bash
+python -m pytest -q
+python -m compileall -q luna_gui tests tools \
+  hipplinteractomics_terminal.py hipplinteractomics_multiple_run.py
+~~~
+
+### Relevant repository structure
+
+~~~text
+hipplinteractomics_terminal.py       single-run headless CLI
+hipplinteractomics_multiple_run.py   JSON matrix and serial runner
+pyproject.toml                       package metadata and installed commands
+luna_gui/                            PyQt6 package and interface
+tests/                               automated tests
+installer/                           PyInstaller/Inno Setup builds
+.github/workflows/                   cross-platform CI
+~~~
+
+Do not commit experimental data, Conda environments, work directories, logs, or build intermediates.
+
+### Troubleshooting
+
+- <strong>Command not found:</strong> activate the virtual environment or run <code>pipx ensurepath</code> and open a new terminal.
+- <strong>Conda not found:</strong> use <code>--conda-exe</code>, <code>--python-exe</code>, or <code>HIP2LINTERACTOMICS_GUI_CONDA</code>.
+- <strong>LUNA not installed:</strong> create <code>luna-env</code> through the GUI or select a Python that can execute <code>import luna</code>.
+- <strong>Windows multiprocessing failure:</strong> use <code>--nproc 1</code>; use Linux or WSL2 for actual parallelism.
+- <strong>Interrupted batch:</strong> inspect the combination log and <code>pipeline_summary.json</code>.
+- <strong>PyMOL/OpenGL:</strong> interactive visualization requires a graphical session even when calculations are headless.
+
+### License and reference
+
+MIT License; see [LICENSE](LICENSE).
+
+Keiser, M. J.; Hert, J. In <em>Chemogenomics: Methods and Applications</em>; Jacoby, E., Ed.; Methods in Molecular Biology; Humana Press: Totowa, NJ, 2009; pp. 195–205.
+
+---

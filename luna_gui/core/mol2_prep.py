@@ -1,6 +1,7 @@
 """Split MOL2/PDB complexes (protein + ligand) into separate files.
 
-Adapted from `Scripts_Daniel/0-reorganizar_moleculas.py`. Given a folder of
+Consolidated from the project's original molecular-preparation prototype. Given
+a folder of
 MOL2 files where each file contains a protein (atoms 1..last_pa) followed by a
 ligand (atoms > last_pa), or PDB complex files containing protein, ligand and
 optional waters, produces:

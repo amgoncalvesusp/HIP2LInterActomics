@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hip2linteractomics"
+version = "1.0.0"
+description = "Desktop and headless workflows for LUNA intermolecular interaction analysis"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "HIP2LInterActomics contributors" }
+]
+keywords = ["bioinformatics", "interactomics", "LUNA", "fingerprints"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Environment :: X11 Applications :: Qt",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+  "matplotlib>=3.5",
+  "numpy>=1.23",
+  "scipy>=1.10",
+  "scikit-learn>=1.0",
+]
+
+[project.optional-dependencies]
+gui = [
+  "PyQt6>=6.5",
+]
+
+[project.urls]
+Repository = "https://github.com/danielgruiz970203/HIP2LInterActomics_GUI"
+
+[project.scripts]
+hipplinteractomics-terminal = "hipplinteractomics_terminal:main"
+hipplinteractomics-multiple-run = "hipplinteractomics_multiple_run:main"
+
+[project.gui-scripts]
+hip2linteractomics = "luna_gui.main:main"
+
+[tool.setuptools]
+include-package-data = true
+py-modules = [
+  "hipplinteractomics_terminal",
+  "hipplinteractomics_multiple_run",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["luna_gui*"]
+
+[tool.setuptools.package-data]
+luna_gui = [
+  "assets/*",
+  "examples/*",
+]
+
+[tool.setuptools.data-files]
+"share/hip2linteractomics" = ["environment.yml"]

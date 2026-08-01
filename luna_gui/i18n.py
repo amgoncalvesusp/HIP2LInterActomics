@@ -410,9 +410,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Lists the PyMOL sessions exported by LUNA. Open a file to visually inspect interactions and poses.",
         "es": "Lista las sesiones PyMOL exportadas por LUNA. Abre un archivo para inspeccionar visualmente interacciones y poses.",
     },
-    "Sessões PyMOL": {"pt": "Triagem virtual racional", "en": "Rational virtual screening", "es": "Cribado virtual racional"},
     "Estatisticas": {"pt": "Estatísticas", "en": "Statistics", "es": "Estadísticas"},
-    "Estatísticas": {"en": "Statistics", "es": "Estadísticas"},
     "Heatmap completo ligantes x residuos": {"pt": "Mapa de calor completo ligantes x resíduos", "en": "Complete ligand x residue heatmap", "es": "Mapa de calor completo ligandos x residuos"},
     "Sessoes em PyMOL": {"pt": "Triagem virtual racional", "en": "Rational virtual screening", "es": "Cribado virtual racional"},
     "Triagem virtual racional": {"en": "Rational virtual screening", "es": "Cribado virtual racional"},
@@ -537,7 +535,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Salvar .cfg": {"en": "Save .cfg", "es": "Guardar .cfg"},
     "Preparar arquivos de complexos": {"en": "Prepare complex files", "es": "Preparar archivos de complejos"},
     "Pasta de origem:": {"en": "Source folder:", "es": "Carpeta de origen:"},
-    "Pasta de saída:": {"en": "Output folder:", "es": "Carpeta de salida:"},
     "Último átomo da proteína": {"en": "Last protein atom", "es": "Último átomo de la proteína"},
     "Detectar automaticamente": {"en": "Detect automatically", "es": "Detectar automáticamente"},
     "Informar manualmente": {"en": "Enter manually", "es": "Informar manualmente"},
@@ -730,8 +727,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Crosses important features with prevalent interactions from the real LUNA shells. It reveals whether different important features point to the same contact family.",
         "es": "Cruza features importantes con interacciones prevalentes de los shells reales de LUNA. Revela si diferentes features importantes apuntan a la misma familia de contactos.",
     },
-    "Sem matriz de resíduos disponível": {"en": "No residue matrix available", "es": "Sin matriz de residuos disponible"},
-    "Sem matriz completa disponível": {"en": "No complete matrix available", "es": "Sin matriz completa disponible"},
     "Sem dados de interação para o heatmap completo": {"pt": "Sem dados de interação para o mapa de calor completo", "en": "No interaction data for the complete heatmap", "es": "Sin datos de interacción para el mapa de calor completo"},
     (
         "Linhas representam ligantes e colunas representam resíduos. A intensidade da célula indica quantas vezes o tipo de interação selecionado aparece naquele par; colunas densas destacam resíduos recorrentes."
@@ -899,6 +894,28 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Unfavorable cation-electrophile": {"pt": "Cátion-eletrófilo desfavorável", "en": "Unfavorable cation-electrophile", "es": "Catión-electrófilo desfavorable"},
     "Unfavorable electrophile-electrophile": {"pt": "Eletrófilo-eletrófilo desfavorável", "en": "Unfavorable electrophile-electrophile", "es": "Electrófilo-electrófilo desfavorable"},
     "Unfavorable nucleophile-nucleophile": {"pt": "Nucleófilo-nucleófilo desfavorável", "en": "Unfavorable nucleophile-nucleophile", "es": "Nucleófilo-nucleófilo desfavorable"},
+    "Aparência": {"en": "Appearance", "es": "Apariencia"},
+    "Tema do sistema": {"en": "System theme", "es": "Tema del sistema"},
+    "Claro": {"en": "Light", "es": "Claro"},
+    "Escuro": {"en": "Dark", "es": "Oscuro"},
+    "Tema atualizado": {"en": "Theme updated", "es": "Tema actualizado"},
+    "Resultados sob demanda": {"en": "On-demand results", "es": "Resultados bajo demanda"},
+    "Abrir resultados": {"en": "Open results", "es": "Abrir resultados"},
+    (
+        "Os módulos científicos e gráficos serão carregados somente quando necessários, "
+        "reduzindo a memória e acelerando a abertura do aplicativo."
+    ): {
+        "en": "Scientific and charting modules load only when needed, reducing memory use and speeding up application startup.",
+        "es": "Los módulos científicos y gráficos se cargan solo cuando son necesarios, reduciendo la memoria y acelerando el inicio de la aplicación.",
+    },
+    "Projeto aberto, mas a seleção de ligantes não pôde ser restaurada": {
+        "en": "The project opened, but the ligand selection could not be restored",
+        "es": "El proyecto se abrió, pero no se pudo restaurar la selección de ligandos",
+    },
+    "Projeto aberto, mas os resultados não puderam ser carregados": {
+        "en": "The project opened, but its results could not be loaded",
+        "es": "El proyecto se abrió, pero no se pudieron cargar sus resultados",
+    },
 }
 
 _REVERSE_TRANSLATIONS: dict[str, str] = {}
