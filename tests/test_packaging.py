@@ -45,6 +45,7 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     assert "runs-on: windows-latest" in workflow
     assert "runs-on: ubuntu-22.04" in workflow
     assert "gh release create" in workflow
+    assert '--repo "$GITHUB_REPOSITORY"' in workflow
     assert "HIP2LInterActomics-Setup.exe" in workflow
     assert "HIP2LInterActomics-*.AppImage" in workflow
 
