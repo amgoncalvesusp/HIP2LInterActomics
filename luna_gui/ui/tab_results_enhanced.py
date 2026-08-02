@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QFileDialog, QListWidget, QListWidgetItem,
     QMessageBox, QTabWidget, QSpinBox, QComboBox, QHeaderView,
 )
@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 from ..core.project import ProjectConfig
 from ..core.analysis_runtime import run_analysis, run_residue_matrix
 from ..core.pymol_launcher import launch_pse_session
-from ..core.report_export import save_pdf_report, save_report
+from ..core.report_export import save_pdf_report_isolated, save_report
 from ..i18n import translate_figure
 from ..core.results_analysis import (
     count_tanimoto_similarity,
@@ -982,13 +982,13 @@ class ResultsTab(QWidget):
         try:
             if HAS_MPL and hasattr(self, "fig") and self.fig.axes:
                 translate_figure(self.fig)
-                self.fig.savefig(heatmap_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
+                self.fig.savefig(heatmap_png, dpi=180, bbox_inches="tight", pad_inches=0.18)
             if HAS_MPL and hasattr(self, "st_fig") and self.st_fig.axes:
                 translate_figure(self.st_fig)
-                self.st_fig.savefig(inter_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
+                self.st_fig.savefig(inter_png, dpi=180, bbox_inches="tight", pad_inches=0.18)
             if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
                 translate_figure(self.cluster_fig)
-                self.cluster_fig.savefig(cluster_png, dpi=600, bbox_inches="tight", pad_inches=0.18)
+                self.cluster_fig.savefig(cluster_png, dpi=180, bbox_inches="tight", pad_inches=0.18)
         except Exception:
             pass
 
@@ -1000,7 +1000,7 @@ class ResultsTab(QWidget):
             ]
 
         try:
-            save_pdf_report(
+            save_pdf_report_isolated(
                 out,
                 cfg=self.cfg,
                 analysis=self._last_analysis,
@@ -1009,6 +1009,7 @@ class ResultsTab(QWidget):
                 cluster_png=cluster_png if cluster_png.exists() else None,
                 clusters=cluster_items,
                 fp_dashboards=getattr(self, "_fp_dashboards", {}),
+                progress_callback=QApplication.processEvents,
             )
         except Exception as exc:
             QMessageBox.critical(self, "Erro ao gerar PDF", str(exc))

@@ -27,6 +27,8 @@ O modo de terminal é realmente headless: não importa PyQt, não cria <code>QAp
 
 A aplicação produz tabelas de interações, fingerprints HIFP/EIFP/FIFP, matrizes de Tanimoto, agrupamentos, mapas de calor, análise de importância de features, sessões PyMOL e relatórios HTML/PDF.
 
+Os relatórios percorrem todas as imagens em <code>results/</code>, incluem uma interpretação científica por tipo de gráfico e geram o PDF inteiro em A4 paisagem, mantendo a proporção original das figuras. A conversão PDF é executada em processo isolado: falhas de memória ou de bibliotecas nativas são informadas na GUI sem encerrar o aplicativo. Em projetos legados, o resumo estatístico pode ser reconstruído e armazenado a partir de <code>results/residue_matrix.json</code>, evitando reprocessamentos longos.
+
 As melhorias científicas propostas, ainda não implementadas, estão organizadas em [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
 ### Requisitos
@@ -176,7 +178,7 @@ Para construir e instalar a distribuição oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.1.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.2.0-py3-none-any.whl
 ~~~
 
 ### Preparação do LUNA
@@ -434,6 +436,8 @@ El flujo de terminal es completamente headless: no importa PyQt, no crea <code>Q
 
 La aplicación puede producir tablas de interacciones, fingerprints HIFP/EIFP/FIFP, matrices de Tanimoto, clusters, mapas de calor, análisis supervisados de importancia, sesiones PyMOL e informes HTML/PDF.
 
+Los informes recorren todas las imágenes de <code>results/</code>, añaden una explicación científica por tipo de gráfico y generan todo el PDF en A4 horizontal sin deformar las figuras. La conversión se ejecuta en un proceso aislado, por lo que un fallo de memoria o de una biblioteca nativa se muestra en la GUI sin cerrar la aplicación. En proyectos antiguos, el resumen estadístico se puede reconstruir y almacenar desde <code>results/residue_matrix.json</code>.
+
 Las mejoras científicas propuestas, todavía no implementadas, están organizadas en [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
 ### Requisitos
@@ -573,7 +577,7 @@ Para construir e instalar el wheel oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.1.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.2.0-py3-none-any.whl
 ~~~
 
 ### Preparación de LUNA
@@ -779,6 +783,8 @@ The terminal path is fully headless. It does not import PyQt, create a <code>QAp
 
 The application can produce interaction tables, HIFP/EIFP/FIFP fingerprints, Tanimoto matrices, clusters, heatmaps, supervised feature-importance analyses, PyMOL sessions, and HTML/PDF reports.
 
+Reports scan every image under <code>results/</code>, add a scientific interpretation for each plot type, and render every PDF page as landscape A4 while preserving each figure's aspect ratio. PDF conversion runs in an isolated process, so an out-of-memory condition or native-library failure is reported in the GUI without terminating the application. Legacy projects can rebuild and cache their statistics summary from <code>results/residue_matrix.json</code>.
+
 Proposed scientific improvements that are not yet implemented are organized in the [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
 ### Requirements
@@ -918,7 +924,7 @@ Build and install the official wheel with:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.1.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.2.0-py3-none-any.whl
 ~~~
 
 ### Preparing LUNA

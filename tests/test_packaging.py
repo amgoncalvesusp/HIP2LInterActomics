@@ -20,7 +20,7 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
     assert 'contents_directory="."' in spec
     assert "os.add_dll_directory" in hook
     assert "PrivilegesRequired=lowest" in inno
-    assert '#define MyAppVersion "1.1.0"' in inno
+    assert '#define MyAppVersion "1.2.0"' in inno
     assert "autodesktop" in inno
     assert "Tasks: desktopicon" not in inno
     assert (ROOT / "luna_gui/assets/hip2l_interactomics_icon.ico").is_file()

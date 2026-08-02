@@ -1121,12 +1121,105 @@ print(json.dumps({
 """
 
 
-def run_analysis(py_exe: str, workdir: str, timeout: int = 300) -> dict:
+def _summary_from_residue_matrix(artifact: dict | None) -> dict | None:
+    """Rebuild the lightweight statistics summary from the cached matrix."""
+    if not isinstance(artifact, dict):
+        return None
+    entries = [str(value) for value in (artifact.get("entries") or [])]
+    residues = [str(value) for value in (artifact.get("residues") or [])]
+    matrices = artifact.get("matrix")
+    if not entries or not isinstance(matrices, dict) or not matrices:
+        return None
+
+    interaction_counts: dict[str, int | float] = {}
+    residue_counts: dict[str, int | float] = {label: 0 for label in residues}
+    entry_counts: dict[str, dict[str, int | float]] = {entry: {} for entry in entries}
+    active_entries: set[str] = set()
+
+    def normalized(value: float) -> int | float:
+        return int(round(value)) if abs(value - round(value)) < 1e-9 else value
+
+    for interaction_type, rows in matrices.items():
+        if not isinstance(rows, list):
+            continue
+        total = 0.0
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, list):
+                continue
+            row_total = 0.0
+            for column_index, raw_value in enumerate(row):
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError):
+                    continue
+                row_total += value
+                if column_index < len(residues):
+                    residue_counts[residues[column_index]] += value
+            total += row_total
+            if row_index < len(entries) and row_total:
+                entry = entries[row_index]
+                active_entries.add(entry)
+                entry_counts[entry][str(interaction_type)] = normalized(row_total)
+        interaction_counts[str(interaction_type)] = normalized(total)
+
+    return {
+        "entries": len(active_entries),
+        "interaction_counts": interaction_counts,
+        "residue_counts": {
+            key: normalized(float(value))
+            for key, value in residue_counts.items()
+            if value
+        },
+        "entry_interaction_counts": entry_counts,
+        "errors": [],
+        "source": "residue_matrix.json",
+    }
+
+
+def _cache_analysis_summary(workdir: Path, result: dict) -> None:
+    if result.get("error"):
+        return
+    output = workdir / "results" / "analysis_summary.json"
+    temporary = output.with_name(f".{output.name}.part")
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(output)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+
+
+def _scaled_analysis_timeout(workdir: Path, requested_timeout: int) -> int:
+    try:
+        result_files = {
+            str(path.resolve(strict=False))
+            for pattern in ("*.pkl.gz", "*.pkl")
+            for path in (workdir / "results").rglob(pattern)
+        }
+    except OSError:
+        result_files = set()
+    return max(int(requested_timeout), min(3600, 300 + (10 * len(result_files))))
+
+
+def run_analysis(py_exe: str, workdir: str, timeout: int = 900) -> dict:
     wd = Path(workdir)
     cached = _load_cached_json(wd / "results" / "analysis_summary.json")
     if cached is not None:
         return cached
-    return analysis_helper.run_analysis(py_exe, workdir, timeout=timeout)
+    matrix_summary = _summary_from_residue_matrix(
+        _load_cached_json(wd / "results" / "residue_matrix.json")
+    )
+    if matrix_summary is not None:
+        _cache_analysis_summary(wd, matrix_summary)
+        return matrix_summary
+    result = analysis_helper.run_analysis(
+        py_exe,
+        workdir,
+        timeout=_scaled_analysis_timeout(wd, timeout),
+    )
+    if isinstance(result, dict):
+        _cache_analysis_summary(wd, result)
+    return result
 
 
 def _residue_matrix_has_ligand_atoms(artifact: dict | None) -> bool:

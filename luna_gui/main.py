@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+from multiprocessing import freeze_support
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings
@@ -28,6 +29,7 @@ def _exception_hook(exc_type, exc_value, exc_traceback) -> None:
 
 
 def main() -> int:
+    freeze_support()
     app = QApplication(sys.argv)
     sys.excepthook = _exception_hook
     app.setApplicationName("HIP²LInterActomics")

@@ -11,6 +11,7 @@ import numpy as np
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QCompleter,
     QDialog,
@@ -41,7 +42,7 @@ from ..core.analysis_runtime import (
 )
 from ..core.pymol_launcher import launch_pse_session
 from ..core.project import PROJECT_FILENAME, ProjectConfig
-from ..core.report_export import save_pdf_report
+from ..core.report_export import save_pdf_report_isolated
 from ..i18n import translate_figure
 from ..core.results_analysis import (
     CLASS_UNRELIABLE,
@@ -88,7 +89,7 @@ if HAS_MPL:
 class ResultsTab(EnhancedResultsTab):
     _REPORT_FIGURE_WIDTH_IN = 12.0
     _REPORT_FIGURE_HEIGHT_IN = 6.6
-    _REPORT_FIGURE_DPI = 600
+    _REPORT_FIGURE_DPI = 180
 
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
@@ -3723,7 +3724,7 @@ class ResultsTab(EnhancedResultsTab):
             ]
 
         try:
-            save_pdf_report(
+            save_pdf_report_isolated(
                 out,
                 cfg=self.cfg,
                 analysis=self._last_analysis,
@@ -3733,6 +3734,7 @@ class ResultsTab(EnhancedResultsTab):
                 clusters=cluster_items,
                 fp_dashboards=getattr(self, "_fp_dashboards", {}),
                 extra_images=extra_images,
+                progress_callback=QApplication.processEvents,
             )
         except Exception as exc:
             QMessageBox.critical(self, "Erro ao gerar PDF", str(exc))

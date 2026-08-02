@@ -10,6 +10,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from .env_manager import python_process_env
+
 # Helper script executed inside luna-env. It walks the workdir, loads each
 # EntryResults pickle, and aggregates interaction-type counts and per-residue
 # counts. Output is a single JSON document on stdout.
@@ -338,7 +340,7 @@ def run_residue_matrix(py_exe: str, workdir: str, timeout: int = 600) -> dict:
     return result
 
 
-def run_analysis(py_exe: str, workdir: str, timeout: int = 300) -> dict:
+def run_analysis(py_exe: str, workdir: str, timeout: int = 900) -> dict:
     """Execute the helper inside luna-env. Returns parsed JSON or {'error': ...}."""
     if not py_exe or not Path(py_exe).exists():
         return {"error": "Python do luna-env não encontrado."}
@@ -347,10 +349,21 @@ def run_analysis(py_exe: str, workdir: str, timeout: int = 300) -> dict:
     try:
         r = subprocess.run(
             [py_exe, "-c", HELPER_SCRIPT, workdir],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            cwd=workdir,
+            env=python_process_env(py_exe),
         )
     except subprocess.TimeoutExpired:
-        return {"error": "Análise excedeu o tempo limite."}
+        return {
+            "error": (
+                f"A análise excedeu o limite de {timeout} segundos. "
+                "O processo foi interrompido com segurança; a interface permanece aberta."
+            )
+        }
     except Exception as e:
         return {"error": str(e)}
     if r.returncode != 0:

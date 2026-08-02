@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from luna_gui.core import analysis_runtime
+
+
+class AnalysisSummaryRuntimeTests(unittest.TestCase):
+    def test_rebuilds_and_caches_summary_from_residue_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workdir = Path(temporary)
+            results = workdir / "results"
+            results.mkdir()
+            (results / "residue_matrix.json").write_text(
+                json.dumps(
+                    {
+                        "entries": ["lig1", "lig2"],
+                        "residues": ["A/ASP/42", "A/PHE/99"],
+                        "matrix": {
+                            "Hydrogen bond": [[2, 0], [1, 0]],
+                            "Hydrophobic": [[0, 3], [0, 4]],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(analysis_runtime.analysis_helper, "run_analysis") as legacy_helper:
+                result = analysis_runtime.run_analysis("missing-python", str(workdir))
+
+            legacy_helper.assert_not_called()
+            self.assertEqual(result["entries"], 2)
+            self.assertEqual(result["interaction_counts"]["Hydrogen bond"], 3)
+            self.assertEqual(result["interaction_counts"]["Hydrophobic"], 7)
+            self.assertEqual(result["residue_counts"]["A/PHE/99"], 7)
+            cached = json.loads((results / "analysis_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(cached["source"], "residue_matrix.json")
+
+
+if __name__ == "__main__":
+    unittest.main()
