@@ -9,7 +9,7 @@ Fluxos gráfico e headless para preparação molecular, execução do LUNA e an�
 - [Windows 10/11 - instalador `.exe`](../../releases/latest/download/HIP2LInterActomics-Setup.exe)
 - [Linux x86_64 - aplicativo `.AppImage`](../../releases/latest/download/HIP2LInterActomics-x86_64.AppImage)
 
-Os instaladores incluem a interface e suas dependências. Não é necessário instalar Python ou PyQt6. Na primeira análise, o próprio aplicativo orienta a instalação do ambiente científico LUNA.
+Os instaladores incluem a interface e suas dependências. Não é necessário instalar Python ou PyQt6. O instalador Windows cria automaticamente atalhos no menu Iniciar e na área de trabalho; a AppImage registra o aplicativo e cria o atalho na área de trabalho no primeiro lançamento. Na primeira análise, o próprio aplicativo orienta a instalação do ambiente científico LUNA.
 
 ---
 
@@ -176,7 +176,7 @@ Para construir e instalar a distribuição oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.0.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.1.0-py3-none-any.whl
 ~~~
 
 ### Preparação do LUNA
@@ -195,6 +195,19 @@ hipplinteractomics-terminal --config projeto.json --python-exe C:\caminho\para\l
 ~~~
 
 Quando <code>--python-exe</code> não é fornecido, o programa procura o Conda e resolve o ambiente indicado por <code>--env-name</code>, cujo padrão é <code>luna-env</code>.
+
+### Pré-processamento de complexos
+
+A interface em <strong>Projeto > Preparar arquivos de complexos</strong> e o terminal usam o mesmo processador em lote. Uma pasta homogênea de MOL2 gera <code>proteinas_pdb/</code> e <code>ligantes_mol2/</code>; uma pasta de PDB/ENT gera <code>proteinas_pdb/</code> e <code>ligantes_sdf/</code>. Águas permanecem com a proteína.
+
+~~~bash
+hipplinteractomics-terminal \
+  --prepare-complexes /dados/complexos \
+  --prepare-output /dados/preparados \
+  --python-exe /caminho/para/luna-env/bin/python
+~~~
+
+Para MOL2, <code>--last-protein-atom N</code> substitui a detecção automática. Para PDB/ENT, o conversor usa primeiro o Open Babel do <code>luna-env</code> e depois RDKit como fallback, com ambiente isolado e pools numéricos limitados a um thread para evitar picos de memória. O resumo e eventuais avisos ficam em <code>preprocess.log</code>.
 
 ### Comando headless individual
 
@@ -348,7 +361,7 @@ Linux:
 bash installer/build_linux.sh
 ~~~
 
-O PyInstaller não faz compilação cruzada. O Windows produz <code>HIP2LInterActomics-Setup.exe</code> com Inno Setup 6. O Linux produz <code>HIP2LInterActomics-x86_64.AppImage</code> e um bundle <code>.tar.gz</code>. Em uma tag de versão, o workflow <code>.github/workflows/build-installers.yml</code> publica automaticamente o instalador Windows e a AppImage na release do GitHub.
+O PyInstaller não faz compilação cruzada. O Windows produz <code>HIP2LInterActomics-Setup.exe</code> com Inno Setup 6 e cria o atalho da área de trabalho durante a instalação. O Linux produz <code>HIP2LInterActomics-x86_64.AppImage</code> e um bundle <code>.tar.gz</code>; no primeiro lançamento, a AppImage registra o menu de aplicativos e cria o atalho usando seu caminho atual. Em uma tag de versão, o workflow <code>.github/workflows/build-installers.yml</code> publica automaticamente o instalador Windows e a AppImage na release do GitHub.
 
 #### Inclusão física do YAML nas distribuições
 
@@ -560,7 +573,7 @@ Para construir e instalar el wheel oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.0.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.1.0-py3-none-any.whl
 ~~~
 
 ### Preparación de LUNA
@@ -579,6 +592,19 @@ hipplinteractomics-terminal --config proyecto.json --python-exe C:\ruta\a\luna-e
 ~~~
 
 Sin <code>--python-exe</code>, el comando resuelve Conda y el entorno indicado por <code>--env-name</code>, cuyo valor predeterminado es <code>luna-env</code>.
+
+### Preprocesamiento de complejos
+
+La interfaz en <strong>Proyecto > Preparar archivos de complejos</strong> y el terminal utilizan el mismo procesador por lotes. Una carpeta homogénea de MOL2 genera <code>proteinas_pdb/</code> y <code>ligantes_mol2/</code>; una carpeta de PDB/ENT genera <code>proteinas_pdb/</code> y <code>ligantes_sdf/</code>. Las aguas permanecen con la proteína.
+
+~~~bash
+hipplinteractomics-terminal \
+  --prepare-complexes /datos/complejos \
+  --prepare-output /datos/preparados \
+  --python-exe /ruta/a/luna-env/bin/python
+~~~
+
+Para MOL2, <code>--last-protein-atom N</code> sustituye la detección automática. Para PDB/ENT, el conversor prueba primero Open Babel desde <code>luna-env</code> y después RDKit, con un entorno aislado y un solo thread numérico para evitar picos de memoria. El resumen queda en <code>preprocess.log</code>.
 
 ### Ejecución headless individual
 
@@ -693,7 +719,7 @@ Linux:
 bash installer/build_linux.sh
 ~~~
 
-PyInstaller no realiza compilación cruzada. Windows produce <code>HIP2LInterActomics-Setup.exe</code> con Inno Setup 6. Linux produce <code>HIP2LInterActomics-x86_64.AppImage</code> y un bundle <code>.tar.gz</code>. Para una etiqueta de versión, GitHub Actions publica automáticamente el instalador de Windows y la AppImage en la release.
+PyInstaller no realiza compilación cruzada. Windows produce <code>HIP2LInterActomics-Setup.exe</code> con Inno Setup 6 y crea el acceso directo del escritorio durante la instalación. Linux produce <code>HIP2LInterActomics-x86_64.AppImage</code> y un bundle <code>.tar.gz</code>; en el primer inicio, la AppImage se registra en el menú y crea el acceso directo con su ruta actual. Para una etiqueta de versión, GitHub Actions publica automáticamente el instalador de Windows y la AppImage en la release.
 
 #### Inclusión física del YAML
 
@@ -892,7 +918,7 @@ Build and install the official wheel with:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.0.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.1.0-py3-none-any.whl
 ~~~
 
 ### Preparing LUNA
@@ -911,6 +937,19 @@ hipplinteractomics-terminal --config project.json --python-exe C:\path\to\luna-e
 ~~~
 
 Without <code>--python-exe</code>, the command resolves Conda and the environment selected by <code>--env-name</code>, which defaults to <code>luna-env</code>.
+
+### Complex preprocessing
+
+The <strong>Project > Prepare complex files</strong> dialog and the terminal use the same batch processor. A homogeneous MOL2 folder produces <code>proteinas_pdb/</code> and <code>ligantes_mol2/</code>; a PDB/ENT folder produces <code>proteinas_pdb/</code> and <code>ligantes_sdf/</code>. Waters remain with the protein.
+
+~~~bash
+hipplinteractomics-terminal \
+  --prepare-complexes /data/complexes \
+  --prepare-output /data/prepared \
+  --python-exe /path/to/luna-env/bin/python
+~~~
+
+For MOL2, <code>--last-protein-atom N</code> overrides automatic detection. For PDB/ENT, conversion tries Open Babel from <code>luna-env</code> first and RDKit second, with an isolated environment and one numerical thread to avoid memory spikes. The summary is written to <code>preprocess.log</code>.
 
 ### Single headless run
 
@@ -1025,7 +1064,7 @@ Linux:
 bash installer/build_linux.sh
 ~~~
 
-PyInstaller does not cross-compile. Windows produces <code>HIP2LInterActomics-Setup.exe</code> with Inno Setup 6. Linux produces <code>HIP2LInterActomics-x86_64.AppImage</code> and a native <code>.tar.gz</code> bundle. For a version tag, GitHub Actions automatically publishes the Windows installer and AppImage to the GitHub release.
+PyInstaller does not cross-compile. Windows produces <code>HIP2LInterActomics-Setup.exe</code> with Inno Setup 6 and creates the desktop shortcut during installation. Linux produces <code>HIP2LInterActomics-x86_64.AppImage</code> and a native <code>.tar.gz</code> bundle; on first launch, the AppImage registers itself in the application menu and creates a shortcut using its current path. For a version tag, GitHub Actions automatically publishes the Windows installer and AppImage to the GitHub release.
 
 #### Physical YAML inclusion
 
