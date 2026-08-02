@@ -19,7 +19,7 @@ WORK_DIR="${OUTPUT_ROOT}/pyinstaller-work"
 BUNDLE_ROOT="${OUTPUT_ROOT}/bundle"
 ARCHIVE_ROOT="${OUTPUT_ROOT}/installer"
 APPDIR="${OUTPUT_ROOT}/appimage/HIP2LInterActomics.AppDir"
-APP_VERSION="${APP_VERSION:-1.0.0}"
+APP_VERSION="${APP_VERSION:-1.1.0}"
 
 mkdir -p "${OUTPUT_ROOT}" "${WORK_DIR}" "${BUNDLE_ROOT}" "${ARCHIVE_ROOT}"
 if "${PYTHON_BIN}" -c "import ensurepip" >/dev/null 2>&1 \
@@ -91,6 +91,9 @@ mkdir -p \
     "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
 cp -a "${BUNDLE_ROOT}/HIP2LInterActomics" "${APPDIR}/usr/bin/HIP2LInterActomics"
 install -m 755 "${REPO_ROOT}/installer/AppRun" "${APPDIR}/AppRun"
+install -m 755 \
+    "${REPO_ROOT}/installer/install_linux_shortcuts.sh" \
+    "${APPDIR}/usr/bin/install-linux-shortcuts"
 install -m 644 \
     "${REPO_ROOT}/installer/hip2linteractomics.desktop" \
     "${APPDIR}/hip2linteractomics.desktop"

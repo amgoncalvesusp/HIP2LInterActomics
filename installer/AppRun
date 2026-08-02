@@ -1,4 +1,7 @@
 #!/bin/sh
 
 APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$APPDIR/usr/bin/install-linux-shortcuts" ]; then
+    "$APPDIR/usr/bin/install-linux-shortcuts" >/dev/null 2>&1 || true
+fi
 exec "$APPDIR/usr/bin/HIP2LInterActomics/HIP2LInterActomics" "$@"

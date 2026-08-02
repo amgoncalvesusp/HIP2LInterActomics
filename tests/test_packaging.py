@@ -20,7 +20,9 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
     assert 'contents_directory="."' in spec
     assert "os.add_dll_directory" in hook
     assert "PrivilegesRequired=lowest" in inno
-    assert '#define MyAppVersion "1.0.0"' in inno
+    assert '#define MyAppVersion "1.1.0"' in inno
+    assert "autodesktop" in inno
+    assert "Tasks: desktopicon" not in inno
     assert (ROOT / "luna_gui/assets/hip2l_interactomics_icon.ico").is_file()
 
 
@@ -29,6 +31,7 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     linux = _read("installer/build_linux.sh")
     workflow = _read(".github/workflows/build-installers.yml")
     app_run = _read("installer/AppRun")
+    shortcut_installer = _read("installer/install_linux_shortcuts.sh")
     desktop = _read("installer/hip2linteractomics.desktop")
 
     assert "pip install -r requirements.txt" in windows
@@ -40,6 +43,11 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     assert "appimagetool" in linux
     assert ".AppImage" in linux
     assert "HIP2LInterActomics/HIP2LInterActomics" in app_run
+    assert "install-linux-shortcuts" in app_run
+    assert "install_linux_shortcuts.sh" in linux
+    assert "XDG_DATA_HOME" in shortcut_installer
+    assert "xdg-user-dir DESKTOP" in shortcut_installer
+    assert "HIP2LInterActomics.desktop" in shortcut_installer
     assert "Type=Application" in desktop
     assert "Icon=hip2linteractomics" in desktop
     assert "runs-on: windows-latest" in workflow
