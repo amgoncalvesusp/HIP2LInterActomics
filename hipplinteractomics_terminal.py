@@ -26,7 +26,7 @@ def _configure_headless_environment() -> None:
 _configure_headless_environment()
 
 from luna_gui.core import env_manager as em
-from luna_gui.core import ligand_io, luna_api_runner, luna_runner, terminal_results
+from luna_gui.core import ligand_io, luna_api_runner, luna_runner, mol2_prep, terminal_results
 from luna_gui.core.process_control import TerminationController, signal_exit_code
 from luna_gui.core.project import ProjectConfig, save_to_workdir
 from luna_gui.core.runtime_resources import detect_cpu_allocation, effective_nproc
@@ -311,6 +311,49 @@ def _resolve_luna_python(terminal_data: dict[str, Any]) -> Path:
     return py
 
 
+def _prepare_complexes(
+    source: str | os.PathLike[str],
+    output: str | os.PathLike[str] | None,
+    last_protein_atom: int | None,
+    terminal_data: dict[str, Any],
+) -> int:
+    src = Path(source).expanduser().resolve()
+    if not src.is_dir():
+        raise NotADirectoryError(f"Pasta de complexos nao encontrada: {src}")
+
+    pdb_inputs = any(
+        candidate.is_file() and candidate.suffix.lower() in {".pdb", ".ent"}
+        for candidate in src.iterdir()
+    )
+    chemistry_python: Path | None = None
+    if pdb_inputs:
+        try:
+            chemistry_python = _resolve_luna_python(terminal_data)
+        except Exception as exc:
+            print(
+                "[terminal] Aviso: luna-env nao localizado; tentando a pilha "
+                f"quimica do Python atual ({exc})."
+            )
+
+    destination = Path(output).expanduser().resolve() if output else None
+    result = mol2_prep.split_complex_folder(
+        src,
+        last_pa=last_protein_atom,
+        out_folder=destination,
+        chemistry_python=chemistry_python,
+    )
+    print(
+        f"[terminal] Preparacao concluida: {result.files_processed} complexos, "
+        f"{result.proteins_written} proteinas, {result.ligands_written} ligantes."
+    )
+    print(f"[terminal] Proteinas: {result.protein_dir}")
+    print(f"[terminal] Ligantes: {result.ligand_dir}")
+    print(f"[terminal] Log: {result.log_file}")
+    for message in result.errors:
+        print(f"[terminal] Aviso: {message}")
+    return 0
+
+
 def _write_entries_and_project(cfg: ProjectConfig) -> Path:
     workdir = Path(cfg.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -568,6 +611,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "--results-only",
         action="store_true",
         help="Regenerate cached result artifacts without running LUNA.",
+    )
+
+    preprocessing = parser.add_argument_group("complex preprocessing")
+    preprocessing.add_argument(
+        "--prepare-complexes",
+        metavar="PATH",
+        help="Split every MOL2 or PDB/ENT complex in a folder and exit.",
+    )
+    preprocessing.add_argument(
+        "--prepare-output",
+        metavar="PATH",
+        help="Destination for the generated protein and ligand folders.",
+    )
+    preprocessing.add_argument(
+        "--last-protein-atom",
+        type=int,
+        metavar="N",
+        help="Last protein atom for MOL2 input; omit to detect it automatically.",
     )
 
     inputs = parser.add_argument_group("project inputs and outputs")
@@ -852,6 +913,32 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("use either the positional config or --config, not both")
     config_value = args.config_option or args.config_path
     config_path = Path(config_value).expanduser() if config_value else None
+
+    if args.prepare_complexes:
+        if config_path is not None:
+            parser.error("--prepare-complexes cannot be combined with a project config")
+        if args.results_only or args.dry_run:
+            parser.error("--prepare-complexes cannot be combined with --results-only or --dry-run")
+        terminal_data = {
+            key: value
+            for key, value in {
+                "python_exe": args.python_exe,
+                "conda_exe": args.conda_exe,
+                "env_name": args.env_name,
+            }.items()
+            if value is not None
+        }
+        try:
+            return _prepare_complexes(
+                args.prepare_complexes,
+                args.prepare_output,
+                args.last_protein_atom,
+                terminal_data,
+            )
+        except Exception as exc:
+            print(f"[terminal] ERRO: {exc}", file=sys.stderr)
+            return 2
+
     project_overrides, terminal_overrides = _collect_cli_overrides(args, parser)
 
     if args.results_only and args.dry_run:

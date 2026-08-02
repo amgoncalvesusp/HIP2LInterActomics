@@ -88,10 +88,49 @@ class EnvManagerTests(unittest.TestCase):
         self.assertEqual(path_parts[0], r"C:\Users\danie\.conda\envs\luna-env")
         self.assertEqual(path_parts[3], r"C:\Users\danie\.conda\envs\luna-env\Library\bin")
         self.assertEqual(path_parts[4], r"C:\Users\danie\.conda\envs\luna-env\Scripts")
+        self.assertEqual(env["CONDA_PREFIX"], r"C:\Users\danie\.conda\envs\luna-env")
+        self.assertEqual(env["CONDA_DEFAULT_ENV"], "luna-env")
         self.assertEqual(env["PYTHONNOUSERSITE"], "1")
         self.assertNotIn("PYTHONHOME", env)
         self.assertNotIn("PYTHONPATH", env)
         self.assertNotIn("PYTHONUSERBASE", env)
+
+    def test_chemistry_process_env_limits_native_thread_pools(self) -> None:
+        with mock.patch.dict(
+            env_manager.os.environ,
+            {"PATH": r"C:\Windows\System32", "OPENBLAS_NUM_THREADS": "32"},
+            clear=True,
+        ):
+            env = env_manager.chemistry_process_env(
+                r"C:\Users\danie\.conda\envs\luna-env\python.exe"
+            )
+
+        for key in (
+            "OMP_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+        ):
+            self.assertEqual(env[key], "1")
+
+    def test_python_process_env_restores_pre_bundle_linux_library_path(self) -> None:
+        with mock.patch.dict(
+            env_manager.os.environ,
+            {
+                "PATH": "/app/bin:/usr/bin",
+                "APPIMAGE": "/downloads/HIP2LInterActomics.AppImage",
+                "LD_LIBRARY_PATH": "/tmp/_MEI/lib",
+                "LD_LIBRARY_PATH_ORIG": "/usr/local/lib",
+                "QT_PLUGIN_PATH": "/tmp/_MEI/PyQt6/plugins",
+            },
+            clear=True,
+        ):
+            env = env_manager.python_process_env("/opt/conda/envs/luna-env/bin/python")
+
+        self.assertEqual(env["LD_LIBRARY_PATH"], "/usr/local/lib")
+        self.assertNotIn("LD_LIBRARY_PATH_ORIG", env)
+        self.assertNotIn("QT_PLUGIN_PATH", env)
 
     def test_find_conda_prefers_current_gui_env_over_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

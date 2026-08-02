@@ -102,6 +102,46 @@ class TerminalCliTests(unittest.TestCase):
         self.assertIn("protein_file", payload)
         self.assertIn("workdir", payload)
 
+    def test_prepare_complexes_mode_processes_the_folder_and_exits(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "complexes"
+            output = root / "prepared"
+            source.mkdir()
+            (source / "pose.mol2").write_text("@<TRIPOS>MOLECULE\n", encoding="utf-8")
+            result = mock.Mock(
+                files_processed=1,
+                proteins_written=1,
+                ligands_written=1,
+                protein_dir=str(output / "proteinas_pdb"),
+                ligand_dir=str(output / "ligantes_mol2"),
+                log_file=str(output / "preprocess.log"),
+                errors=[],
+            )
+            with mock.patch.object(
+                terminal.mol2_prep,
+                "split_complex_folder",
+                return_value=result,
+            ) as split:
+                code = terminal.main(
+                    [
+                        "--prepare-complexes",
+                        str(source),
+                        "--prepare-output",
+                        str(output),
+                        "--last-protein-atom",
+                        "42",
+                    ]
+                )
+
+        self.assertEqual(code, 0)
+        split.assert_called_once_with(
+            source.resolve(),
+            last_pa=42,
+            out_folder=output.resolve(),
+            chemistry_python=None,
+        )
+
 
 class MultipleRunTests(unittest.TestCase):
     def test_list_syntaxes_are_supported(self) -> None:

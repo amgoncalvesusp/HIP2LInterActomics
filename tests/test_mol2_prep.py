@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from luna_gui.core import mol2_prep
 from luna_gui.core.mol2_prep import (
     count_water_molecules,
     count_water_molecules_in_inputs,
@@ -351,6 +354,120 @@ class Mol2PrepTests(unittest.TestCase):
             self.assertIsNotNone(mol)
             self.assertEqual(sum(1 for bond in mol.GetBonds() if bond.GetIsAromatic()), 6)
             self.assertTrue(mol.HasProp("HIP2L_GasteigerCharges"))
+
+    def test_external_openbabel_uses_luna_env_and_preserves_charge_properties(self) -> None:
+        mol2_text = """@<TRIPOS>MOLECULE
+ligand
+ 1 0 0 0 0
+SMALL
+GASTEIGER
+
+@<TRIPOS>ATOM
+      1 N1 0.0 0.0 0.0 N.4 1 LIG1 0.3770
+@<TRIPOS>BOND
+"""
+        sdf_text = """ligand
+  OpenBabel
+
+  1  0  0  0  0  0  0  0  0  0999 V2000
+    0.0000    0.0000    0.0000 N   0  3  0  0  0  0  0  0  0  0  0  0
+M  CHG  1   1   1
+M  END
+$$$$
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            py = root / "luna-env" / "python.exe"
+            obabel = root / "luna-env" / "Library" / "bin" / "obabel.exe"
+            py.parent.mkdir(parents=True)
+            obabel.parent.mkdir(parents=True)
+            py.write_text("", encoding="utf-8")
+            obabel.write_text("", encoding="utf-8")
+            output = root / "out" / "ligand.sdf"
+            output.parent.mkdir()
+            completed = [
+                mock.Mock(returncode=0, stdout=mol2_text, stderr="1 molecule converted"),
+                mock.Mock(returncode=0, stdout=sdf_text, stderr="1 molecule converted"),
+            ]
+            with mock.patch.object(mol2_prep.subprocess, "run", side_effect=completed) as run:
+                converted = mol2_prep._write_sdf_with_external_openbabel(
+                    output,
+                    "ligand",
+                    "HETATM    1  N1  LIG L   1       0.000   0.000   0.000  1.00  0.00           N1+\nEND\n",
+                    [1],
+                    py,
+                    [],
+                )
+
+            text = output.read_text(encoding="utf-8")
+
+        self.assertTrue(converted)
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("--partialcharge", run.call_args_list[0].args[0])
+        self.assertEqual(run.call_args_list[0].kwargs["env"]["OMP_NUM_THREADS"], "1")
+        self.assertIn("HIP2L_TotalFormalCharge", text)
+        self.assertIn("HIP2L_GasteigerCharges", text)
+
+    def test_conversion_falls_back_to_external_python_after_openbabel_sigkill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "ligand.sdf"
+            record = _pdb_atom(10, "C1", "LIG", "L", 1, 0.0, 0.0, 0.0, "C")
+            with (
+                mock.patch.object(mol2_prep, "_write_sdf_with_openbabel", return_value=False),
+                mock.patch.object(mol2_prep, "_write_sdf_with_rdkit", return_value=False),
+                mock.patch.object(
+                    mol2_prep,
+                    "_write_sdf_with_external_openbabel",
+                    side_effect=RuntimeError(
+                        "Open Babel falhou (-9): processo encerrado pelo sistema"
+                    ),
+                ),
+                mock.patch.object(
+                    mol2_prep,
+                    "_write_sdf_with_external_python",
+                    return_value=True,
+                ) as external_python,
+            ):
+                mol2_prep._write_ligand_sdf_from_pdb_records(
+                    output,
+                    "ligand",
+                    [record],
+                    chemistry_python="/opt/conda/envs/luna-env/bin/python",
+                )
+
+        external_python.assert_called_once()
+
+    def test_external_python_runs_isolated_with_controlled_working_directory(self) -> None:
+        response = {
+            "ok": True,
+            "sdf": "ligand\n  RDKit\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n$$$$\n",
+            "warnings": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            py = root / "luna-env" / "python.exe"
+            py.parent.mkdir()
+            py.write_text("", encoding="utf-8")
+            output = root / "out" / "ligand.sdf"
+            output.parent.mkdir()
+            completed = mock.Mock(returncode=0, stdout=json.dumps(response), stderr="")
+            with mock.patch.object(mol2_prep.subprocess, "run", return_value=completed) as run:
+                converted = mol2_prep._write_sdf_with_external_python(
+                    output,
+                    "ligand",
+                    "END\n",
+                    [],
+                    py,
+                    [],
+                )
+
+            command = run.call_args.args[0]
+            kwargs = run.call_args.kwargs
+
+        self.assertTrue(converted)
+        self.assertEqual(command[1:3], ["-I", "-u"])
+        self.assertEqual(kwargs["cwd"], str(output.parent))
+        self.assertEqual(kwargs["env"]["OPENBLAS_NUM_THREADS"], "1")
 
 
 if __name__ == "__main__":

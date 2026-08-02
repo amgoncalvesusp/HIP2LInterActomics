@@ -1070,6 +1070,19 @@ def _write_ligand_sdf_from_pdb_records(
             errors.append(f"{writer.__name__}: {type(exc).__name__}: {exc}")
 
     try:
+        if _write_sdf_with_external_openbabel(
+            path,
+            molecule_name,
+            pdb_block,
+            formal_charges,
+            chemistry_python,
+            warnings,
+        ):
+            return
+    except Exception as exc:
+        errors.append(f"_write_sdf_with_external_openbabel: {type(exc).__name__}: {exc}")
+
+    try:
         if _write_sdf_with_external_python(
             path,
             molecule_name,
@@ -1234,6 +1247,117 @@ def _write_sdf_with_rdkit(
     return True
 
 
+def _write_sdf_with_external_openbabel(
+    path: Path,
+    molecule_name: str,
+    pdb_block: str,
+    formal_charges: list[int],
+    chemistry_python: str | Path | None,
+    warnings: list[str] | None = None,
+) -> bool:
+    if not chemistry_python:
+        return False
+    py_path = Path(chemistry_python)
+    if not py_path.exists():
+        return False
+
+    from .env_manager import (
+        chemistry_process_env,
+        external_program_runtime,
+        python_prefix,
+    )
+
+    prefix = python_prefix(py_path)
+    candidates = (
+        prefix / "Library" / "bin" / "obabel.exe",
+        prefix / "Scripts" / "obabel.exe",
+        prefix / "bin" / "obabel",
+    )
+    obabel = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if obabel is None:
+        return False
+
+    env = chemistry_process_env(py_path)
+    with external_program_runtime():
+        mol2_result = subprocess.run(
+            [str(obabel), "-ipdb", "-omol2", "--partialcharge", "gasteiger"],
+            input=pdb_block,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+            cwd=str(path.parent),
+        )
+    if mol2_result.returncode != 0:
+        raise RuntimeError(_external_failure("Open Babel PDB->MOL2", mol2_result))
+    mol2_text = mol2_result.stdout
+    if "@<TRIPOS>ATOM" not in mol2_text or "@<TRIPOS>BOND" not in mol2_text:
+        raise RuntimeError("Open Babel nao retornou um MOL2 valido")
+
+    with external_program_runtime():
+        sdf_result = subprocess.run(
+            [str(obabel), "-imol2", "-osdf"],
+            input=mol2_text,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+            cwd=str(path.parent),
+        )
+    if sdf_result.returncode != 0:
+        raise RuntimeError(_external_failure("Open Babel MOL2->SDF", sdf_result))
+    if "M  END" not in sdf_result.stdout:
+        raise RuntimeError("Open Babel nao retornou um SDF valido")
+
+    charge_text = _mol2_partial_charges(mol2_text)
+    props = {
+        "HIP2L_ChargeModel": "formal PDB charges + OpenBabel Gasteiger",
+        "HIP2L_TotalFormalCharge": str(sum(formal_charges)),
+    }
+    if charge_text:
+        props["HIP2L_GasteigerCharges"] = charge_text
+    elif warnings is not None:
+        warnings.append(
+            f"{molecule_name}: Open Babel converteu o ligante, mas nao retornou cargas Gasteiger."
+        )
+    path.write_text(
+        _normalize_sdf_record(sdf_result.stdout, molecule_name, props),
+        encoding="utf-8",
+    )
+    return True
+
+
+def _mol2_partial_charges(mol2_text: str) -> str:
+    in_atoms = False
+    values: list[str] = []
+    for line in mol2_text.splitlines():
+        marker = line.strip().upper()
+        if marker == "@<TRIPOS>ATOM":
+            in_atoms = True
+            continue
+        if marker.startswith("@<TRIPOS>"):
+            if in_atoms:
+                break
+            continue
+        if not in_atoms:
+            continue
+        parts = line.split()
+        if len(parts) < 9:
+            continue
+        try:
+            values.append(f"{int(parts[0])}:{float(parts[-1]):.6f}")
+        except ValueError:
+            continue
+    return " ".join(values)
+
+
+def _external_failure(label: str, result: subprocess.CompletedProcess[str]) -> str:
+    detail = (result.stderr.strip() or result.stdout.strip() or "sem saida")
+    if result.returncode == -9:
+        detail = "processo encerrado pelo sistema (sinal 9; possivel limite de memoria)"
+    return f"{label} falhou ({result.returncode}): {detail[:1200]}"
+
+
 def _write_sdf_with_external_python(
     path: Path,
     molecule_name: str,
@@ -1247,28 +1371,26 @@ def _write_sdf_with_external_python(
     py_path = Path(chemistry_python)
     if not py_path.exists():
         return False
-    try:
-        from .env_manager import python_process_env
-    except Exception:
-        python_process_env = None  # type: ignore
+    from .env_manager import chemistry_process_env, external_program_runtime
 
     payload = {
         "molecule_name": molecule_name,
         "pdb_block": pdb_block,
         "formal_charges": formal_charges,
     }
-    env = python_process_env(py_path) if python_process_env is not None else None
-    result = subprocess.run(
-        [str(py_path), "-c", _EXTERNAL_PDB_TO_SDF_SCRIPT],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=env,
-    )
+    env = chemistry_process_env(py_path)
+    with external_program_runtime():
+        result = subprocess.run(
+            [str(py_path), "-I", "-u", "-c", _EXTERNAL_PDB_TO_SDF_SCRIPT],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+            cwd=str(path.parent),
+        )
     if result.returncode != 0:
-        detail = (result.stderr.strip() or result.stdout.strip() or "sem saida")
-        raise RuntimeError(f"Python externo falhou ({result.returncode}): {detail[:1200]}")
+        raise RuntimeError(_external_failure("Python externo", result))
     try:
         parsed = json.loads(result.stdout.strip().splitlines()[-1])
     except Exception as exc:

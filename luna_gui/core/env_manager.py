@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 ENV_NAME = "luna-env"
@@ -332,10 +333,37 @@ def python_process_env(py: str | Path) -> dict[str, str]:
         merged_path.append(path)
     env["PATH"] = os.pathsep.join(merged_path)
 
-    for key in ("PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE"):
+    for key in (
+        "CONDA_PREFIX",
+        "CONDA_DEFAULT_ENV",
+        "CONDA_PROMPT_MODIFIER",
+        "CONDA_SHLVL",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTHONUSERBASE",
+    ):
         env.pop(key, None)
+    env["CONDA_PREFIX"] = str(prefix)
+    env["CONDA_DEFAULT_ENV"] = prefix.name
+    env["CONDA_SHLVL"] = "1"
     env["PYTHONNOUSERSITE"] = "1"
     _remove_snap_runtime_paths(env)
+    _restore_host_library_paths(env)
+    return env
+
+
+def chemistry_process_env(py: str | Path) -> dict[str, str]:
+    """Return an isolated, low-memory environment for chemistry helpers."""
+    env = python_process_env(py)
+    for key in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ):
+        env[key] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
     return env
 
 
@@ -350,6 +378,54 @@ def _remove_snap_runtime_paths(env: dict[str, str]) -> None:
         "QT_QPA_PLATFORM_PLUGIN_PATH",
     ):
         env.pop(key, None)
+
+
+def _restore_host_library_paths(env: dict[str, str]) -> None:
+    """Keep PyInstaller/AppImage libraries out of external Conda processes."""
+    bundled = bool(getattr(sys, "frozen", False) or env.get("APPIMAGE"))
+    original = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if original is not None:
+        if original:
+            env["LD_LIBRARY_PATH"] = original
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+        bundled = True
+    if not bundled:
+        return
+    for key in (
+        "QML2_IMPORT_PATH",
+        "QT_PLUGIN_PATH",
+        "QT_QPA_PLATFORM_PLUGIN_PATH",
+    ):
+        env.pop(key, None)
+
+
+@contextmanager
+def external_program_runtime():
+    """Temporarily restore the Windows DLL search path for host programs."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        yield
+        return
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        size = kernel32.GetDllDirectoryW(0, None)
+        buffer = ctypes.create_unicode_buffer(size + 1)
+        previous = buffer.value
+        if size:
+            kernel32.GetDllDirectoryW(len(buffer), buffer)
+            previous = buffer.value
+        kernel32.SetDllDirectoryW(None)
+    except Exception:
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        kernel32.SetDllDirectoryW(previous or None)
 
 
 def conda_info(conda: str) -> dict[str, object]:
