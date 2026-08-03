@@ -1216,7 +1216,39 @@ def _rdkit_atom_labels_for_source(path, mol):
     return [str(label or idx + 1) for idx, label in enumerate(labels[: int(mol.GetNumAtoms())])]
 
 
-def _rdkit_heavy_atom_mol_and_labels(path, mol):
+def _normalized_atom_label(value):
+    return re.sub(r"[^A-Za-z0-9]+", "", str(value or "")).upper()
+
+
+def _align_atom_map_labels(source_labels, matrix_labels):
+    """Use the matrix IDs on the drawing while preserving the molecule atom order."""
+    source = [str(label) for label in source_labels]
+    preferred = [str(label) for label in (matrix_labels or []) if str(label).strip()]
+    if not preferred:
+        return source
+
+    preferred_by_key = {}
+    for label in preferred:
+        preferred_by_key.setdefault(_normalized_atom_label(label), []).append(label)
+    aligned = []
+    used = set()
+    for label in source:
+        matches = preferred_by_key.get(_normalized_atom_label(label), [])
+        match = next((candidate for candidate in matches if candidate not in used), None)
+        aligned.append(match or "")
+        if match:
+            used.add(match)
+
+    remaining = [label for label in preferred if label not in used]
+    if len(preferred) == len(source):
+        remaining_iter = iter(remaining)
+        aligned = [label or next(remaining_iter) for label in aligned]
+    else:
+        aligned = [label or source[index] for index, label in enumerate(aligned)]
+    return aligned
+
+
+def _rdkit_heavy_atom_mol_and_labels(path, mol, matrix_labels=None):
     try:
         from rdkit import Chem
     except Exception:
@@ -1238,7 +1270,7 @@ def _rdkit_heavy_atom_mol_and_labels(path, mol):
         except Exception:
             label = f"{atom.GetSymbol()}{atom.GetIdx() + 1}"
         labels.append(str(label))
-    return heavy_mol, labels
+    return heavy_mol, _align_atom_map_labels(labels, matrix_labels)
 
 
 def _export_ligand_atom_map(params, residue_artifact):
@@ -1255,7 +1287,8 @@ def _export_ligand_atom_map(params, residue_artifact):
             from rdkit import Chem
             from rdkit.Chem import AllChem, Draw
 
-            draw_mol, labels = _rdkit_heavy_atom_mol_and_labels(source, mol)
+            matrix_labels = list(residue_artifact.get("ligand_atoms", []) or [])
+            draw_mol, labels = _rdkit_heavy_atom_mol_and_labels(source, mol, matrix_labels)
             try:
                 AllChem.Compute2DCoords(draw_mol)
             except Exception:
@@ -1274,6 +1307,8 @@ def _export_ligand_atom_map(params, residue_artifact):
                 "image": str(output_path),
                 "source_file": str(source),
                 "atom_labels": labels,
+                "matrix_atom_labels": matrix_labels,
+                "labels_match_matrix": set(labels) == set(matrix_labels),
                 "heavy_atoms_only": True,
             }
             _save_json(meta_path, meta)

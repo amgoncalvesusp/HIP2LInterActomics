@@ -16,13 +16,36 @@ from pathlib import Path
 from typing import Callable
 
 from .project import ProjectConfig
-from ..i18n import t
+from ..i18n import set_language, t
 
 
 _A4_LANDSCAPE = (11.69, 8.27)
 _PDF_DPI = 180
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 _REPORT_TEMP_PREFIXES = ("_report_", "_report_pdf_")
+
+_FP_COLUMN_GUIDE = [
+    ("Feature", "Identificador do bit/atributo do fingerprint usado para localizar a mesma feature em tabelas, gráficos e sessões estruturais."),
+    ("Moléculas", "Número de ligantes em que a feature está presente."),
+    ("Cobertura (%)", "Percentual da base que contém a feature, calculado sobre todos os ligantes processados."),
+    ("Classe prevalente (%)", "Maior participação percentual entre as classes químicas observadas para a feature."),
+    ("Z-score classe", "Distância padronizada entre a prevalência da classe e a distribuição das demais features."),
+    ("Classe atribuída", "Natureza química aceita para a feature após a aplicação do critério de confiabilidade."),
+    ("Importância", "Peso fornecido pelo modelo supervisionado ou pelo fallback analítico para a tarefa configurada."),
+    ("Z-score Importance", "Importância padronizada dentro do nível de fingerprint correspondente."),
+    ("p-value", "Probabilidade de cauda derivada do Z-score de importância; valores menores indicam maior evidência de relevância."),
+    ("Colisões", "Quantidade de ocorrências em que o mesmo bit agregou shells ou naturezas químicas distintas."),
+    ("Nível assinado", "Nível do fingerprint atribuído à feature para separar modelos e interpretações por escala estrutural."),
+    ("Níveis shell", "Distribuição dos níveis de shell efetivamente associados à feature."),
+    ("Níveis colisão", "Níveis de shell encontrados nas ocorrências classificadas como colisão."),
+    ("Perfil da base", "Resumo de contagens e percentuais de classes para todas as ocorrências da feature na base."),
+]
+
+_FP_EDUCATION = [
+    "A seção Análises FP transforma os bits dos fingerprints em variáveis interpretáveis. Ela combina cobertura, natureza química, nível de shell, colisões e importância preditiva para priorizar padrões que merecem inspeção estrutural.",
+    "Extra Trees e Gradient Boosting são ajustados para a tarefa ativa, como classificadores para rótulos discretos ou regressores para valores contínuos. Os rankings devem ser comparados: concordância entre os métodos reforça a estabilidade, enquanto divergências sinalizam dependência do modelo.",
+    "Importância não prova causalidade molecular. A priorização final deve considerar cobertura, colisões, p-value, interações prevalentes e a posição da feature na estrutura do ligante e do receptor.",
+]
 
 _EXPLANATIONS = {
     "similarity": (
@@ -196,6 +219,34 @@ def _all_report_images(
     return pages
 
 
+def _fp_model_tables(fp_dashboards: dict | None) -> list[dict]:
+    tables: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for dashboard in (fp_dashboards or {}).values():
+        if not isinstance(dashboard, dict):
+            continue
+        ifp_type = str(dashboard.get("ifp_type") or dashboard.get("ifp_label") or "IFP")
+        rankings = dashboard.get("top_features_by_model") or {}
+        for model_key, model_title in (
+            ("extra_trees", "Extra Trees"),
+            ("gradient_boosting", "Gradient Boosting"),
+        ):
+            identity = (ifp_type, model_key)
+            if identity in seen:
+                continue
+            rows = list(rankings.get(model_key, []) or [])[:50]
+            if not rows:
+                continue
+            seen.add(identity)
+            tables.append({
+                "ifp_type": ifp_type,
+                "model_key": model_key,
+                "model_title": model_title,
+                "rows": rows,
+            })
+    return tables
+
+
 def build_report(
     cfg: ProjectConfig,
     analysis: dict,
@@ -203,12 +254,23 @@ def build_report(
     interactions_png: Path | None = None,
     cluster_png: Path | None = None,
     clusters: list[tuple[str, int]] | None = None,
+    fp_dashboards: dict | None = None,
     extra_images: list[tuple[str, str | Path, str]] | None = None,
 ) -> str:
+    set_language(str(getattr(cfg, "language", "pt") or "pt"))
+    payload = _pdf_payload(
+        cfg,
+        analysis,
+        heatmap_png,
+        interactions_png,
+        cluster_png,
+        clusters,
+        fp_dashboards,
+        extra_images,
+    )
     rows_cfg = "".join(
-        f"<tr><td>{_esc(key)}</td><td>{_esc(value)}</td></tr>"
-        for key, value in vars(cfg).items()
-        if not (isinstance(value, list) and not value) and value not in ("", False, None)
+        f"<tr><td>{_esc(t(key))}</td><td>{_esc(t(value))}</td></tr>"
+        for key, value in payload["cfg_rows"]
     )
     inter_counts = analysis.get("interaction_counts", {}) or {}
     rows_inter = "".join(
@@ -222,7 +284,7 @@ def build_report(
     ) or "<tr><td colspan='2'>-</td></tr>"
     cluster_rows = "".join(
         f"<tr><td>{_esc(label)}</td><td class='number'>{cluster_id}</td></tr>"
-        for label, cluster_id in (clusters or [])
+        for label, cluster_id in payload["clusters"]
     )
     images_html = "".join(
         "<section class='plot'>"
@@ -231,32 +293,73 @@ def build_report(
         f"<p>{_esc(caption)}</p>"
         f"<small>Fonte: {_esc(path)}</small>"
         "</section>"
-        for title, path, caption in _all_report_images(
-            cfg, heatmap_png, interactions_png, cluster_png, extra_images
-        )
+        for title, path, caption in [
+            (title, Path(path), caption) for title, path, caption in payload["images"]
+        ]
     )
     cluster_table = (
         "<h2>Atribuição de clusters</h2>"
         f"<table><tr><th>Ligante</th><th>Cluster</th></tr>{cluster_rows}</table>"
         if cluster_rows else ""
     )
+    fp_summary_rows = "".join(
+        f"<tr><td>{_esc(key)}</td><td>{_esc(value)}</td></tr>"
+        for key, value in payload["fp_rows"]
+    )
+    fp_summary_section = (
+        f"<h2>{_esc(t('Resumo das análises de fingerprints'))}</h2>"
+        f"<table><tbody>{fp_summary_rows}</tbody></table>"
+        if fp_summary_rows
+        else ""
+    )
+    fp_column_rows = "".join(
+        f"<tr><td>{_esc(t(column))}</td><td>{_esc(t(description))}</td></tr>"
+        for column, description in _FP_COLUMN_GUIDE
+    )
+    fp_education = "".join(f"<p>{_esc(t(paragraph))}</p>" for paragraph in _FP_EDUCATION)
+    fp_model_html = ""
+    for table in payload["fp_model_tables"]:
+        model_rows = "".join(
+            "<tr>"
+            f"<td class='number'>{_esc(row.get('rank', '-'))}</td>"
+            f"<td>{_esc(row.get('feature_id', '-'))}</td>"
+            f"<td>{_esc(row.get('assigned_level') or '-')}</td>"
+            f"<td>{_esc(t(row.get('assigned_class') or '-'))}</td>"
+            f"<td class='number'>{float(row.get('coverage_pct', 0.0) or 0.0):.2f}</td>"
+            f"<td class='number'>{float(row.get('importance_score', 0.0) or 0.0):.8f}</td>"
+            "</tr>"
+            for row in table["rows"]
+        )
+        fp_model_html += (
+            "<section class='data-section page-break'>"
+            f"<h2>{_esc(t('Top 50 features'))}: {_esc(table['ifp_type'])} / {_esc(table['model_title'])}</h2>"
+            "<table><thead><tr>"
+            f"<th>{_esc(t('Posição'))}</th><th>{_esc(t('Feature'))}</th>"
+            f"<th>{_esc(t('Nível assinado'))}</th><th>{_esc(t('Classe atribuída'))}</th>"
+            f"<th>{_esc(t('Cobertura (%)'))}</th><th>{_esc(t('Importância'))}</th>"
+            f"</tr></thead><tbody>{model_rows}</tbody></table></section>"
+        )
+
+    html_language = {"pt": "pt-br", "en": "en", "es": "es"}.get(str(cfg.language), "pt-br")
 
     return f"""<!doctype html>
-<html lang="pt-br"><head><meta charset="utf-8">
+<html lang="{html_language}"><head><meta charset="utf-8">
 <title>Relatório HIP²LInterActomics</title>
 <style>
 @page{{size:A4 landscape;margin:14mm}}
 *{{box-sizing:border-box}}
-body{{font-family:'Segoe UI',Arial,sans-serif;max-width:1180px;margin:2em auto;padding:0 1.2em;color:#2a221d;background:#faf6f0}}
+body{{font-family:'Segoe UI',Arial,sans-serif;max-width:1180px;margin:2em auto;padding:0 1.2em;color:#2a221d;background:#faf6f0;line-height:1.45}}
 h1{{border-bottom:3px solid #0f766e;padding-bottom:.35em}}
 h2{{color:#0f766e;margin-top:1.6em}}
-table{{border-collapse:collapse;width:100%;margin:.6em 0;background:#fffdfa}}
-th,td{{border:1px solid #ddd3c3;padding:7px 10px;font-size:13px}}
+table{{border-collapse:collapse;width:100%;table-layout:fixed;margin:.6em 0;background:#fffdfa}}
+thead{{display:table-header-group}} tr{{break-inside:avoid;page-break-inside:avoid}}
+th,td{{border:1px solid #ddd3c3;padding:7px 10px;font-size:13px;overflow-wrap:anywhere;vertical-align:top}}
 th{{background:#efe7db;text-align:left}} .number{{text-align:right}}
 .meta,small{{color:#6a5d52;font-size:12px}}
 .plot{{break-before:page;page-break-before:always;break-inside:avoid;page-break-inside:avoid}}
 .plot img{{display:block;max-width:100%;max-height:155mm;width:auto;height:auto;object-fit:contain;margin:.6em auto}}
 .plot p{{line-height:1.45;background:#fffdfa;border:1px solid #e7d9c5;padding:10px 12px}}
+.page-break{{break-before:page;page-break-before:always}} .data-section{{break-inside:auto}}
 </style></head><body>
 <h1>Relatório HIP²LInterActomics</h1>
 <p class="meta">Gerado em {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
@@ -274,7 +377,15 @@ th{{background:#efe7db;text-align:left}} .number{{text-align:right}}
 <table><tr><th>Tipo</th><th>Total</th></tr>{rows_inter}</table>
 <h2>Top 30 resíduos com mais interações</h2>
 <table><tr><th>Cadeia/Resíduo/Número</th><th>Contagem</th></tr>{rows_res}</table>
+<section class="page-break">
+<h2>{_esc(t('Como interpretar as análises de fingerprints'))}</h2>
+{fp_education}
+<h2>{_esc(t('Guia das colunas de Análises FP'))}</h2>
+<table><thead><tr><th>{_esc(t('Coluna'))}</th><th>{_esc(t('Interpretação'))}</th></tr></thead><tbody>{fp_column_rows}</tbody></table>
+{fp_summary_section}
+</section>
 {images_html}
+{fp_model_html}
 {cluster_table}
 </body></html>
 """
@@ -489,6 +600,7 @@ def _pdf_payload(
     top_inter = sorted(inter_counts.items(), key=lambda item: -item[1])[:12]
     top_res = sorted(residue_counts.items(), key=lambda item: -item[1])[:12]
     return {
+        "language": str(getattr(cfg, "language", "pt") or "pt"),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "entries": analysis.get("entries", "não informado"),
         "cfg_rows": _cfg_rows_for_pdf(cfg),
@@ -496,6 +608,7 @@ def _pdf_payload(
         "top_res": ", ".join(f"{key}: {value}" for key, value in top_res) or "Sem resíduos contabilizados.",
         "images": [(title, str(path), caption) for title, path, caption in _all_report_images(cfg, heatmap_png, interactions_png, cluster_png, extra_images)],
         "fp_rows": _fp_rows(fp_dashboards),
+        "fp_model_tables": _fp_model_tables(fp_dashboards),
         "clusters": [(str(label), str(cluster_id)) for label, cluster_id in (clusters or [])[:80]],
     }
 
@@ -503,6 +616,7 @@ def _pdf_payload(
 def _write_pdf_payload(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
     from matplotlib.backends.backend_pdf import PdfPages
 
+    set_language(str(payload.get("language") or "pt"))
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.part")
@@ -536,12 +650,47 @@ def _write_pdf_payload(path: str | Path, payload: dict) -> tuple[Path, list[str]
                 [("Interações mais frequentes", payload["top_inter"]), ("Resíduos mais frequentes", payload["top_res"])],
                 page_state,
             )
+            _add_text_page(
+                pdf,
+                "Como interpretar as análises de fingerprints",
+                list(_FP_EDUCATION),
+                None,
+                page_state,
+            )
+            _add_text_page(
+                pdf,
+                "Guia das colunas de Análises FP",
+                ["Consulte este dicionário ao interpretar as tabelas, os rankings e os mapas de fingerprints."],
+                list(_FP_COLUMN_GUIDE),
+                page_state,
+            )
+            if payload["fp_rows"]:
+                _add_text_page(
+                    pdf,
+                    "Resumo das análises de fingerprints",
+                    ["Cada linha resume uma base de fingerprints, a quantidade de features e o corte usado na seleção."],
+                    payload["fp_rows"],
+                    page_state,
+                )
             for title, image_path, caption in payload["images"]:
                 warning = _add_image_page(pdf, title, Path(image_path), caption, page_state)
                 if warning:
                     warnings.append(warning)
-            if payload["fp_rows"]:
-                _add_text_page(pdf, "Resumo das análises de fingerprints", ["Cada linha resume uma base de fingerprints carregada e o corte usado na seleção de features."], payload["fp_rows"], page_state)
+            for table in payload["fp_model_tables"]:
+                rows = [
+                    (
+                        f"{row.get('rank', '-')}. feature {row.get('feature_id', '-')} (L{row.get('assigned_level') or '-'})",
+                        f"classe={row.get('assigned_class') or '-'}; cobertura={float(row.get('coverage_pct', 0.0) or 0.0):.2f}%; importância={float(row.get('importance_score', 0.0) or 0.0):.8f}",
+                    )
+                    for row in table["rows"]
+                ]
+                _add_text_page(
+                    pdf,
+                    f"Top 50 features: {table['ifp_type']} / {table['model_title']}",
+                    ["Ranking independente das features para comparação entre os dois métodos de ensemble."],
+                    rows,
+                    page_state,
+                )
             if payload["clusters"]:
                 _add_text_page(pdf, "Atribuição de clusters", ["Tabela dos ligantes e seus grupos hierárquicos."], payload["clusters"], page_state)
         temporary.replace(output)

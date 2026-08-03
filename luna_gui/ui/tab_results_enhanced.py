@@ -673,7 +673,7 @@ class ResultsTab(QWidget):
         if not wd:
             return
         if not self.py_exe:
-            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba Setup.")
+            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba 1. Início.")
             return
         self.st_status.setText("Processando... (pode levar alguns minutos)")
         self.st_status.repaint()
@@ -710,7 +710,7 @@ class ResultsTab(QWidget):
         if not wd:
             return
         if not self.py_exe:
-            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba Setup.")
+            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba 1. Início.")
             return
         self.hm_status.setText("Processando...")
         self.hm_status.repaint()
@@ -952,6 +952,7 @@ class ResultsTab(QWidget):
                 interactions_png=inter_png if inter_png.exists() else None,
                 cluster_png=cluster_png if cluster_png.exists() else None,
                 clusters=cluster_items,
+                fp_dashboards=getattr(self, "_fp_dashboards", {}),
             )
         except Exception as exc:
             QMessageBox.critical(self, "Erro", str(exc))

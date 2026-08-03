@@ -313,7 +313,7 @@ class ResultsTab(QWidget):
             return
         if not self.py_exe:
             QMessageBox.warning(self, "luna-env",
-                                "LUNA não detectado. Verifique a aba Setup.")
+                                "LUNA não detectado. Verifique a aba 1. Início.")
             return
         self.st_status.setText("Processando... (pode levar alguns minutos)")
         self.st_status.repaint()
@@ -351,7 +351,7 @@ class ResultsTab(QWidget):
         if not wd:
             return
         if not self.py_exe:
-            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba Setup.")
+            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba 1. Início.")
             return
         self.hm_status.setText("Processando...")
         self.hm_status.repaint()

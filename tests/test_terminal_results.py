@@ -57,6 +57,8 @@ class TerminalResultsTests(unittest.TestCase):
             self.assertTrue(explorer.exists())
             self.assertIn("matrix_available", explorer.read_text(encoding="utf-8"))
             self.assertIn("EIFP_cluster_explorer", manifest["outputs"])
+            self.assertTrue((output_dir / "complete_ligands_residues_heatmap.png").exists())
+            self.assertIn("complete_ligands_residues_heatmap", manifest["outputs"])
 
 
 if __name__ == "__main__":

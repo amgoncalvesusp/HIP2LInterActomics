@@ -100,10 +100,24 @@ class RunTab(QWidget):
         self.py_exe = py_exe
         self.run_py = run_py
 
+    def _resolve_luna_runtime(self) -> bool:
+        """Recover from a missed setup signal by checking the installed env directly."""
+        conda = em.find_conda()
+        if not conda:
+            return False
+        py_exe = em.env_python(conda)
+        if py_exe is None or not em.luna_installed(py_exe):
+            return False
+        run_py = em.luna_run_py_path(py_exe)
+        if run_py is None:
+            return False
+        self.set_luna(str(py_exe), str(run_py))
+        return True
+
     def run(self) -> None:
-        if not self.py_exe or not self.run_py:
+        if (not self.py_exe or not self.run_py) and not self._resolve_luna_runtime():
             QMessageBox.warning(self, "LUNA não pronto",
-                                "Vá à aba 'Setup' e instale/verifique o LUNA primeiro.")
+                                "Vá à aba '1. Início' e instale/verifique o LUNA primeiro.")
             return
 
         if self.collect_callback:

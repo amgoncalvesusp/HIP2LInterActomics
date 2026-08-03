@@ -162,6 +162,15 @@ def load_history() -> list[str]:
         return []
 
 
+def remove_from_history(workdir: str) -> None:
+    items = [item for item in load_history() if item != workdir]
+    HISTORY_FILE.write_text(json.dumps(items, indent=2), encoding="utf-8")
+
+
+def clear_history() -> None:
+    HISTORY_FILE.write_text("[]\n", encoding="utf-8")
+
+
 def resolve_ifp_output_paths(cfg: ProjectConfig) -> dict[str, str]:
     """Return the concrete IFP CSV path(s) implied by the current config."""
     types = cfg.selected_ifp_types()

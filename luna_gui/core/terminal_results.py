@@ -1,9 +1,8 @@
 """Post-analysis exports for the HIP2LInterActomics terminal workflow.
 
 The module writes portable artifacts from the same workdir consumed by the GUI.
-Fingerprint dashboards remain a GUI operation; terminal users receive static
-figures, cluster assignments, a lightweight interactive cluster explorer, and
-optional FP-PyMOL sessions.
+Fingerprint dashboards, static figures, cluster assignments, a lightweight
+interactive cluster explorer, and optional FP-PyMOL sessions are exported.
 """
 from __future__ import annotations
 
@@ -13,8 +12,14 @@ from html import escape
 from pathlib import Path
 from typing import Any, Mapping
 
+import numpy as np
+
 from . import analysis_runtime, results_analysis
 from .project import IFP_SUFFIXES, ProjectConfig, resolve_sim_matrix_output_paths
+from ..i18n import t
+
+
+_PLOT_DPI = 300
 
 
 def _int_setting(
@@ -60,7 +65,14 @@ def _rendered_entry_count(entry_count: int) -> int:
     return min(200, max(1, int(entry_count)))
 
 
-def _save_interaction_summary(summary: dict, output_dir: Path) -> Path | None:
+def _save_plot(fig, output: Path, plt) -> Path:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=_PLOT_DPI, bbox_inches="tight", pad_inches=0.18)
+    plt.close(fig)
+    return output
+
+
+def _save_interaction_summary(summary: dict, output_dir: Path, language: str = "pt") -> Path | None:
     counts = summary.get("interaction_counts") if isinstance(summary, dict) else None
     if not isinstance(counts, dict):
         return None
@@ -80,17 +92,15 @@ def _save_interaction_summary(summary: dict, output_dir: Path) -> Path | None:
     height = max(4.0, 0.28 * len(rows) + 1.8)
     fig, axis = plt.subplots(figsize=(9.0, height))
     axis.barh([name for name, _ in rows], [value for _, value in rows], color="#2f7f83")
-    axis.set_xlabel("Interaction count")
-    axis.set_title("Interaction summary")
+    axis.set_xlabel(t("Contagem de interações", lang=language))
+    axis.set_title(t("Resumo de interações", lang=language))
     axis.grid(axis="x", alpha=0.2)
     fig.tight_layout()
     output = output_dir / "interaction_summary.png"
-    fig.savefig(output, dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    return output
+    return _save_plot(fig, output, plt)
 
 
-def _save_residue_heatmaps(residue_artifact: dict, output_dir: Path) -> list[Path]:
+def _save_residue_heatmaps(residue_artifact: dict, output_dir: Path, language: str = "pt") -> list[Path]:
     entries = list(residue_artifact.get("entries", []) or [])
     residues = list(residue_artifact.get("residues", []) or [])
     matrices = residue_artifact.get("matrix")
@@ -118,9 +128,9 @@ def _save_residue_heatmaps(residue_artifact: dict, output_dir: Path) -> list[Pat
 
         fig, axis = plt.subplots(figsize=(width, height))
         image = axis.imshow(values, cmap="viridis", aspect="auto")
-        axis.set_title(f"Residue interaction map: {interaction_type}")
-        axis.set_xlabel("Residues")
-        axis.set_ylabel(f"Ligands ({len(entries)} total)")
+        axis.set_title(f"{t('Mapa de interação por resíduo', lang=language)}: {t(interaction_type, lang=language)}")
+        axis.set_xlabel(t("Resíduos", lang=language))
+        axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(entries)} {t('total', lang=language)})")
         if len(residues) <= 40:
             axis.set_xticks(range(len(residues)))
             axis.set_xticklabels(residues, rotation=90, fontsize=7)
@@ -130,9 +140,224 @@ def _save_residue_heatmaps(residue_artifact: dict, output_dir: Path) -> list[Pat
         fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
         fig.tight_layout()
         output = output_dir / f"residue_map_{_safe_token(str(interaction_type))}.png"
-        fig.savefig(output, dpi=180, bbox_inches="tight")
-        plt.close(fig)
-        outputs.append(output)
+        outputs.append(_save_plot(fig, output, plt))
+    return outputs
+
+
+def _save_complete_residue_heatmap(
+    residue_artifact: dict,
+    output_dir: Path,
+    language: str = "pt",
+) -> Path | None:
+    entries, residues, matrix, _interaction_types = results_analysis.build_complete_heatmap(residue_artifact)
+    values = np.asarray(matrix, dtype=float)
+    if not entries or not residues or values.size == 0:
+        return None
+    plt = _get_pyplot()
+    if plt is None:
+        return None
+    fig, axis = plt.subplots(
+        figsize=(
+            max(9.0, 4.0 + 0.12 * min(len(residues), 90)),
+            max(6.0, 3.2 + 0.04 * _rendered_entry_count(len(entries))),
+        )
+    )
+    image = axis.imshow(values, cmap="viridis", aspect="auto")
+    axis.set_title(t("Mapa de calor completo ligantes x resíduos", lang=language))
+    axis.set_xlabel(t("Resíduos", lang=language))
+    axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(entries)} {t('total', lang=language)})")
+    if len(residues) <= 50:
+        axis.set_xticks(range(len(residues)))
+        axis.set_xticklabels(residues, rotation=90, fontsize=7)
+    if len(entries) <= 40:
+        axis.set_yticks(range(len(entries)))
+        axis.set_yticklabels(entries, fontsize=7)
+    fig.colorbar(image, ax=axis, fraction=0.035, pad=0.03)
+    fig.tight_layout()
+    return _save_plot(fig, output_dir / "complete_ligands_residues_heatmap.png", plt)
+
+
+def _fp_plot_features(dashboard: dict, limit: int = 50) -> list[dict]:
+    rows = list(dashboard.get("important_features", []) or [])
+    if not rows:
+        rows = list(dashboard.get("features", []) or [])
+    return rows[: max(1, int(limit))]
+
+
+def _save_fp_dashboard_figures(
+    dashboard: dict,
+    output_dir: Path,
+    ifp_type: str,
+    language: str,
+) -> list[Path]:
+    plt = _get_pyplot()
+    if plt is None:
+        return []
+    suffix = IFP_SUFFIXES.get(ifp_type, ifp_type)
+    target = output_dir / "fingerprints" / str(suffix)
+    target.mkdir(parents=True, exist_ok=True)
+    outputs: list[Path] = []
+    features = _fp_plot_features(dashboard)
+    colors = dashboard.get("class_colors", {}) or {}
+
+    class_share = dashboard.get("class_share", {}) or {}
+    class_labels = [label for label in results_analysis.FP_CLASS_ORDER if float(class_share.get(label, 0.0) or 0.0) > 0.0]
+    if class_labels:
+        fig, axis = plt.subplots(figsize=(max(9.0, 1.0 * len(class_labels) + 3.5), 6.0))
+        values = [float(class_share[label]) for label in class_labels]
+        axis.bar(range(len(class_labels)), values, color=[colors.get(label, "#2f7f83") for label in class_labels])
+        axis.set_xticks(range(len(class_labels)))
+        axis.set_xticklabels([t(label, lang=language) for label in class_labels], rotation=30, ha="right")
+        axis.set_ylabel(t("% de features importantes", lang=language))
+        axis.set_title(t("Distribuição das classes entre as features mais importantes", lang=language))
+        fig.tight_layout()
+        outputs.append(_save_plot(fig, target / "fp_class_summary.png", plt))
+
+    if features:
+        labels = [str(feature.get("feature_id", "-")) for feature in features]
+        y = np.arange(len(features))
+        fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
+        left = np.zeros(len(features), dtype=float)
+        for class_name in results_analysis.FP_CLASS_ORDER:
+            values = np.asarray(
+                [float((feature.get("class_percentages") or {}).get(class_name, 0.0) or 0.0) for feature in features]
+            )
+            if not np.any(values > 0):
+                continue
+            axis.barh(y, values, left=left, label=t(class_name, lang=language), color=colors.get(class_name, "#6f9ec7"))
+            left += values
+        axis.set_yticks(y)
+        axis.set_yticklabels(labels)
+        axis.invert_yaxis()
+        axis.set_xlim(0, 100)
+        axis.set_xlabel(t("Frequência de atribuição de cada classe (%)", lang=language))
+        axis.set_ylabel(t("ID da feature", lang=language))
+        axis.set_title(t("Frequência de atribuição de classes nas features importantes", lang=language))
+        axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=3, frameon=False)
+        fig.tight_layout()
+        outputs.append(_save_plot(fig, target / "fp_class_assignment.png", plt))
+
+        fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
+        coverage = [float(feature.get("coverage_pct", 0.0) or 0.0) for feature in features]
+        importance = [float(feature.get("importance_pct", 0.0) or 0.0) for feature in features]
+        axis.barh(y, coverage, color=[colors.get(str(feature.get("assigned_class", "")), "#2f7f83") for feature in features])
+        axis.scatter(importance, y, marker="*", color="#b42318", s=45, label=t("Importância relativa", lang=language))
+        axis.set_yticks(y)
+        axis.set_yticklabels(labels)
+        axis.invert_yaxis()
+        axis.set_xlim(0, 105)
+        axis.set_xlabel(t("Cobertura / importância relativa (%)", lang=language))
+        axis.set_ylabel(t("ID da feature", lang=language))
+        axis.set_title(t("Cobertura das features importantes e importância do modelo", lang=language))
+        axis.legend(frameon=False)
+        fig.tight_layout()
+        outputs.append(_save_plot(fig, target / "fp_coverage_importance.png", plt))
+
+        entries = list(dashboard.get("entry_labels", []) or [])
+        if entries:
+            presence = np.asarray(
+                [[1.0 if entry in (feature.get("entry_counts") or {}) else 0.0 for feature in features] for entry in entries],
+                dtype=float,
+            )
+            fig, axis = plt.subplots(figsize=(max(9.0, 0.30 * len(features) + 4.0), max(6.5, 0.06 * _rendered_entry_count(len(entries)) + 3.0)))
+            image = axis.imshow(presence, cmap="Blues", aspect="auto", vmin=0, vmax=1)
+            axis.set_xticks(range(len(features)))
+            axis.set_xticklabels(labels, rotation=90, fontsize=7)
+            if len(entries) <= 40:
+                axis.set_yticks(range(len(entries)))
+                axis.set_yticklabels(entries, fontsize=7)
+            axis.set_xlabel(t("ID da feature", lang=language))
+            axis.set_ylabel(t("Ligantes", lang=language))
+            axis.set_title(t("Mapa de presença das features importantes por classe", lang=language))
+            fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
+            fig.tight_layout()
+            outputs.append(_save_plot(fig, target / "fp_feature_presence_heatmap.png", plt))
+
+        interaction_names = []
+        for feature in features:
+            for interaction_name, count in (feature.get("interaction_breakdown") or {}).items():
+                if int(count or 0) > 0 and interaction_name not in interaction_names:
+                    interaction_names.append(str(interaction_name))
+        interaction_names = sorted(interaction_names, key=results_analysis.interaction_priority_key)[:12]
+        if interaction_names:
+            fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
+            left = np.zeros(len(features), dtype=float)
+            for interaction_name in interaction_names:
+                values = []
+                for feature in features:
+                    breakdown = feature.get("interaction_breakdown") or {}
+                    total = float(sum(int(value or 0) for value in breakdown.values()))
+                    values.append(100.0 * float(breakdown.get(interaction_name, 0) or 0) / total if total else 0.0)
+                values_array = np.asarray(values, dtype=float)
+                if not np.any(values_array > 0):
+                    continue
+                axis.barh(y, values_array, left=left, label=t(interaction_name, lang=language), color=results_analysis.get_interaction_color(interaction_name))
+                left += values_array
+            axis.set_yticks(y)
+            axis.set_yticklabels(labels)
+            axis.invert_yaxis()
+            axis.set_xlim(0, 100)
+            axis.set_xlabel(t("Frequência de atribuição de cada interação (%)", lang=language))
+            axis.set_ylabel(t("ID da feature", lang=language))
+            axis.set_title(t("Frequência de atribuição da interação prevalente nas features importantes", lang=language))
+            axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=3, frameon=False)
+            fig.tight_layout()
+            outputs.append(_save_plot(fig, target / "fp_interaction_assignment.png", plt))
+
+        prevalent = [feature for feature in features if str(feature.get("prevalent_interaction", "")) not in {"", results_analysis.CLASS_UNRELIABLE}]
+        if prevalent:
+            prevalent_labels = [str(feature.get("feature_id", "-")) for feature in prevalent]
+            heights = [len(feature.get("prevalent_pair_entries", []) or []) for feature in prevalent]
+            fig, axis = plt.subplots(figsize=(max(10.0, 0.48 * len(prevalent) + 4.0), 6.2))
+            axis.bar(
+                range(len(prevalent)),
+                heights,
+                color=[results_analysis.get_interaction_color(str(feature.get("prevalent_interaction", ""))) for feature in prevalent],
+            )
+            axis.set_xticks(range(len(prevalent)))
+            axis.set_xticklabels(prevalent_labels, rotation=45, ha="right")
+            axis.set_xlabel(t("ID da feature", lang=language))
+            axis.set_ylabel(t("Número de ligantes", lang=language))
+            axis.set_title(t("Interação e resíduo prevalentes nas features importantes", lang=language))
+            fig.tight_layout()
+            outputs.append(_save_plot(fig, target / "fp_prevalent_interactions.png", plt))
+
+            if entries:
+                prevalence_matrix = np.asarray(
+                    [[1.0 if entry in (feature.get("prevalent_pair_entries") or []) else 0.0 for feature in prevalent] for entry in entries],
+                    dtype=float,
+                )
+                fig, axis = plt.subplots(figsize=(max(9.0, 0.30 * len(prevalent) + 4.0), max(6.5, 0.06 * _rendered_entry_count(len(entries)) + 3.0)))
+                image = axis.imshow(prevalence_matrix, cmap="YlGnBu", aspect="auto", vmin=0, vmax=1)
+                axis.set_xticks(range(len(prevalent)))
+                axis.set_xticklabels(prevalent_labels, rotation=90, fontsize=7)
+                if len(entries) <= 40:
+                    axis.set_yticks(range(len(entries)))
+                    axis.set_yticklabels(entries, fontsize=7)
+                axis.set_xlabel(t("ID da feature", lang=language))
+                axis.set_ylabel(t("Ligantes", lang=language))
+                axis.set_title(t("Mapa de calor de interações prevalentes", lang=language))
+                fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
+                fig.tight_layout()
+                outputs.append(_save_plot(fig, target / "fp_prevalent_interactions_heatmap.png", plt))
+
+    for model_key, model_title in (("extra_trees", "Extra Trees"), ("gradient_boosting", "Gradient Boosting")):
+        rows = list((dashboard.get("top_features_by_model") or {}).get(model_key, []) or [])[:50]
+        if not rows:
+            continue
+        rows = list(reversed(rows))
+        labels = [f"{row.get('feature_id', '-')} (L{row.get('assigned_level') or '-'})" for row in rows]
+        values = [float(row.get("importance_score", 0.0) or 0.0) for row in rows]
+        fig, axis = plt.subplots(figsize=(11.5, max(7.0, 0.28 * len(rows) + 2.7)))
+        axis.barh(range(len(rows)), values, color="#2f7f83" if model_key == "extra_trees" else "#b45f3b")
+        axis.set_yticks(range(len(rows)))
+        axis.set_yticklabels(labels, fontsize=7.5)
+        axis.set_xlabel(t("Importância da feature", lang=language))
+        axis.set_ylabel(t("ID da feature e nível", lang=language))
+        axis.set_title(t(f"Top 50 features por {model_title}", lang=language))
+        fig.tight_layout()
+        outputs.append(_save_plot(fig, target / f"fp_top50_{model_key}.png", plt))
+
     return outputs
 
 
@@ -178,7 +403,13 @@ def _square_matrix_size_hint(path: Path) -> int | None:
     return None
 
 
-def _save_similarity_figure(labels: list[str], matrix, output_dir: Path, ifp_type: str) -> Path | None:
+def _save_similarity_figure(
+    labels: list[str],
+    matrix,
+    output_dir: Path,
+    ifp_type: str,
+    language: str = "pt",
+) -> Path | None:
     plt = _get_pyplot()
     if plt is None:
         return None
@@ -187,9 +418,9 @@ def _save_similarity_figure(labels: list[str], matrix, output_dir: Path, ifp_typ
     height = max(7.0, 3.0 + 0.035 * rendered_entries)
     fig, axis = plt.subplots(figsize=(width, height))
     image = axis.imshow(matrix, cmap="magma", aspect="auto", vmin=0.0, vmax=1.0)
-    axis.set_title(f"Similarity matrix: {ifp_type}")
-    axis.set_xlabel(f"Ligands ({len(labels)} total)")
-    axis.set_ylabel(f"Ligands ({len(labels)} total)")
+    axis.set_title(f"{t('Matriz de similaridade', lang=language)}: {ifp_type}")
+    axis.set_xlabel(f"{t('Ligantes', lang=language)} ({len(labels)} {t('total', lang=language)})")
+    axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(labels)} {t('total', lang=language)})")
     if len(labels) <= 40:
         axis.set_xticks(range(len(labels)))
         axis.set_xticklabels(labels, rotation=90, fontsize=7)
@@ -198,12 +429,15 @@ def _save_similarity_figure(labels: list[str], matrix, output_dir: Path, ifp_typ
     fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
     fig.tight_layout()
     output = output_dir / f"similarity_{IFP_SUFFIXES.get(ifp_type, ifp_type)}.png"
-    fig.savefig(output, dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    return output
+    return _save_plot(fig, output, plt)
 
 
-def _save_cluster_figure(result, output_dir: Path, ifp_type: str) -> Path | None:
+def _save_cluster_figure(
+    result,
+    output_dir: Path,
+    ifp_type: str,
+    language: str = "pt",
+) -> Path | None:
     plt = _get_pyplot()
     if plt is None:
         return None
@@ -223,15 +457,16 @@ def _save_cluster_figure(result, output_dir: Path, ifp_type: str) -> Path | None
     if labels is None:
         tree_axis.set_xticks([])
     tree_axis.set_title(
-        f"Hierarchical clustering: {ifp_type} ({result.n_clusters} clusters, {result.method})"
+        f"{t('Clustering hierárquico', lang=language)}: {ifp_type} "
+        f"({result.n_clusters} clusters, {result.method})"
     )
-    tree_axis.set_ylabel("Distance")
+    tree_axis.set_ylabel(t("Distância", lang=language))
 
     matrix_axis = fig.add_subplot(grid[1])
     image = matrix_axis.imshow(result.ordered_matrix, cmap="magma", aspect="auto", vmin=0.0, vmax=1.0)
-    matrix_axis.set_title("Similarity matrix ordered by cluster")
-    matrix_axis.set_xlabel(f"Ligands ({len(result.labels)} total)")
-    matrix_axis.set_ylabel(f"Ligands ({len(result.labels)} total)")
+    matrix_axis.set_title(t("Matriz reordenada por cluster", lang=language))
+    matrix_axis.set_xlabel(f"{t('Ligantes', lang=language)} ({len(result.labels)} {t('total', lang=language)})")
+    matrix_axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(result.labels)} {t('total', lang=language)})")
     if len(result.ordered_labels) <= 40:
         matrix_axis.set_xticks(range(len(result.ordered_labels)))
         matrix_axis.set_xticklabels(result.ordered_labels, rotation=90, fontsize=7)
@@ -240,9 +475,7 @@ def _save_cluster_figure(result, output_dir: Path, ifp_type: str) -> Path | None
     fig.colorbar(image, ax=matrix_axis, fraction=0.046, pad=0.04)
     fig.subplots_adjust(left=0.09, right=0.90, top=0.93, bottom=0.08, hspace=0.38)
     output = output_dir / f"clusters_{IFP_SUFFIXES.get(ifp_type, ifp_type)}.png"
-    fig.savefig(output, dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    return output
+    return _save_plot(fig, output, plt)
 
 
 def _write_cluster_explorer(
@@ -446,7 +679,7 @@ def run_terminal_results(
     py_exe: str,
     settings: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Export non-dashboard Results artifacts for a completed workdir."""
+    """Export all cached Results artifacts for a completed workdir."""
     settings = settings or {}
     workdir = Path(cfg.workdir)
     if not workdir.exists():
@@ -461,11 +694,9 @@ def run_terminal_results(
         "outputs": {},
         "warnings": [],
         "errors": [],
-        "gui_dashboard": (
-            "Fingerprint dashboards remain in the GUI. Open this workdir in the Results tab "
-            "to calculate them from the cached artifacts."
-        ),
+        "gui_dashboard": "Fingerprint dashboard tables and high-resolution figures are exported when cached IFP artifacts are available.",
     }
+    language = str(getattr(cfg, "language", "pt") or "pt")
 
     summary = analysis_runtime.run_analysis(py_exe, str(workdir))
     if isinstance(summary, dict) and not summary.get("error"):
@@ -473,7 +704,7 @@ def run_terminal_results(
         if not summary_path.exists():
             _write_json(summary_path, summary)
         manifest["outputs"]["analysis_summary"] = _relative_to_workdir(summary_path, workdir)
-        chart = _save_interaction_summary(summary, output_dir)
+        chart = _save_interaction_summary(summary, output_dir, language)
         if chart:
             manifest["outputs"]["interaction_summary_chart"] = _relative_to_workdir(chart, workdir)
     else:
@@ -487,15 +718,50 @@ def run_terminal_results(
         if not residue_path.exists():
             _write_json(residue_path, residue)
         manifest["outputs"]["residue_matrix"] = _relative_to_workdir(residue_path, workdir)
-        heatmaps = _save_residue_heatmaps(residue, output_dir)
+        heatmaps = _save_residue_heatmaps(residue, output_dir, language)
         if heatmaps:
             manifest["outputs"]["residue_heatmaps"] = [
                 _relative_to_workdir(path, workdir) for path in heatmaps
             ]
+        complete_heatmap = _save_complete_residue_heatmap(residue, output_dir, language)
+        if complete_heatmap:
+            manifest["outputs"]["complete_ligands_residues_heatmap"] = _relative_to_workdir(
+                complete_heatmap, workdir
+            )
     else:
         manifest["errors"].append(
             str(residue.get("error") if isinstance(residue, dict) else "Unable to load residue matrix.")
         )
+
+    fp_artifacts = results_analysis.load_fp_analysis_artifacts(workdir)
+    requested_types = set(cfg.selected_ifp_types())
+    for ifp_type, artifact in sorted(fp_artifacts.items()):
+        if requested_types and ifp_type not in requested_types:
+            continue
+        try:
+            dashboard = results_analysis.build_fp_analysis_dashboard(
+                workdir,
+                artifact,
+                labels_csv=cfg.fp_labels_csv,
+                labels_id_column=cfg.fp_labels_id_column,
+                labels_column=cfg.fp_labels_column,
+                task_kind_preference=cfg.fp_label_task,
+                use_otsu_threshold=cfg.fp_use_otsu_threshold,
+            )
+            dashboard_path = output_dir / "fingerprints" / IFP_SUFFIXES.get(ifp_type, ifp_type) / "fp_dashboard.json"
+            _write_json(dashboard_path, dashboard)
+            figures = _save_fp_dashboard_figures(
+                dashboard,
+                output_dir,
+                ifp_type,
+                str(getattr(cfg, "language", "pt") or "pt"),
+            )
+            manifest["outputs"][f"{ifp_type}_fp_dashboard"] = _relative_to_workdir(dashboard_path, workdir)
+            manifest["outputs"][f"{ifp_type}_fp_charts"] = [
+                _relative_to_workdir(path, workdir) for path in figures
+            ]
+        except Exception as exc:
+            manifest["errors"].append(f"{ifp_type}: fingerprint dashboard export failed: {exc}")
 
     matrix_limit = _int_setting(settings, "terminal_matrix_max_entries", 5000)
     cluster_limit = _int_setting(settings, "terminal_cluster_max_entries", 5000)
@@ -529,7 +795,7 @@ def run_terminal_results(
             continue
 
         manifest["outputs"][f"{ifp_type}_similarity_matrix"] = _relative_to_workdir(matrix_path, workdir)
-        chart = _save_similarity_figure(labels, matrix, output_dir, ifp_type)
+        chart = _save_similarity_figure(labels, matrix, output_dir, ifp_type, language)
         if chart:
             manifest["outputs"][f"{ifp_type}_similarity_chart"] = _relative_to_workdir(chart, workdir)
 
@@ -553,7 +819,7 @@ def run_terminal_results(
             suffix = IFP_SUFFIXES.get(ifp_type, ifp_type)
             assignments = output_dir / f"clusters_{suffix}.csv"
             results_analysis.export_cluster_assignments(assignments, result)
-            cluster_chart = _save_cluster_figure(result, output_dir, ifp_type)
+            cluster_chart = _save_cluster_figure(result, output_dir, ifp_type, language)
             explorer = _write_cluster_explorer(
                 result,
                 output_dir,

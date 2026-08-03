@@ -1682,6 +1682,35 @@ def _apply_per_level_importance_models(
     }
 
 
+def _top_features_by_model(features: list[dict], limit: int = 50) -> dict[str, list[dict]]:
+    results: dict[str, list[dict]] = {}
+    for model_key in ("extra_trees", "gradient_boosting"):
+        ranked = sorted(
+            [
+                feature for feature in features
+                if model_key in (feature.get("model_importances") or {})
+            ],
+            key=lambda feature: (
+                -float((feature.get("model_importances") or {}).get(model_key, 0.0) or 0.0),
+                int(feature.get("feature_id", 0) or 0),
+            ),
+        )[: max(1, int(limit))]
+        results[model_key] = [
+            {
+                "rank": rank,
+                "feature_id": int(feature.get("feature_id", 0) or 0),
+                "assigned_level": str(feature.get("assigned_level", "") or ""),
+                "assigned_class": str(feature.get("assigned_class", "") or ""),
+                "coverage_pct": float(feature.get("coverage_pct", 0.0) or 0.0),
+                "importance_score": float(
+                    (feature.get("model_importances") or {}).get(model_key, 0.0) or 0.0
+                ),
+            }
+            for rank, feature in enumerate(ranked, start=1)
+        ]
+    return results
+
+
 def _gumbel_tail_p_value(zscore: float) -> float:
     z = float(zscore)
     value = 1.0 - math.exp(-math.exp(((-z * math.pi) / math.sqrt(6.0)) - EULER_MASCHERONI))
@@ -2118,6 +2147,7 @@ def build_fp_analysis_dashboard(
                 else "fp_detail nao disponivel; execute a analise no luna-env para extrair detalhes de interacao/residuo."
             ),
             "random_seed": int(seed),
+            "top_features_by_model": {"extra_trees": [], "gradient_boosting": []},
         }
 
     class_assignment = _assign_feature_classes(enriched, use_otsu_threshold=True)
@@ -2182,6 +2212,9 @@ def build_fp_analysis_dashboard(
             f"O CSV de rÃ³tulos '{raw_label_path}' nÃ£o foi encontrado. "
             "Foi usado o fallback automÃ¡tico."
         )
+    for feature in enriched:
+        feature["model_importances"] = {}
+        feature["model_importance_ranks"] = {}
 
     if len(labels) >= 2 and len(importance_ids) >= 1:
         X = np.asarray([matrix[:, feature_lookup[feature_id]] for feature_id in importance_ids], dtype=float).T
@@ -2196,13 +2229,38 @@ def build_fp_analysis_dashboard(
         if resolved_warning:
             label_warning = resolved_warning
         if len(set(np.asarray(y).tolist())) >= 2:
-            scores, model_name, model_note = _compute_feature_importances(
-                X_train,
-                y,
-                task_kind=label_kind,
-                algorithm_preference=algorithm_preference,
-                random_seed=seed,
+            model_results = {
+                model_key: _compute_feature_importances(
+                    X_train,
+                    y,
+                    task_kind=label_kind,
+                    algorithm_preference=preference,
+                    random_seed=seed,
+                )
+                for model_key, preference in (
+                    ("extra_trees", "extra_trees"),
+                    ("gradient_boosting", "gradient_boosting"),
+                )
+            }
+            primary_key = (
+                "extra_trees"
+                if str(algorithm_preference).lower() == "extra_trees"
+                else "gradient_boosting"
             )
+            scores, model_name, model_note = model_results[primary_key]
+            feature_by_id = {
+                int(feature.get("feature_id", 0) or 0): feature for feature in enriched
+            }
+            for model_key, (model_scores, _comparison_name, _comparison_note) in model_results.items():
+                for rank, (feature_id, score) in enumerate(
+                    sorted(zip(importance_ids, model_scores.tolist()), key=lambda item: (-item[1], item[0])),
+                    start=1,
+                ):
+                    feature = feature_by_id.get(int(feature_id))
+                    if feature is None:
+                        continue
+                    feature["model_importances"][model_key] = float(score)
+                    feature["model_importance_ranks"][model_key] = rank
             if label_source == "external_csv":
                 model_note = (
                     f"Importancias calculadas com rótulos externos de '{Path(label_path).name}'. "
@@ -2231,7 +2289,7 @@ def build_fp_analysis_dashboard(
                 sorted(zip(importance_ids, scores.tolist()), key=lambda item: (-item[1], item[0])),
                 start=1,
             ):
-                feature = next(item for item in enriched if item["feature_id"] == feature_id)
+                feature = feature_by_id[feature_id]
                 feature["importance_score"] = float(score)
                 feature["importance_pct"] = (100.0 * float(score) / max_score) if max_score > 1e-12 else 0.0
                 feature["importance_rank"] = rank
@@ -2496,6 +2554,7 @@ def build_fp_analysis_dashboard(
         "assigned_matrix": assigned_matrix_info,
         "level_assignment": level_assignment,
         "level_models": level_models,
+        "top_features_by_model": _top_features_by_model(enriched, limit=50),
     }
 
 
@@ -2615,9 +2674,10 @@ def _compute_feature_importances(
                     from sklearn.ensemble import GradientBoostingRegressor
 
                     model = GradientBoostingRegressor(
-                        n_estimators=220,
+                        n_estimators=120,
                         learning_rate=0.05,
                         max_depth=3,
+                        max_features="sqrt",
                         random_state=seed,
                     )
                     model_label = "GradientBoosting"
@@ -2626,7 +2686,8 @@ def _compute_feature_importances(
                     from sklearn.ensemble import ExtraTreesRegressor
 
                     model = ExtraTreesRegressor(
-                        n_estimators=256,
+                        n_estimators=160,
+                        n_jobs=1,
                         random_state=seed,
                     )
                     model_label = "ExtraTrees"
@@ -2649,7 +2710,7 @@ def _compute_feature_importances(
             f"{_algorithm_display_name(name)}={type(exc).__name__}" for name, exc in errors
         ) or "sklearn indisponivel"
         install_hint = (
-            " Instale/atualize scikit-learn no luna-env pela aba Setup > Instalar LUNA."
+            " Instale/atualize scikit-learn no luna-env pela aba 1. Início > Instalar LUNA."
             if errors and all(type(exc).__name__ == "ModuleNotFoundError" for _name, exc in errors)
             else ""
         )
@@ -2666,9 +2727,10 @@ def _compute_feature_importances(
                 from sklearn.ensemble import GradientBoostingClassifier
 
                 model = GradientBoostingClassifier(
-                    n_estimators=200,
+                    n_estimators=120,
                     learning_rate=0.06,
                     max_depth=3,
+                    max_features="sqrt",
                     random_state=seed,
                 )
                 model_label = "GradientBoosting"
@@ -2677,9 +2739,10 @@ def _compute_feature_importances(
                 from sklearn.ensemble import ExtraTreesClassifier
 
                 model = ExtraTreesClassifier(
-                    n_estimators=256,
+                    n_estimators=160,
                     random_state=seed,
                     class_weight="balanced",
+                    n_jobs=1,
                 )
                 model_label = "ExtraTrees"
                 class_label = "ExtraTreesClassifier"
@@ -2701,7 +2764,7 @@ def _compute_feature_importances(
         f"{_algorithm_display_name(name)}={type(exc).__name__}" for name, exc in errors
     ) or "sklearn indisponivel"
     install_hint = (
-        " Instale/atualize scikit-learn no luna-env pela aba Setup > Instalar LUNA."
+        " Instale/atualize scikit-learn no luna-env pela aba 1. Início > Instalar LUNA."
         if errors and all(type(exc).__name__ == "ModuleNotFoundError" for _name, exc in errors)
         else ""
     )

@@ -58,6 +58,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Nenhum": {"en": "None", "es": "Ninguno"},
     "Limpar detecção": {"en": "Clear detection", "es": "Limpiar detección"},
     "Atualizar": {"en": "Refresh", "es": "Actualizar"},
+    "Remover toda a lista": {"en": "Clear entire list", "es": "Eliminar toda la lista"},
+    "Remove todos os projetos do histórico sem apagar seus arquivos.": {"en": "Removes all projects from history without deleting their files.", "es": "Elimina todos los proyectos del historial sin borrar sus archivos."},
+    "Limpar histórico": {"en": "Clear history", "es": "Limpiar historial"},
+    "Remover todos os projetos da lista? Os arquivos dos projetos serão preservados.": {"en": "Remove every project from the list? Project files will be preserved.", "es": "¿Eliminar todos los proyectos de la lista? Los archivos de los proyectos se conservarán."},
     "Cancelar": {"en": "Cancel", "es": "Cancelar"},
     "Fechar": {"en": "Close", "es": "Cerrar"},
     "OK": {"en": "OK", "es": "OK"},
@@ -521,6 +525,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Colisoes": {"pt": "Colisões", "en": "Collisions", "es": "Colisiones"},
     "Colisões": {"en": "Collisions", "es": "Colisiones"},
     "Perfil da base": {"en": "Dataset profile", "es": "Perfil de la base"},
+    "Nível assinado": {"en": "Assigned level", "es": "Nivel asignado"},
+    "Níveis shell": {"en": "Shell levels", "es": "Niveles shell"},
+    "Níveis colisão": {"en": "Collision levels", "es": "Niveles de colisión"},
     "Ligante": {"en": "Ligand", "es": "Ligando"},
     "Ordem": {"en": "Order", "es": "Orden"},
 
@@ -550,6 +557,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Sem dados de interação": {"en": "No interaction data", "es": "Sin datos de interacción"},
     "Sem interações para esta visão.": {"en": "No interactions for this view.", "es": "Sin interacciones para esta vista."},
     "Aminoácidos": {"en": "Amino acids", "es": "Aminoácidos"},
+    "Átomos do ligante": {"en": "Ligand atoms", "es": "Átomos del ligando"},
+    "Estrutura 2D\nIDs dos átomos": {"en": "2D structure\nAtom IDs", "es": "Estructura 2D\nIDs de átomos"},
+    "Interações por átomo do ligante": {"en": "Interactions by ligand atom", "es": "Interacciones por átomo del ligando"},
     "Residuos": {"en": "Residues", "es": "Residuos"},
     "Resíduos": {"en": "Residues", "es": "Residuos"},
     "Ligantes": {"en": "Ligands", "es": "Ligandos"},
@@ -592,6 +602,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "% de fingerprints contendo a feature": {"en": "% Fingerprints containing the feature", "es": "% de fingerprints que contienen la feature"},
     "Cobertura das features importantes e importancia do modelo": {"pt": "Cobertura das features importantes e importância do modelo", "en": "Important feature coverage and model importance", "es": "Cobertura de features importantes e importancia del modelo"},
     "Cobertura das features importantes e importância do modelo": {"en": "Important feature coverage and model importance", "es": "Cobertura de features importantes e importancia del modelo"},
+    "Importância relativa": {"en": "Relative importance", "es": "Importancia relativa"},
+    "Cobertura / importância relativa (%)": {"en": "Coverage / relative importance (%)", "es": "Cobertura / importancia relativa (%)"},
     "Mapa de presenca das features importantes por classe": {"pt": "Mapa de presença das features importantes por classe", "en": "Presence map of important features by class", "es": "Mapa de presencia de features importantes por clase"},
     "Mapa de presença das features importantes por classe": {"en": "Presence map of important features by class", "es": "Mapa de presencia de features importantes por clase"},
     "Assignment frequency of each interaction (%)": {"pt": "Frequência de atribuição de cada interação (%)", "en": "Assignment frequency of each interaction (%)", "es": "Frecuencia de asignación de cada interacción (%)"},
@@ -604,6 +616,48 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Interação e resíduo prevalentes nas features importantes": {"en": "Prevalent interaction and residue in important features", "es": "Interacción y residuo prevalentes en features importantes"},
     "Interacoes prevalentes das features importantes por ligante": {"pt": "Interações prevalentes das features importantes por ligante", "en": "Prevalent interactions of important features by ligand", "es": "Interacciones prevalentes de features importantes por ligando"},
     "Interações prevalentes das features importantes por ligante": {"en": "Prevalent interactions of important features by ligand", "es": "Interacciones prevalentes de features importantes por ligando"},
+    "Mapa de calor de interações prevalentes": {"en": "Prevalent interaction heatmap", "es": "Mapa de calor de interacciones prevalentes"},
+    "Importância da feature": {"en": "Feature importance", "es": "Importancia de la feature"},
+    "ID da feature e nível": {"en": "Feature ID and level", "es": "ID de feature y nivel"},
+    "Top 50 features": {"en": "Top 50 features", "es": "Top 50 features"},
+    "Top 50 features por Extra Trees": {"en": "Top 50 features by Extra Trees", "es": "Top 50 features por Extra Trees"},
+    "Top 50 features por Gradient Boosting": {"en": "Top 50 features by Gradient Boosting", "es": "Top 50 features por Gradient Boosting"},
+    "Posição": {"en": "Rank", "es": "Posición"},
+    "Coluna": {"en": "Column", "es": "Columna"},
+    "Interpretação": {"en": "Interpretation", "es": "Interpretación"},
+    "Como interpretar as análises de fingerprints": {"en": "How to interpret fingerprint analyses", "es": "Cómo interpretar los análisis de fingerprints"},
+    "Guia das colunas de Análises FP": {"en": "FP Analyses column guide", "es": "Guía de columnas de Análisis FP"},
+    "Consulte este dicionário ao interpretar as tabelas, os rankings e os mapas de fingerprints.": {
+        "en": "Use this dictionary when interpreting fingerprint tables, rankings, and maps.",
+        "es": "Consulte este diccionario al interpretar las tablas, los rankings y los mapas de fingerprints.",
+    },
+    "Resumo das análises de fingerprints": {"en": "Fingerprint analysis summary", "es": "Resumen de los análisis de fingerprints"},
+    "A seção Análises FP transforma os bits dos fingerprints em variáveis interpretáveis. Ela combina cobertura, natureza química, nível de shell, colisões e importância preditiva para priorizar padrões que merecem inspeção estrutural.": {
+        "en": "The FP Analyses section turns fingerprint bits into interpretable variables. It combines coverage, chemical nature, shell level, collisions and predictive importance to prioritize patterns that warrant structural inspection.",
+        "es": "La sección Análisis FP transforma los bits de fingerprints en variables interpretables. Combina cobertura, naturaleza química, nivel de shell, colisiones e importancia predictiva para priorizar patrones que requieren inspección estructural.",
+    },
+    "Extra Trees e Gradient Boosting são ajustados para a tarefa ativa, como classificadores para rótulos discretos ou regressores para valores contínuos. Os rankings devem ser comparados: concordância entre os métodos reforça a estabilidade, enquanto divergências sinalizam dependência do modelo.": {
+        "en": "Extra Trees and Gradient Boosting are fitted to the active task, as classifiers for discrete labels or regressors for continuous values. Compare their rankings: agreement supports stability, while divergence signals model dependence.",
+        "es": "Extra Trees y Gradient Boosting se ajustan a la tarea activa, como clasificadores para etiquetas discretas o regresores para valores continuos. Compare sus rankings: la concordancia respalda la estabilidad y las divergencias señalan dependencia del modelo.",
+    },
+    "Importância não prova causalidade molecular. A priorização final deve considerar cobertura, colisões, p-value, interações prevalentes e a posição da feature na estrutura do ligante e do receptor.": {
+        "en": "Importance does not prove molecular causality. Final prioritization should consider coverage, collisions, p-value, prevalent interactions and the feature position in ligand and receptor structures.",
+        "es": "La importancia no demuestra causalidad molecular. La priorización final debe considerar cobertura, colisiones, p-value, interacciones prevalentes y la posición de la feature en las estructuras del ligando y receptor.",
+    },
+    "Identificador do bit/atributo do fingerprint usado para localizar a mesma feature em tabelas, gráficos e sessões estruturais.": {"en": "Fingerprint bit/attribute identifier used to locate the same feature in tables, charts and structural sessions.", "es": "Identificador del bit/atributo del fingerprint usado para localizar la misma feature en tablas, gráficos y sesiones estructurales."},
+    "Número de ligantes em que a feature está presente.": {"en": "Number of ligands in which the feature is present.", "es": "Número de ligandos en los que está presente la feature."},
+    "Percentual da base que contém a feature, calculado sobre todos os ligantes processados.": {"en": "Percentage of the dataset containing the feature, calculated over all processed ligands.", "es": "Porcentaje de la base que contiene la feature, calculado sobre todos los ligandos procesados."},
+    "Maior participação percentual entre as classes químicas observadas para a feature.": {"en": "Largest percentage share among the chemical classes observed for the feature.", "es": "Mayor participación porcentual entre las clases químicas observadas para la feature."},
+    "Distância padronizada entre a prevalência da classe e a distribuição das demais features.": {"en": "Standardized distance between class prevalence and the distribution of the remaining features.", "es": "Distancia estandarizada entre la prevalencia de la clase y la distribución de las demás features."},
+    "Natureza química aceita para a feature após a aplicação do critério de confiabilidade.": {"en": "Chemical nature accepted for the feature after applying the reliability criterion.", "es": "Naturaleza química aceptada para la feature después de aplicar el criterio de confiabilidad."},
+    "Peso fornecido pelo modelo supervisionado ou pelo fallback analítico para a tarefa configurada.": {"en": "Weight supplied by the supervised model or analytical fallback for the configured task.", "es": "Peso proporcionado por el modelo supervisado o el fallback analítico para la tarea configurada."},
+    "Importância padronizada dentro do nível de fingerprint correspondente.": {"en": "Importance standardized within the corresponding fingerprint level.", "es": "Importancia estandarizada dentro del nivel de fingerprint correspondiente."},
+    "Probabilidade de cauda derivada do Z-score de importância; valores menores indicam maior evidência de relevância.": {"en": "Tail probability derived from the importance Z-score; lower values indicate stronger evidence of relevance.", "es": "Probabilidad de cola derivada del Z-score de importancia; valores menores indican mayor evidencia de relevancia."},
+    "Quantidade de ocorrências em que o mesmo bit agregou shells ou naturezas químicas distintas.": {"en": "Number of occurrences in which the same bit aggregated distinct shells or chemical natures.", "es": "Cantidad de ocurrencias en las que el mismo bit agregó shells o naturalezas químicas distintas."},
+    "Nível do fingerprint atribuído à feature para separar modelos e interpretações por escala estrutural.": {"en": "Fingerprint level assigned to the feature to separate models and interpretations by structural scale.", "es": "Nivel del fingerprint asignado a la feature para separar modelos e interpretaciones por escala estructural."},
+    "Distribuição dos níveis de shell efetivamente associados à feature.": {"en": "Distribution of shell levels effectively associated with the feature.", "es": "Distribución de los niveles de shell efectivamente asociados a la feature."},
+    "Níveis de shell encontrados nas ocorrências classificadas como colisão.": {"en": "Shell levels found in occurrences classified as collisions.", "es": "Niveles de shell encontrados en las ocurrencias clasificadas como colisión."},
+    "Resumo de contagens e percentuais de classes para todas as ocorrências da feature na base.": {"en": "Summary of class counts and percentages for every occurrence of the feature in the dataset.", "es": "Resumen de conteos y porcentajes de clases para todas las ocurrencias de la feature en la base."},
     "Clustering hierárquico": {"en": "Hierarchical clustering", "es": "Clustering jerárquico"},
     "Distância": {"en": "Distance", "es": "Distancia"},
     "Matriz reordenada por cluster": {"en": "Matrix reordered by cluster", "es": "Matriz reordenada por cluster"},
@@ -675,6 +729,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Clusters": {"en": "Clusters", "es": "Clusters"},
     "Tipo": {"en": "Type", "es": "Tipo"},
     "Total": {"en": "Total", "es": "Total"},
+    "total": {"en": "total", "es": "total"},
+    "Contagem de interações": {"en": "Interaction count", "es": "Conteo de interacciones"},
+    "Resumo de interações": {"en": "Interaction summary", "es": "Resumen de interacciones"},
+    "Mapa de interação por resíduo": {"en": "Residue interaction map", "es": "Mapa de interacción por residuo"},
+    "Mapa de calor completo ligantes x resíduos": {"en": "Complete ligands x residues heatmap", "es": "Mapa de calor completo ligandos x residuos"},
     "Cadeia/Resíduo/Num": {"en": "Chain/Residue/Num", "es": "Cadena/Residuo/Núm"},
     "Top 30 resíduos com mais interações": {"en": "Top 30 residues with most interactions", "es": "Top 30 residuos con más interacciones"},
     "Dendrograma e matriz clusterizada": {"en": "Dendrogram and clustered matrix", "es": "Dendrograma y matriz clusterizada"},
@@ -1293,6 +1352,12 @@ def translate_figure(fig) -> None:
     try:
         for text in list(getattr(fig, "texts", []) or []):
             _translate_text_artist(text)
+        for legend in list(getattr(fig, "legends", []) or []):
+            for text in legend.get_texts():
+                _translate_text_artist(text)
+            title = legend.get_title()
+            if title is not None:
+                _translate_text_artist(title)
         for ax in list(getattr(fig, "axes", []) or []):
             for text in [
                 ax.title,

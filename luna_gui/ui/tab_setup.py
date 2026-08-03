@@ -107,6 +107,7 @@ class SetupTab(QWidget):
         self.proc: QProcess | None = None
         self._probe_thread: _EnvironmentProbeThread | None = None
         self._cmd_queue: list[list[str]] = []
+        self._last_ready: tuple[str, str] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -186,8 +187,6 @@ class SetupTab(QWidget):
         self.log.setFont(log_font)
         layout.addWidget(self.log, 1)
 
-        self.detect()
-
     # ---- detection ----
     def detect(self) -> None:
         if self._probe_thread is not None and self._probe_thread.isRunning():
@@ -210,7 +209,14 @@ class SetupTab(QWidget):
             self.conda = str(conda)
         ready = result.get("ready")
         if isinstance(ready, tuple) and len(ready) == 2:
-            self.luna_ready.emit(str(ready[0]), str(ready[1]))
+            self._last_ready = (str(ready[0]), str(ready[1]))
+            self.luna_ready.emit(*self._last_ready)
+        else:
+            self._last_ready = None
+
+    def ready_runtime(self) -> tuple[str, str] | None:
+        """Return the most recent verified runtime, if one is available."""
+        return self._last_ready
 
     def _probe_finished(self) -> None:
         thread = self._probe_thread

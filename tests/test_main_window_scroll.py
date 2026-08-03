@@ -45,6 +45,14 @@ class MainWindowScrollTests(unittest.TestCase):
         self.assertIn("def _ensure_results_tab", source)
         self.assertIn("QTimer.singleShot(0, self._ensure_results_tab)", source)
 
+    def test_setup_probe_starts_only_after_runtime_signals_are_connected(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "luna_gui" / "ui" / "main_window.py").read_text(
+            encoding="utf-8"
+        )
+        run_connection = source.index("self.tab_setup.luna_ready.connect(self.tab_run.set_luna)")
+        probe_start = source.index("QTimer.singleShot(0, self.tab_setup.detect)")
+        self.assertLess(run_connection, probe_start)
+
     def test_fp_plot_canvases_are_created_lazily(self) -> None:
         source = (
             Path(__file__).resolve().parents[1]
@@ -67,6 +75,19 @@ class MainWindowScrollTests(unittest.TestCase):
         self.assertNotIn("Figure(figsize=", installer_source)
         self.assertIn("Figure(figsize=size)", ensure_source)
         self.assertIn("self._ensure_fp_plot_canvases()", source)
+
+    def test_trajectory_statistics_use_vertical_chart_legend_sequence(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "luna_gui"
+            / "ui"
+            / "tab_results_advanced.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("height_ratios.extend([chart_height_in, residue_legend_height])", source)
+        self.assertIn("height_ratios.extend([chart_height_in, atom_legend_height])", source)
+        self.assertIn("chart_height_in = min(width_in * 2.0", source)
+        self.assertIn("legend_gap_in = 2.0 / 2.54", source)
+        self.assertIn("self.stats_scroll.setMinimumHeight(560)", source)
 
 
 if __name__ == "__main__":

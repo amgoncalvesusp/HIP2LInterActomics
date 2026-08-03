@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         # Wire: when LUNA is detected, hand the paths to RunTab and ResultsTab
         self.tab_setup.luna_ready.connect(self.tab_run.set_luna)
         self.tab_setup.luna_ready.connect(lambda py, _run: self._set_results_python(py))
+        QTimer.singleShot(0, self.tab_setup.detect)
 
         self._build_menu()
         self.statusBar().showMessage(t("Pronto"))

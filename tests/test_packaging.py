@@ -20,9 +20,13 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
     assert 'contents_directory="."' in spec
     assert "os.add_dll_directory" in hook
     assert "PrivilegesRequired=lowest" in inno
-    assert '#define MyAppVersion "1.2.0"' in inno
+    assert '#define MyAppVersion "1.3.0"' in inno
     assert "autodesktop" in inno
     assert "Tasks: desktopicon" not in inno
+    assert "NeedsAddPath" in inno
+    assert "{app}\\bin" in inno
+    assert (ROOT / "installer/hipplinteractomics-terminal.cmd").is_file()
+    assert (ROOT / "installer/hipplinteractomics-multiple-run.cmd").is_file()
     assert (ROOT / "luna_gui/assets/hip2l_interactomics_icon.ico").is_file()
 
 
@@ -48,6 +52,11 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     assert "XDG_DATA_HOME" in shortcut_installer
     assert "xdg-user-dir DESKTOP" in shortcut_installer
     assert "HIP2LInterActomics.desktop" in shortcut_installer
+    assert '.local/bin' in shortcut_installer
+    assert 'hipplinteractomics-terminal' in shortcut_installer
+    assert 'hipplinteractomics-multiple-run' in shortcut_installer
+    assert '--terminal' in shortcut_installer
+    assert '--multiple-run' in shortcut_installer
     assert "Type=Application" in desktop
     assert "Icon=hip2linteractomics" in desktop
     assert "runs-on: windows-latest" in workflow
@@ -117,3 +126,11 @@ def test_desktop_bundles_include_headless_cli_sources() -> None:
         assert f'("{cli}", ".")' in spec
         assert cli in windows
         assert cli in linux
+
+
+def test_packaged_launcher_dispatches_both_cli_commands_before_loading_qt() -> None:
+    launcher = _read("run.py")
+    gui_import = launcher.index("from luna_gui.main import main")
+    assert launcher.index('command == "--terminal"') < gui_import
+    assert launcher.index('command == "--multiple-run"') < gui_import
+    assert "AttachConsole" in launcher

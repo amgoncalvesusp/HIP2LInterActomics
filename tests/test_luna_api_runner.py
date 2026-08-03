@@ -25,6 +25,14 @@ from luna_gui.core.project import IFP_ALL, ProjectConfig
 
 
 class LunaApiRunnerTests(unittest.TestCase):
+    def test_ligand_atom_map_reuses_exact_matrix_identifiers(self) -> None:
+        self.assertIn("def _align_atom_map_labels", API_RUNNER_SCRIPT)
+        self.assertIn(
+            "_rdkit_heavy_atom_mol_and_labels(source, mol, matrix_labels)",
+            API_RUNNER_SCRIPT,
+        )
+        self.assertIn('"labels_match_matrix": set(labels) == set(matrix_labels)', API_RUNNER_SCRIPT)
+
     def test_project_config_uses_python_api_for_fork_and_multi_ifp(self) -> None:
         self.assertTrue(ProjectConfig(fork_from="D:/old_project").uses_python_api())
         self.assertTrue(ProjectConfig(ifp_type=IFP_ALL).uses_python_api())

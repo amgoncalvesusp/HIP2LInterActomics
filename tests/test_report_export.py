@@ -64,6 +64,46 @@ class ReportExportTests(unittest.TestCase):
         self.assertIn("frequência ou intensidade das interações", document)
         self.assertIn("abundância relativa dos tipos de contato", document)
 
+    def test_reports_explain_fp_columns_and_include_both_top50_rankings(self) -> None:
+        dashboard = {
+            "ifp_type": "EIFP",
+            "features": [{"feature_id": 10}],
+            "important_features": [{"feature_id": 10}],
+            "model_name": "GradientBoosting",
+            "threshold_pct": 90.0,
+            "top_features_by_model": {
+                "extra_trees": [{
+                    "rank": 1,
+                    "feature_id": 10,
+                    "assigned_level": "2",
+                    "assigned_class": "Has noncovalent interactions with the protein",
+                    "coverage_pct": 75.0,
+                    "importance_score": 0.61,
+                }],
+                "gradient_boosting": [{
+                    "rank": 1,
+                    "feature_id": 20,
+                    "assigned_level": "1",
+                    "assigned_class": "Ligand's level 0 features only",
+                    "coverage_pct": 50.0,
+                    "importance_score": 0.49,
+                }],
+            },
+        }
+
+        document = build_report(
+            cfg=self.cfg,
+            analysis=self.analysis,
+            fp_dashboards={"EIFP": dashboard},
+        )
+
+        self.assertIn("Guia das colunas de Análises FP", document)
+        self.assertIn("Níveis colisão", document)
+        self.assertIn("EIFP / Extra Trees", document)
+        self.assertIn("EIFP / Gradient Boosting", document)
+        self.assertIn("table-layout:fixed", document)
+        self.assertIn("overflow-wrap:anywhere", document)
+
     def test_pdf_is_landscape_and_image_box_keeps_source_aspect_ratio(self) -> None:
         wide = self._image(self.results / "wide_heatmap.png", (1600, 400), "#174f4b")
         self._image(self.results / "vertical_distribution.png", (300, 1200), "#c8693a")

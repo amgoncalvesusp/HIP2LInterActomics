@@ -12,7 +12,7 @@
 ;   ISCC.exe /DBundleDir="C:\path\to\HIP2LInterActomics" /DOutputDir="C:\out" installer\HIP2LInterActomics.iss
 
 #define MyAppName "HIP2LInterActomics"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "Daniel Andres Grajales Ruiz e Adriano Marques Goncalves"
 #define MyAppExe "HIP2LInterActomics.exe"
 
@@ -55,6 +55,11 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 ; PyInstaller places environment.yml at the bundle root; this recursive rule
 ; installs it physically beside the application on Windows.
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "hipplinteractomics-terminal.cmd"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "hipplinteractomics-multiple-run.cmd"; DestDir: "{app}\bin"; Flags: ignoreversion
+
+[Registry]
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}\bin"; Check: NeedsAddPath(ExpandConstant('{app}\bin')); Flags: preservestringtype uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
@@ -63,3 +68,13 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function NeedsAddPath(Param: string): Boolean;
+var
+  CurrentPath: string;
+begin
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentPath) then
+    CurrentPath := '';
+  Result := Pos(';' + Uppercase(Param) + ';', ';' + Uppercase(CurrentPath) + ';') = 0;
+end;

@@ -178,7 +178,7 @@ Para construir e instalar a distribuição oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.2.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.3.0-py3-none-any.whl
 ~~~
 
 ### Preparação do LUNA
@@ -364,6 +364,10 @@ bash installer/build_linux.sh
 ~~~
 
 O PyInstaller não faz compilação cruzada. O Windows produz <code>HIP2LInterActomics-Setup.exe</code> com Inno Setup 6 e cria o atalho da área de trabalho durante a instalação. O Linux produz <code>HIP2LInterActomics-x86_64.AppImage</code> e um bundle <code>.tar.gz</code>; no primeiro lançamento, a AppImage registra o menu de aplicativos e cria o atalho usando seu caminho atual. Em uma tag de versão, o workflow <code>.github/workflows/build-installers.yml</code> publica automaticamente o instalador Windows e a AppImage na release do GitHub.
+
+Os dois instaladores também registram <code>hipplinteractomics-terminal</code> e <code>hipplinteractomics-multiple-run</code> no <code>PATH</code> do usuário. Abra um novo terminal depois da instalação. No Linux, os launchers ficam em <code>~/.local/bin</code>; no Windows, ficam em <code>&lt;instalação&gt;\bin</code>.
+
+Os resultados calculados geram PNGs em alta resolução sob <code>results/plots</code> ou <code>results/terminal</code>: estatísticas, mapas de calor por interação, mapa completo ligantes × resíduos, similaridade, clusters e todos os painéis de cada fingerprint ativo. As Análises FP incluem rankings independentes das 50 features principais por Extra Trees e Gradient Boosting. Os relatórios HTML e PDF usam a mesma sequência, incluem todos os gráficos encontrados, explicam as colunas FP e preservam a proporção das imagens em páginas A4 horizontais. Em trajetórias, os gráficos de resíduos e átomos aparecem verticalmente com suas legendas próprias, e o mapa 2D usa os mesmos IDs da matriz de átomos do ligante.
 
 #### Inclusão física do YAML nas distribuições
 
@@ -577,7 +581,7 @@ Para construir e instalar el wheel oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.2.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.3.0-py3-none-any.whl
 ~~~
 
 ### Preparación de LUNA
@@ -724,6 +728,10 @@ bash installer/build_linux.sh
 ~~~
 
 PyInstaller no realiza compilación cruzada. Windows produce <code>HIP2LInterActomics-Setup.exe</code> con Inno Setup 6 y crea el acceso directo del escritorio durante la instalación. Linux produce <code>HIP2LInterActomics-x86_64.AppImage</code> y un bundle <code>.tar.gz</code>; en el primer inicio, la AppImage se registra en el menú y crea el acceso directo con su ruta actual. Para una etiqueta de versión, GitHub Actions publica automáticamente el instalador de Windows y la AppImage en la release.
+
+Ambos instaladores también registran <code>hipplinteractomics-terminal</code> y <code>hipplinteractomics-multiple-run</code> en el <code>PATH</code> del usuario. Abra una terminal nueva después de la instalación. En Linux, los launchers se guardan en <code>~/.local/bin</code>; en Windows, en <code>&lt;instalación&gt;\bin</code>.
+
+Los resultados calculados generan PNG de alta resolución en <code>results/plots</code> o <code>results/terminal</code>: estadísticas, mapas de calor por interacción, mapa completo ligandos × residuos, similitud, clusters y todos los paneles de cada fingerprint activo. Análisis FP incluye rankings independientes de las 50 features principales por Extra Trees y Gradient Boosting. Los reportes HTML y PDF comparten la misma secuencia, incluyen todos los gráficos encontrados, explican las columnas FP y conservan la proporción de las imágenes en páginas A4 horizontales. En trayectorias, los gráficos de residuos y átomos aparecen verticalmente con sus propias leyendas, y el mapa 2D usa los mismos IDs de la matriz de átomos del ligando.
 
 #### Inclusión física del YAML
 
@@ -924,7 +932,7 @@ Build and install the official wheel with:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.2.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.3.0-py3-none-any.whl
 ~~~
 
 ### Preparing LUNA
@@ -1071,6 +1079,10 @@ bash installer/build_linux.sh
 ~~~
 
 PyInstaller does not cross-compile. Windows produces <code>HIP2LInterActomics-Setup.exe</code> with Inno Setup 6 and creates the desktop shortcut during installation. Linux produces <code>HIP2LInterActomics-x86_64.AppImage</code> and a native <code>.tar.gz</code> bundle; on first launch, the AppImage registers itself in the application menu and creates a shortcut using its current path. For a version tag, GitHub Actions automatically publishes the Windows installer and AppImage to the GitHub release.
+
+Both installers also register <code>hipplinteractomics-terminal</code> and <code>hipplinteractomics-multiple-run</code> on the user's <code>PATH</code>. Open a new terminal after installation. Linux launchers live in <code>~/.local/bin</code>; Windows launchers live in <code>&lt;installation&gt;\bin</code>.
+
+Completed results generate high-resolution PNG files under <code>results/plots</code> or <code>results/terminal</code>: statistics, per-interaction heatmaps, the complete ligands × residues map, similarity, clusters and every panel for each active fingerprint. FP Analyses includes independent top-50 feature rankings from Extra Trees and Gradient Boosting. HTML and PDF reports share the same sequence, include every discovered chart, explain all FP columns and preserve image aspect ratios on landscape A4 pages. For trajectories, residue and ligand-atom charts are stacked vertically with their own legends, while the 2D ligand map uses the exact atom IDs from the ligand-atom matrix.
 
 #### Physical YAML inclusion
 

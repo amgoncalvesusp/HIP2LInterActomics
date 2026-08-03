@@ -549,6 +549,13 @@ class ResultsAnalysisTests(unittest.TestCase):
         self.assertIn(dashboard["model_name"], {"GradientBoosting", "ExtraTrees fallback"})
         self.assertEqual(dashboard["important_selection"], "pvalue_lt_0.01")
         self.assertEqual(dashboard["random_seed"], 77)
+        self.assertEqual(
+            set(dashboard["top_features_by_model"]),
+            {"extra_trees", "gradient_boosting"},
+        )
+        self.assertTrue(dashboard["top_features_by_model"]["extra_trees"])
+        self.assertTrue(dashboard["top_features_by_model"]["gradient_boosting"])
+        self.assertLessEqual(len(dashboard["top_features_by_model"]["extra_trees"]), 50)
 
     def test_build_fp_analysis_dashboard_uses_external_labels_csv_when_available(self) -> None:
         workdir = self.tmp_root / "fp_dashboard_labels_workdir"

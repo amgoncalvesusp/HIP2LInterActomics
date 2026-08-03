@@ -58,3 +58,26 @@ fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$applications_dir" >/dev/null 2>&1 || true
 fi
+
+bin_dir="$home/.local/bin"
+mkdir -p "$bin_dir"
+for command_name in hipplinteractomics-terminal hipplinteractomics-multiple-run; do
+    command_flag="--terminal"
+    if [ "$command_name" = "hipplinteractomics-multiple-run" ]; then
+        command_flag="--multiple-run"
+    fi
+    command_path="$bin_dir/$command_name"
+    command_tmp="$command_path.tmp.$$"
+    {
+        printf '%s\n' '#!/bin/sh'
+        printf 'exec "%s" "%s" "$@"\n' "$escaped_appimage" "$command_flag"
+    } > "$command_tmp"
+    mv -f "$command_tmp" "$command_path"
+    chmod 755 "$command_path"
+done
+
+profile="$home/.profile"
+path_line='export PATH="$HOME/.local/bin:$PATH"'
+if ! grep -F "$path_line" "$profile" >/dev/null 2>&1; then
+    printf '\n%s\n' "$path_line" >> "$profile"
+fi

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.project import (
-    ProjectConfig, load_history, PROJECT_FILENAME,
+    ProjectConfig, clear_history, load_history, remove_from_history, PROJECT_FILENAME,
 )
 
 
@@ -32,9 +32,13 @@ class HistoryTab(QWidget):
         btn_load.clicked.connect(self.load_selected)
         btn_remove = QPushButton("Remover da lista")
         btn_remove.clicked.connect(self.remove_selected)
+        btn_clear = QPushButton("Remover toda a lista")
+        btn_clear.setToolTip("Remove todos os projetos do histórico sem apagar seus arquivos.")
+        btn_clear.clicked.connect(self.remove_all)
         row.addWidget(btn_reload)
         row.addWidget(btn_load)
         row.addWidget(btn_remove)
+        row.addWidget(btn_clear)
         row.addStretch()
         layout.addLayout(row)
 
@@ -73,8 +77,18 @@ class HistoryTab(QWidget):
         if not it:
             return
         wd = it.data(Qt.ItemDataRole.UserRole)
-        items = [w for w in load_history() if w != wd]
-        import json
-        from ..core.project import HISTORY_FILE
-        HISTORY_FILE.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        remove_from_history(str(wd))
+        self.refresh()
+
+    def remove_all(self) -> None:
+        if not load_history():
+            return
+        answer = QMessageBox.question(
+            self,
+            "Limpar histórico",
+            "Remover todos os projetos da lista? Os arquivos dos projetos serão preservados.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        clear_history()
         self.refresh()

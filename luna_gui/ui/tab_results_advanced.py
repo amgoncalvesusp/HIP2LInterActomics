@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -43,7 +44,7 @@ from ..core.analysis_runtime import (
 from ..core.pymol_launcher import launch_pse_session
 from ..core.project import PROJECT_FILENAME, ProjectConfig
 from ..core.report_export import save_pdf_report_isolated
-from ..i18n import translate_figure
+from ..i18n import t, translate_figure
 from ..core.results_analysis import (
     CLASS_UNRELIABLE,
     FP_CLASS_ORDER,
@@ -89,7 +90,7 @@ if HAS_MPL:
 class ResultsTab(EnhancedResultsTab):
     _REPORT_FIGURE_WIDTH_IN = 12.0
     _REPORT_FIGURE_HEIGHT_IN = 6.6
-    _REPORT_FIGURE_DPI = 180
+    _REPORT_FIGURE_DPI = 300
 
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
@@ -107,6 +108,7 @@ class ResultsTab(EnhancedResultsTab):
         self._fullscreen_dialog: QDialog | None = None
         self._workdir_project_cache: dict[str, tuple[float, ProjectConfig | None]] = {}
         self._fp_plot_canvases_ready = False
+        self._automatic_export_running = False
         self._fp_plot_specs: list[tuple[str, str, QWidget, tuple[float, float], QLabel]] = []
         self._install_fullscreen_button()
         self._install_stats_scope_control()
@@ -282,6 +284,7 @@ class ResultsTab(EnhancedResultsTab):
             return
         layout.removeWidget(self.st_canvas)
         self.stats_scroll = self._build_canvas_scroll_area(self.st_canvas)
+        self.stats_scroll.setMinimumHeight(560)
         layout.addWidget(self.stats_scroll, 1)
 
     def _install_similarity_scroll_area(self) -> None:
@@ -307,7 +310,8 @@ class ResultsTab(EnhancedResultsTab):
     def _build_canvas_scroll_area(self, canvas) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidget(canvas)
-        scroll.setWidgetResizable(False)
+        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         return scroll
@@ -532,7 +536,7 @@ class ResultsTab(EnhancedResultsTab):
         if not wd:
             return
         if not self.py_exe:
-            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba Setup.")
+            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba 1. Início.")
             return
         cfg_path = self.pse_filter_cfg_edit.text().strip()
         if not cfg_path:
@@ -987,6 +991,7 @@ class ResultsTab(EnhancedResultsTab):
         self.fig.tight_layout()
         self.canvas.draw()
         self.refresh_clusters()
+        self._save_automatic_figure(self.fig, "similarity", "similarity_matrix.png")
 
     def _render_cluster_chart(self, result) -> None:
         super()._render_cluster_chart(result)
@@ -996,6 +1001,7 @@ class ResultsTab(EnhancedResultsTab):
             if ax.get_title() == "Matriz reordenada por cluster":
                 self._color_ticklabels_by_entry_group(ax, list(result.ordered_labels), axis="both")
         self.cluster_canvas.draw()
+        self._save_automatic_figure(self.cluster_fig, "clusters", "hierarchical_clusters.png")
 
     def _install_complete_heatmap_tab(self) -> None:
         self.complete_heatmap_tab = QWidget()
@@ -1311,7 +1317,7 @@ class ResultsTab(EnhancedResultsTab):
         result = load_analysis_summary(wd)
         if result is None:
             if not self.py_exe:
-                QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba Setup.")
+                QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba 1. Início.")
                 return
             self.st_status.setText("Processando... (pode levar alguns minutos)")
             self.st_status.repaint()
@@ -1332,7 +1338,7 @@ class ResultsTab(EnhancedResultsTab):
         result = load_residue_matrix_artifact(wd)
         if result is None or not self._residue_matrix_has_ligand_atoms(result):
             if not self.py_exe:
-                QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba Setup.")
+                QMessageBox.warning(self, "luna-env", "LUNA não detectado. Veja a aba 1. Início.")
                 return
             self.hm_status.setText("Processando...")
             self.hm_status.repaint()
@@ -1385,6 +1391,7 @@ class ResultsTab(EnhancedResultsTab):
         self.st_status.setText(f"{processed} entradas processadas")
         self._populate_stats_scope(result)
         self._render_cached_stats_chart()
+        QTimer.singleShot(0, self._export_stats_png)
 
     def _load_fingerprints(self, wd: Path) -> None:
         file_path = self._selected_fingerprint_path(wd)
@@ -1442,6 +1449,7 @@ class ResultsTab(EnhancedResultsTab):
         if interaction_types:
             self._render_residue_heatmap()
             self._render_complete_heatmap()
+            QTimer.singleShot(0, self._export_all_residue_heatmaps)
         elif HAS_MPL:
             self.hm_fig.clear()
             ax = self.hm_fig.add_subplot(111)
@@ -1468,6 +1476,7 @@ class ResultsTab(EnhancedResultsTab):
         self.cb_fp_analysis_type.blockSignals(False)
         self._render_fp_analysis_table()
         self._sync_fp_session_types()
+        QTimer.singleShot(0, self._export_all_fp_dashboard_pngs)
 
     def _populate_stats_scope(self, result: dict) -> None:
         if not hasattr(self, "cb_stats_scope"):
@@ -1540,7 +1549,7 @@ class ResultsTab(EnhancedResultsTab):
             self._stats_hidden_interactions.update(labels)
         self._render_cached_stats_chart()
 
-    def _install_stats_legend_toggle(self, legend, labels: list[str]) -> None:
+    def _install_stats_legend_toggle(self, legend, labels: list[str] | list[list[str]]) -> None:
         if not HAS_MPL or legend is None or not hasattr(self, "st_canvas"):
             return
         if self._stats_legend_pick_cid is not None:
@@ -1549,20 +1558,23 @@ class ResultsTab(EnhancedResultsTab):
             except Exception:
                 pass
         self._stats_legend_artist_labels = {}
-        handles = list(getattr(legend, "legend_handles", []) or [])
-        if not handles and hasattr(legend, "legendHandles"):
-            handles = list(getattr(legend, "legendHandles", []) or [])
-        texts = list(legend.get_texts())
-        for idx, label in enumerate(labels):
-            artists = []
-            if idx < len(handles):
-                artists.append(handles[idx])
-            if idx < len(texts):
-                artists.append(texts[idx])
-            for artist in artists:
-                artist.set_picker(True)
-                artist.set_alpha(0.28 if label in self._stats_hidden_interactions else 1.0)
-                self._stats_legend_artist_labels[artist] = label
+        legends = list(legend) if isinstance(legend, (list, tuple)) else [legend]
+        label_groups = labels if labels and isinstance(labels[0], list) else [labels]
+        for current_legend, current_labels in zip(legends, label_groups):
+            handles = list(getattr(current_legend, "legend_handles", []) or [])
+            if not handles and hasattr(current_legend, "legendHandles"):
+                handles = list(getattr(current_legend, "legendHandles", []) or [])
+            texts = list(current_legend.get_texts())
+            for idx, label in enumerate(current_labels):
+                artists = []
+                if idx < len(handles):
+                    artists.append(handles[idx])
+                if idx < len(texts):
+                    artists.append(texts[idx])
+                for artist in artists:
+                    artist.set_picker(True)
+                    artist.set_alpha(0.28 if label in self._stats_hidden_interactions else 1.0)
+                    self._stats_legend_artist_labels[artist] = label
         self._stats_legend_pick_cid = self.st_canvas.mpl_connect(
             "pick_event",
             self._on_stats_legend_pick,
@@ -1826,59 +1838,27 @@ class ResultsTab(EnhancedResultsTab):
             except Exception:
                 atom_map_image = None
         has_atom_map = atom_map_image is not None
-        legend_labels: list[str] = []
-        for label in list(interaction_types or []) + list(ligand_interaction_types or []):
-            text = str(label)
-            if text and text not in legend_labels:
-                legend_labels.append(text)
-
-        longest_interaction_label = max((len(str(label)) for label in legend_labels), default=1)
+        max_x_count = max(len(display_residues), len(display_atoms), 1)
         longest_x_label = max((len(str(label)) for label in display_residues + display_atoms), default=1)
-        legend_cols = max(1, min(3, len(legend_labels) or 1))
-        legend_rows = max(1, math.ceil(max(1, len(legend_labels)) / legend_cols))
-        legend_col_width = max(2.8, 0.105 * float(longest_interaction_label))
-        total_x = len(display_residues) + len(display_atoms)
-        matrices_for_scale = [
-            np.asarray(candidate, dtype=float)
-            for candidate in (residue_matrix if has_residue_axis else None, atom_matrix if has_ligand_axis else None)
-            if candidate is not None and np.asarray(candidate).size
-        ]
-        positive_segments = [
-            float(value)
-            for candidate in matrices_for_scale
-            for value in np.asarray(candidate, dtype=float).ravel()
-            if float(value) > 0.0
-        ]
-        max_stack_value = max(
-            [
-                float(np.max(np.sum(candidate, axis=1)))
-                for candidate in matrices_for_scale
-                if candidate.ndim == 2 and candidate.size
-            ]
-            or [1.0]
-        )
-        min_label_segment = min(positive_segments) if positive_segments else 1.0
-        readable_segment = max(0.5 if percent_values else 1.0, min_label_segment)
-        target_label_px = 22.0 if percent_values else 18.0
-        figure_dpi = float(getattr(self.st_fig, "dpi", 100.0) or 100.0)
-        dynamic_label_height = (
-            (max_stack_value * 1.18 / max(readable_segment, 1e-6)) * target_label_px / figure_dpi
-        )
+        width_in = min(28.0, max(12.0, 4.0 + (0.30 * max_x_count), 7.0 + (0.05 * longest_x_label)))
+        chart_height_in = min(width_in * 2.0, max(6.2, 4.8 + (0.025 * max_x_count)))
         legend_gap_in = 2.0 / 2.54
-        legend_area_in = 0.42 * legend_rows + 0.38
-        x_label_area_in = min(3.2, 1.35 + 0.018 * float(longest_x_label))
-        width_in = max(
-            17.0,
-            3.8 + (0.48 * total_x),
-            1.8 + (legend_cols * legend_col_width),
-            6.5 + (0.04 * float(longest_x_label)),
-            20.0 if has_atom_map else 0.0,
-        )
-        height_in = max(
-            17.0,
-            10.0 + (0.18 * max(len(display_residues), len(display_atoms))) + legend_area_in + legend_gap_in,
-            dynamic_label_height + x_label_area_in + legend_area_in + legend_gap_in + 2.2,
-        )
+
+        def _legend_geometry(labels: list[str]) -> tuple[int, float]:
+            columns = max(1, min(4, len(labels) or 1))
+            rows = max(1, math.ceil(max(1, len(labels)) / columns))
+            return columns, legend_gap_in + 0.35 + (0.38 * rows)
+
+        residue_labels = [str(label) for label in interaction_types] if has_residue_axis else []
+        atom_labels = [str(label) for label in ligand_interaction_types] if has_ligand_axis else []
+        residue_legend_cols, residue_legend_height = _legend_geometry(residue_labels)
+        atom_legend_cols, atom_legend_height = _legend_geometry(atom_labels)
+        height_ratios: list[float] = []
+        if has_residue_axis:
+            height_ratios.extend([chart_height_in, residue_legend_height])
+        if has_ligand_axis:
+            height_ratios.extend([chart_height_in, atom_legend_height])
+        height_in = max(9.0, sum(height_ratios) + 0.9)
         self._resize_canvas(self.st_fig, self.st_canvas, width_in=width_in, height_in=height_in)
         self.st_fig.clear()
 
@@ -1943,11 +1923,11 @@ class ResultsTab(EnhancedResultsTab):
             ax.set_xticks(x)
             x_label_fontsize = 9 if len(xlabels) <= 80 else 8
             ax.set_xticklabels(xlabels, rotation=90, fontsize=x_label_fontsize)
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
-            ax.set_title(panel_title)
-            ax.tick_params(axis="x", pad=14)
-            ax.tick_params(axis="y", pad=14)
+            ax.set_xlabel(t(xlabel))
+            ax.set_ylabel(t(ylabel))
+            ax.set_title(t(panel_title))
+            ax.tick_params(axis="x", pad=7)
+            ax.tick_params(axis="y", pad=7)
             ax.set_ylim(0, max(1.0, float(np.max(bottoms)) * 1.12))
             ax.grid(False)
 
@@ -1956,93 +1936,69 @@ class ResultsTab(EnhancedResultsTab):
                 ax.set_axis_off()
                 return
             ax.imshow(atom_map_image)
-            ax.set_title("Estrutura 2D\nIDs dos átomos")
+            ax.set_title(t("Estrutura 2D\nIDs dos átomos"))
             ax.set_axis_off()
 
-        if has_residue_axis and has_ligand_axis:
-            if has_atom_map:
-                axes = self.st_fig.subplots(
-                    1,
-                    3,
-                    gridspec_kw={
-                        "width_ratios": [
-                            max(1, len(display_residues)),
-                            max(1, len(display_atoms)),
-                            max(8, int(0.55 * max(1, len(display_atoms)))),
-                        ],
-                        "wspace": 0.25,
-                    },
-                )
-                ax_residue, ax_atom, ax_map = axes[0], axes[1], axes[2]
-            else:
-                axes = self.st_fig.subplots(
-                    1,
-                    2,
-                    gridspec_kw={
-                        "width_ratios": [max(1, len(display_residues)), max(1, len(display_atoms))],
-                        "wspace": 0.22,
-                    },
-                )
-                ax_residue, ax_atom = axes[0], axes[1]
-                ax_map = None
-            _draw_axis(ax_residue, display_residues, list(interaction_types), residue_matrix, title, "Aminoácidos")
-            _draw_axis(ax_atom, display_atoms, ligand_interaction_types, atom_matrix, ligand_title, "Átomos do ligante")
-            if ax_map is not None:
-                _draw_atom_map_axis(ax_map)
-        elif has_residue_axis:
-            ax_residue = self.st_fig.add_subplot(111)
-            _draw_axis(ax_residue, display_residues, list(interaction_types), residue_matrix, title, "Aminoácidos")
-        else:
-            if has_atom_map:
-                ax_atom, ax_map = self.st_fig.subplots(
-                    1,
-                    2,
-                    gridspec_kw={
-                        "width_ratios": [max(1, len(display_atoms)), max(8, int(0.55 * max(1, len(display_atoms))))],
-                        "wspace": 0.25,
-                    },
-                )
-            else:
-                ax_atom = self.st_fig.add_subplot(111)
-                ax_map = None
-            _draw_axis(ax_atom, display_atoms, ligand_interaction_types, atom_matrix, ligand_title, "Átomos do ligante")
-            if ax_map is not None:
-                _draw_atom_map_axis(ax_map)
+        grid = self.st_fig.add_gridspec(len(height_ratios), 1, height_ratios=height_ratios, hspace=0.10)
+        row_index = 0
+        legends = []
+        legend_groups: list[list[str]] = []
 
-        legend_handles = [
-            Patch(
-                facecolor=get_interaction_color(label),
-                edgecolor="#17324d",
-                label=label,
-                alpha=0.28 if label in self._stats_hidden_interactions else 1.0,
+        def _draw_legend_axis(axis, labels: list[str], columns: int):
+            axis.set_axis_off()
+            handles = [
+                Patch(
+                    facecolor=get_interaction_color(label),
+                    edgecolor="#17324d",
+                    label=t(label),
+                    alpha=0.28 if label in self._stats_hidden_interactions else 1.0,
+                )
+                for label in labels
+            ]
+            return axis.legend(
+                handles=handles,
+                loc="lower center",
+                bbox_to_anchor=(0.5, 0.02),
+                ncol=columns,
+                fontsize=8,
+                frameon=False,
+                title=t("Clique para ocultar/mostrar"),
+                columnspacing=1.4,
+                handletextpad=0.7,
+                borderaxespad=0.0,
             )
-            for label in legend_labels
-        ]
-        legend = self.st_fig.legend(
-            handles=legend_handles,
-            loc="lower center",
-            bbox_to_anchor=(0.5, 0.015),
-            ncol=legend_cols,
-            fontsize=8,
-            frameon=False,
-            title="Clique para ocultar/mostrar",
-            columnspacing=1.4,
-            handletextpad=0.7,
-            borderaxespad=0.0,
-        )
-        self._install_stats_legend_toggle(legend, list(legend_labels))
-        bottom_fraction = min(
-            0.82,
-            max(
-                0.34,
-                (x_label_area_in + legend_gap_in + legend_area_in) / max(height_in, 1.0),
-            ),
-        )
+
+        if has_residue_axis:
+            ax_residue = self.st_fig.add_subplot(grid[row_index])
+            row_index += 1
+            _draw_axis(ax_residue, display_residues, residue_labels, residue_matrix, title, "Aminoácidos")
+            residue_legend_axis = self.st_fig.add_subplot(grid[row_index])
+            row_index += 1
+            legends.append(_draw_legend_axis(residue_legend_axis, residue_labels, residue_legend_cols))
+            legend_groups.append(residue_labels)
+
+        if has_ligand_axis:
+            if has_atom_map:
+                atom_grid = grid[row_index].subgridspec(1, 2, width_ratios=[3.2, 1.25], wspace=0.18)
+                ax_atom = self.st_fig.add_subplot(atom_grid[0])
+                ax_map = self.st_fig.add_subplot(atom_grid[1])
+            else:
+                ax_atom = self.st_fig.add_subplot(grid[row_index])
+                ax_map = None
+            row_index += 1
+            _draw_axis(ax_atom, display_atoms, atom_labels, atom_matrix, ligand_title, "Átomos do ligante")
+            if ax_map is not None:
+                _draw_atom_map_axis(ax_map)
+            atom_legend_axis = self.st_fig.add_subplot(grid[row_index])
+            legends.append(_draw_legend_axis(atom_legend_axis, atom_labels, atom_legend_cols))
+            legend_groups.append(atom_labels)
+
+        self._install_stats_legend_toggle(legends, legend_groups)
         self.st_fig.subplots_adjust(
             left=max(0.08, min(0.18, 0.065 + (0.004 * len(str(ylabel))))),
             right=0.985,
-            top=0.90,
-            bottom=bottom_fraction,
+            top=0.975,
+            bottom=0.035,
         )
         self.st_canvas.draw()
 
@@ -3541,7 +3497,7 @@ class ResultsTab(EnhancedResultsTab):
         if not wd:
             return
         if not self.py_exe:
-            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba Setup.")
+            QMessageBox.warning(self, "luna-env", "LUNA não detectado. Verifique a aba 1. Início.")
             return
 
         ifp_type = self._combo_current_data(self.cb_fp_session_type) if self.cb_fp_session_type.count() else None
@@ -3616,6 +3572,139 @@ class ResultsTab(EnhancedResultsTab):
             launch_pse_session(path, self.py_exe)
         except Exception as exc:
             QMessageBox.critical(self, "Erro ao abrir PyMOL", str(exc))
+
+    @staticmethod
+    def _safe_plot_token(value: str) -> str:
+        token = "".join(char if char.isalnum() else "_" for char in str(value))
+        return token.strip("_") or "result"
+
+    def _automatic_plot_path(self, category: str, filename: str) -> Path | None:
+        wd = self._current_wd()
+        if wd is None:
+            return None
+        target = wd / "results" / "plots" / category
+        target.mkdir(parents=True, exist_ok=True)
+        return target / filename
+
+    def _save_automatic_figure(self, fig, category: str, filename: str) -> Path | None:
+        path = self._automatic_plot_path(category, filename)
+        if path is None:
+            return None
+        return self._save_report_figure(fig, path)
+
+    def _export_stats_png(self) -> None:
+        path = self._automatic_plot_path("statistics", "interaction_statistics.png")
+        if path is not None:
+            self._save_report_stats_overview(path)
+
+    def _export_all_residue_heatmaps(self) -> None:
+        if self._automatic_export_running or not HAS_MPL or not self._residue_matrix:
+            return
+        self._automatic_export_running = True
+        current_index = self.cb_itype.currentIndex()
+        hidden = set(self._complete_hidden_interactions)
+        try:
+            self._complete_hidden_interactions.clear()
+            self._render_complete_heatmap()
+            self._save_automatic_figure(
+                self.hm_all_fig,
+                "heatmaps",
+                "complete_ligands_residues_heatmap.png",
+            )
+            for index in range(self.cb_itype.count()):
+                self.cb_itype.blockSignals(True)
+                self.cb_itype.setCurrentIndex(index)
+                self.cb_itype.blockSignals(False)
+                self._render_residue_heatmap()
+                interaction_type = self.cb_itype.currentText()
+                self._save_automatic_figure(
+                    self.hm_fig,
+                    "heatmaps",
+                    f"interaction_{self._safe_plot_token(interaction_type)}.png",
+                )
+        finally:
+            self._complete_hidden_interactions = hidden
+            if 0 <= current_index < self.cb_itype.count():
+                self.cb_itype.blockSignals(True)
+                self.cb_itype.setCurrentIndex(current_index)
+                self.cb_itype.blockSignals(False)
+            self._render_residue_heatmap()
+            self._render_complete_heatmap()
+            self._automatic_export_running = False
+
+    def _save_fp_model_importance_figures(self, dashboard: dict, ifp_type: str) -> None:
+        if not HAS_MPL:
+            return
+        from matplotlib.figure import Figure
+
+        for model_key, title, color in (
+            ("extra_trees", "Extra Trees", "#2f7f83"),
+            ("gradient_boosting", "Gradient Boosting", "#b45f3b"),
+        ):
+            rows = list((dashboard.get("top_features_by_model") or {}).get(model_key, []) or [])[:50]
+            if not rows:
+                continue
+            rows.reverse()
+            figure = Figure(figsize=(11.5, max(7.0, 0.28 * len(rows) + 2.7)))
+            axis = figure.add_subplot(111)
+            labels = [
+                f"{row.get('feature_id', '-')} (L{row.get('assigned_level') or '-'})"
+                for row in rows
+            ]
+            values = [float(row.get("importance_score", 0.0) or 0.0) for row in rows]
+            axis.barh(range(len(rows)), values, color=color)
+            axis.set_yticks(range(len(rows)))
+            axis.set_yticklabels(labels, fontsize=7.5)
+            axis.set_xlabel(t("Importância da feature"))
+            axis.set_ylabel(t("ID da feature e nível"))
+            axis.set_title(t(f"Top 50 features por {title}"))
+            figure.tight_layout()
+            self._save_automatic_figure(
+                figure,
+                f"fingerprints/{self._safe_plot_token(ifp_type)}",
+                f"fp_top50_{model_key}.png",
+            )
+
+    def _export_all_fp_dashboard_pngs(self) -> None:
+        if self._automatic_export_running or not HAS_MPL or not self._fp_artifacts:
+            return
+        self._automatic_export_running = True
+        original_index = self.cb_fp_analysis_type.currentIndex()
+        figure_specs = (
+            ("fp_class_fig", "fp_class_summary.png"),
+            ("fp_assign_fig", "fp_class_assignment.png"),
+            ("fp_cover_fig", "fp_coverage_importance.png"),
+            ("fp_heatmap_fig", "fp_feature_presence_heatmap.png"),
+            ("fp_interaction_assign_fig", "fp_interaction_assignment.png"),
+            ("fp_interaction_fig", "fp_prevalent_interactions.png"),
+            ("fp_interaction_heatmap_fig", "fp_prevalent_interactions_heatmap.png"),
+        )
+        try:
+            for index in range(self.cb_fp_analysis_type.count()):
+                self.cb_fp_analysis_type.blockSignals(True)
+                self.cb_fp_analysis_type.setCurrentIndex(index)
+                self.cb_fp_analysis_type.blockSignals(False)
+                ifp_type = str(self.cb_fp_analysis_type.currentData() or "")
+                dashboard = self._ensure_fp_dashboard(ifp_type)
+                if not dashboard:
+                    continue
+                rendered = self._dashboard_with_selected_cutoff(dashboard)
+                self._render_fp_analysis_plots(rendered)
+                category = f"fingerprints/{self._safe_plot_token(ifp_type)}"
+                for figure_attr, filename in figure_specs:
+                    self._save_automatic_figure(getattr(self, figure_attr, None), category, filename)
+                self._save_fp_model_importance_figures(dashboard, ifp_type)
+        except Exception as exc:
+            self.fp_analysis_status.setText(
+                f"Dashboard carregado; exportação automática incompleta: {type(exc).__name__}"
+            )
+        finally:
+            if 0 <= original_index < self.cb_fp_analysis_type.count():
+                self.cb_fp_analysis_type.blockSignals(True)
+                self.cb_fp_analysis_type.setCurrentIndex(original_index)
+                self.cb_fp_analysis_type.blockSignals(False)
+            self._automatic_export_running = False
+            self._render_fp_analysis_table()
 
     def _save_report_figure(self, fig, path: Path) -> Path | None:
         if not HAS_MPL or fig is None or not getattr(fig, "axes", None):
