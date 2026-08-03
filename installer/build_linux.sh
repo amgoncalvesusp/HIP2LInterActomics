@@ -19,7 +19,7 @@ WORK_DIR="${OUTPUT_ROOT}/pyinstaller-work"
 BUNDLE_ROOT="${OUTPUT_ROOT}/bundle"
 ARCHIVE_ROOT="${OUTPUT_ROOT}/installer"
 APPDIR="${OUTPUT_ROOT}/appimage/HIP2LInterActomics.AppDir"
-APP_VERSION="${APP_VERSION:-1.3.2}"
+APP_VERSION="${APP_VERSION:-1.3.3}"
 
 mkdir -p "${OUTPUT_ROOT}" "${WORK_DIR}" "${BUNDLE_ROOT}" "${ARCHIVE_ROOT}"
 if "${PYTHON_BIN}" -c "import ensurepip" >/dev/null 2>&1 \

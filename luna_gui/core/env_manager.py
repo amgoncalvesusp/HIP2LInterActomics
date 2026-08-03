@@ -457,13 +457,37 @@ def _listed_env_prefixes(conda: str) -> list[Path]:
 
 
 def _default_env_prefix(conda: str, name: str = ENV_NAME) -> Path:
+    override = os.environ.get("HIP2LINTERACTOMICS_LUNA_ENV") or os.environ.get("LUNA_ENV_PREFIX")
+    if override:
+        return Path(override)
+
     info = conda_info(conda)
+    env_dirs: list[Path] = []
     envs_dirs = info.get("envs_dirs")
     if isinstance(envs_dirs, list):
         for envs_dir in envs_dirs:
             if isinstance(envs_dir, str) and envs_dir:
-                return Path(envs_dir) / name
-    return conda_root(conda) / "envs" / name
+                env_dirs.append(Path(envs_dir))
+
+    # Preserve existing and partial environments so repair/cleanup keeps using
+    # the same prefix, regardless of where Conda registered it.
+    for env_dir in env_dirs:
+        candidate = env_dir / name
+        if candidate.exists():
+            return candidate
+
+    configured = [
+        Path(value)
+        for value in os.environ.get("CONDA_ENVS_PATH", "").split(os.pathsep)
+        if value
+    ]
+    if configured:
+        return configured[0] / name
+
+    # A system-wide Conda under ProgramData/opt may not allow regular users to
+    # create environments below its root. The per-user Conda directory is
+    # writable and is also part of Conda's standard environment discovery.
+    return Path.home() / ".conda" / "envs" / name
 
 
 def _local_env_prefixes(conda: str, name: str = ENV_NAME) -> list[Path]:
@@ -485,10 +509,20 @@ def _local_env_prefixes(conda: str, name: str = ENV_NAME) -> list[Path]:
 
 def env_prefix(conda: str, name: str = ENV_NAME) -> Path:
     """Return the absolute prefix where the target env lives or should be created."""
+    override = os.environ.get("HIP2LINTERACTOMICS_LUNA_ENV") or os.environ.get("LUNA_ENV_PREFIX")
+    if override:
+        return Path(override)
     lowered_name = name.casefold()
     for prefix in _listed_env_prefixes(conda):
         if prefix.name.casefold() == lowered_name:
             return prefix
+    configured = [
+        Path(value)
+        for value in os.environ.get("CONDA_ENVS_PATH", "").split(os.pathsep)
+        if value
+    ]
+    if configured:
+        return configured[0] / name
     default_prefix = _default_env_prefix(conda, name)
     if default_prefix.exists():
         return default_prefix

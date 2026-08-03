@@ -40,6 +40,40 @@ class EnvManagerTests(unittest.TestCase):
 
         self.assertEqual(found, prefix)
 
+    def test_new_env_uses_user_prefix_when_conda_is_installed_system_wide(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "regular-user"
+            system_root = root / "ProgramData" / "miniconda3"
+            (system_root / "envs").mkdir(parents=True)
+            conda = str(system_root / "Scripts" / "conda.exe")
+            info = {
+                "envs": [],
+                "envs_dirs": [
+                    str(system_root / "envs"),
+                    str(home / ".conda" / "envs"),
+                ],
+            }
+
+            with mock.patch.object(env_manager, "conda_info", return_value=info):
+                with mock.patch.object(env_manager.Path, "home", return_value=home):
+                    prefix = env_manager.env_prefix(conda)
+
+        self.assertEqual(prefix, home / ".conda" / "envs" / "luna-env")
+
+    def test_new_env_honors_explicit_luna_prefix_override(self) -> None:
+        conda = r"C:\ProgramData\miniconda3\Scripts\conda.exe"
+        override = r"D:\chemistry-envs\luna-env"
+        with mock.patch.dict(
+            env_manager.os.environ,
+            {"HIP2LINTERACTOMICS_LUNA_ENV": override},
+            clear=True,
+        ):
+            with mock.patch.object(env_manager, "conda_info", return_value={}):
+                prefix = env_manager.env_prefix(conda)
+
+        self.assertEqual(prefix, Path(override))
+
     def test_luna_runtime_is_located_without_starting_external_python(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             prefix = Path(tmp) / "luna-env"
