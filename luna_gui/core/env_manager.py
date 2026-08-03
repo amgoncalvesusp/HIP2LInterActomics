@@ -431,13 +431,14 @@ def external_program_runtime():
 def conda_info(conda: str) -> dict[str, object]:
     """Return `conda info --json` parsed output, or an empty dict on failure."""
     try:
-        out = subprocess.check_output(
-            [conda, "info", "--json"],
-            text=True,
-            stderr=subprocess.STDOUT,
-            env=conda_process_env(conda),
-            timeout=10,
-        )
+        with external_program_runtime():
+            out = subprocess.check_output(
+                [conda, "info", "--json"],
+                text=True,
+                stderr=subprocess.STDOUT,
+                env=conda_process_env(conda),
+                timeout=10,
+            )
     except Exception:
         return {}
     try:
@@ -465,13 +466,36 @@ def _default_env_prefix(conda: str, name: str = ENV_NAME) -> Path:
     return conda_root(conda) / "envs" / name
 
 
+def _local_env_prefixes(conda: str, name: str = ENV_NAME) -> list[Path]:
+    """Return conventional local prefixes without invoking Conda.
+
+    This is especially important for frozen Windows builds: Conda itself can
+    be installed under ProgramData while per-user environments live under
+    ``%USERPROFILE%\\.conda\\envs``.
+    """
+    env_dirs: list[Path] = []
+    configured = os.environ.get("CONDA_ENVS_PATH", "")
+    env_dirs.extend(Path(value) for value in configured.split(os.pathsep) if value)
+    env_dirs.extend([
+        Path.home() / ".conda" / "envs",
+        conda_root(conda) / "envs",
+    ])
+    return [env_dir / name for env_dir in _dedupe_paths(env_dirs)]
+
+
 def env_prefix(conda: str, name: str = ENV_NAME) -> Path:
     """Return the absolute prefix where the target env lives or should be created."""
     lowered_name = name.casefold()
     for prefix in _listed_env_prefixes(conda):
         if prefix.name.casefold() == lowered_name:
             return prefix
-    return _default_env_prefix(conda, name)
+    default_prefix = _default_env_prefix(conda, name)
+    if default_prefix.exists():
+        return default_prefix
+    for prefix in _local_env_prefixes(conda, name):
+        if env_is_valid(prefix):
+            return prefix
+    return default_prefix
 
 
 def _env_python_path(prefix: Path) -> Path:
@@ -541,12 +565,53 @@ def env_python(conda: str, name: str = ENV_NAME) -> Path | None:
     return py if py.exists() else None
 
 
-def luna_installed(py: Path) -> bool:
+def _filesystem_luna_run_py(py: str | Path) -> Path | None:
+    """Locate LUNA from the environment layout without starting Python."""
+    prefix = python_prefix(py)
+    candidates = [
+        prefix / "Lib" / "site-packages" / "luna" / "run.py",
+        prefix / "lib" / "site-packages" / "luna" / "run.py",
+    ]
     try:
-        r = subprocess.run(
-            [str(py), "-c", "import luna; print(luna.__file__)"],
-            capture_output=True, text=True, timeout=15, env=python_process_env(py),
-        )
+        candidates.extend(sorted((prefix / "lib").glob("python*/site-packages/luna/run.py")))
+    except OSError:
+        pass
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def find_luna_runtime(conda: str | None = None, name: str = ENV_NAME) -> tuple[Path, Path] | None:
+    """Find a complete LUNA runtime without requiring a Conda subprocess."""
+    prefixes: list[Path] = []
+    override = os.environ.get("HIP2LINTERACTOMICS_LUNA_ENV") or os.environ.get("LUNA_ENV_PREFIX")
+    if override:
+        prefixes.append(Path(override))
+    active_prefix = os.environ.get("CONDA_PREFIX")
+    if active_prefix and Path(active_prefix).name.casefold() == name.casefold():
+        prefixes.append(Path(active_prefix))
+    prefixes.append(Path.home() / ".conda" / "envs" / name)
+    if conda:
+        prefixes.append(conda_root(conda) / "envs" / name)
+    prefixes.extend(root / "envs" / name for root in _common_conda_roots())
+
+    for prefix in _dedupe_paths(prefixes):
+        py = _env_python_path(prefix)
+        if not py.is_file():
+            continue
+        run_py = _filesystem_luna_run_py(py)
+        if run_py is not None:
+            return py, run_py
+    return None
+
+
+def luna_installed(py: Path) -> bool:
+    if _filesystem_luna_run_py(py) is not None:
+        return True
+    try:
+        with external_program_runtime():
+            r = subprocess.run(
+                [str(py), "-c", "import luna; print(luna.__file__)"],
+                capture_output=True, text=True, timeout=15, env=python_process_env(py),
+            )
         return r.returncode == 0
     except Exception:
         return False
@@ -554,11 +619,15 @@ def luna_installed(py: Path) -> bool:
 
 def luna_run_py_path(py: Path) -> Path | None:
     """Locate luna/run.py inside the env's site-packages."""
+    direct_path = _filesystem_luna_run_py(py)
+    if direct_path is not None:
+        return direct_path
     try:
-        r = subprocess.run(
-            [str(py), "-c", "import luna, os; print(os.path.dirname(luna.__file__))"],
-            capture_output=True, text=True, timeout=15, env=python_process_env(py),
-        )
+        with external_program_runtime():
+            r = subprocess.run(
+                [str(py), "-c", "import luna, os; print(os.path.dirname(luna.__file__))"],
+                capture_output=True, text=True, timeout=15, env=python_process_env(py),
+            )
         if r.returncode != 0:
             return None
         run_py = Path(r.stdout.strip()) / "run.py"
@@ -575,13 +644,14 @@ def missing_runtime_packages(py: Path) -> list[str]:
         "print(json.dumps([pkg for mod, pkg in mods if importlib.util.find_spec(mod) is None]))"
     )
     try:
-        r = subprocess.run(
-            [str(py), "-c", script],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            env=python_process_env(py),
-        )
+        with external_program_runtime():
+            r = subprocess.run(
+                [str(py), "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                env=python_process_env(py),
+            )
         if r.returncode != 0:
             return [pkg for _mod, pkg in RUNTIME_MODULES]
         return list(json.loads(r.stdout.strip() or "[]"))

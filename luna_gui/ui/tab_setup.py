@@ -32,6 +32,30 @@ def _probe_environment() -> dict[str, object]:
     result["conda"] = conda
     result["install_enabled"] = True
     logs.append(f"Conda: {conda}")
+    runtime = em.find_luna_runtime(conda)
+    if runtime is not None:
+        python_path, run_py = runtime
+        prefix = em.python_prefix(python_path)
+        logs.append(f"Prefixo do env: {prefix}")
+        logs.append(f"Python do env: {python_path}")
+        logs.append(f"run.py: {run_py}")
+        missing = em.missing_runtime_packages(python_path)
+        result["ready"] = (str(python_path), str(run_py))
+        if missing:
+            result["status"] = (
+                "Atenção — LUNA pronto, mas faltam dependências para análises avançadas: "
+                + ", ".join(missing)
+                + ". Clique em 'Instalar LUNA' para atualizar o luna-env."
+            )
+            logs.append(
+                "Dependências ausentes no luna-env: "
+                + ", ".join(missing)
+                + "\nUse 'Instalar LUNA' para executar conda install/update com scikit-learn."
+            )
+            return result
+        result["status"] = f"LUNA pronto — run.py: {run_py}"
+        return result
+
     prefix = em.env_prefix(conda)
     logs.append(f"Prefixo do env: {prefix}")
 

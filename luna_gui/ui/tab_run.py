@@ -103,6 +103,11 @@ class RunTab(QWidget):
     def _resolve_luna_runtime(self) -> bool:
         """Recover from a missed setup signal by checking the installed env directly."""
         conda = em.find_conda()
+        runtime = em.find_luna_runtime(conda)
+        if runtime is not None:
+            py_exe, run_py = runtime
+            self.set_luna(str(py_exe), str(run_py))
+            return True
         if not conda:
             return False
         py_exe = em.env_python(conda)

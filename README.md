@@ -178,7 +178,7 @@ Para construir e instalar a distribuição oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.3.1-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.3.2-py3-none-any.whl
 ~~~
 
 ### Preparação do LUNA
@@ -581,7 +581,7 @@ Para construir e instalar el wheel oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.3.1-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.3.2-py3-none-any.whl
 ~~~
 
 ### Preparación de LUNA
@@ -932,7 +932,7 @@ Build and install the official wheel with:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.3.1-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.3.2-py3-none-any.whl
 ~~~
 
 ### Preparing LUNA

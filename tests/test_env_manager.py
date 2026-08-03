@@ -23,6 +23,64 @@ class EnvManagerTests(unittest.TestCase):
 
         self.assertEqual(prefix, Path(r"C:\Users\danie\.conda\envs\luna-env"))
 
+    def test_env_prefix_finds_user_env_when_frozen_conda_info_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "user-home"
+            prefix = home / ".conda" / "envs" / "luna-env"
+            (prefix / "conda-meta").mkdir(parents=True)
+            (prefix / "conda-meta" / "history").write_text("created", encoding="utf-8")
+            (prefix / "python.exe").write_text("", encoding="utf-8")
+            conda = str(root / "ProgramData" / "Anaconda3" / "Scripts" / "conda.exe")
+
+            with mock.patch.object(env_manager, "conda_info", return_value={}):
+                with mock.patch.object(env_manager.Path, "home", return_value=home):
+                    with mock.patch.object(env_manager.sys, "platform", "win32"):
+                        found = env_manager.env_prefix(conda)
+
+        self.assertEqual(found, prefix)
+
+    def test_luna_runtime_is_located_without_starting_external_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "luna-env"
+            py = prefix / "python.exe"
+            run_py = prefix / "Lib" / "site-packages" / "luna" / "run.py"
+            py.parent.mkdir(parents=True, exist_ok=True)
+            run_py.parent.mkdir(parents=True, exist_ok=True)
+            py.write_text("", encoding="utf-8")
+            run_py.write_text("", encoding="utf-8")
+
+            with mock.patch.object(env_manager.sys, "platform", "win32"):
+                with mock.patch.object(
+                    env_manager.subprocess,
+                    "run",
+                    side_effect=AssertionError("external Python should not be started"),
+                ):
+                    self.assertTrue(env_manager.luna_installed(py))
+                    self.assertEqual(env_manager.luna_run_py_path(py), run_py)
+
+    def test_find_luna_runtime_uses_user_conda_env_without_conda_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            prefix = home / ".conda" / "envs" / "luna-env"
+            py = prefix / "python.exe"
+            run_py = prefix / "Lib" / "site-packages" / "luna" / "run.py"
+            py.parent.mkdir(parents=True, exist_ok=True)
+            run_py.parent.mkdir(parents=True, exist_ok=True)
+            py.write_text("", encoding="utf-8")
+            run_py.write_text("", encoding="utf-8")
+
+            with mock.patch.object(env_manager.Path, "home", return_value=home):
+                with mock.patch.object(env_manager.sys, "platform", "win32"):
+                    with mock.patch.object(
+                        env_manager.subprocess,
+                        "run",
+                        side_effect=AssertionError("Conda subprocess should not be needed"),
+                    ):
+                        runtime = env_manager.find_luna_runtime()
+
+        self.assertEqual(runtime, (py, run_py))
+
     def test_find_conda_honors_manual_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

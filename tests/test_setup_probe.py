@@ -24,6 +24,7 @@ class SetupEnvironmentProbeTests(unittest.TestCase):
         self.assertIsNone(result["ready"])
 
     @patch("luna_gui.ui.tab_setup.em.missing_runtime_packages", return_value=[])
+    @patch("luna_gui.ui.tab_setup.em.find_luna_runtime", return_value=None)
     @patch(
         "luna_gui.ui.tab_setup.em.luna_run_py_path",
         return_value=Path("C:/runtime/luna/run.py"),
