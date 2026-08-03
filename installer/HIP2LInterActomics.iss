@@ -12,7 +12,7 @@
 ;   ISCC.exe /DBundleDir="C:\path\to\HIP2LInterActomics" /DOutputDir="C:\out" installer\HIP2LInterActomics.iss
 
 #define MyAppName "HIP2LInterActomics"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.3.1"
 #define MyAppPublisher "Daniel Andres Grajales Ruiz e Adriano Marques Goncalves"
 #define MyAppExe "HIP2LInterActomics.exe"
 
@@ -45,6 +45,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+ChangesEnvironment=yes
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -59,7 +60,7 @@ Source: "hipplinteractomics-terminal.cmd"; DestDir: "{app}\bin"; Flags: ignoreve
 Source: "hipplinteractomics-multiple-run.cmd"; DestDir: "{app}\bin"; Flags: ignoreversion
 
 [Registry]
-Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}\bin"; Check: NeedsAddPath(ExpandConstant('{app}\bin')); Flags: preservestringtype uninsneveruninstall
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}\bin"; Check: NeedsAddPath(ExpandConstant('{app}\bin'))
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"

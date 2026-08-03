@@ -20,7 +20,10 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
     assert 'contents_directory="."' in spec
     assert "os.add_dll_directory" in hook
     assert "PrivilegesRequired=lowest" in inno
-    assert '#define MyAppVersion "1.3.0"' in inno
+    assert '#define MyAppVersion "1.3.1"' in inno
+    assert "ChangesEnvironment=yes" in inno
+    assert "preservestringtype" not in inno
+    assert "uninsneveruninstall" not in inno
     assert "autodesktop" in inno
     assert "Tasks: desktopicon" not in inno
     assert "NeedsAddPath" in inno
