@@ -5,9 +5,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from luna_gui.core.project import ProjectConfig
-from luna_gui.core.terminal_results import run_terminal_results
+from luna_gui.core.plot_manifest import load_manifest
+from luna_gui.core.terminal_results import _plot_worker_count, run_terminal_results
 
 
 class TerminalResultsTests(unittest.TestCase):
@@ -57,8 +59,28 @@ class TerminalResultsTests(unittest.TestCase):
             self.assertTrue(explorer.exists())
             self.assertIn("matrix_available", explorer.read_text(encoding="utf-8"))
             self.assertIn("EIFP_cluster_explorer", manifest["outputs"])
-            self.assertTrue((output_dir / "complete_ligands_residues_heatmap.png").exists())
-            self.assertIn("complete_ligands_residues_heatmap", manifest["outputs"])
+            plot_manifest = load_manifest(workdir)
+            self.assertEqual(manifest["outputs"]["plot_count"], len(plot_manifest.records))
+            for language in ("en", "pt", "es"):
+                for profile in ("screen", "report"):
+                    complete = (
+                        results
+                        / "plots"
+                        / language
+                        / profile
+                        / "heatmaps"
+                        / "complete_ligands_residues_heatmap.png"
+                    )
+                    self.assertTrue(complete.exists())
+                    selected = plot_manifest.select(language=language, profile=profile)
+                    self.assertTrue(any(row.plot_id == "complete_interaction_heatmap" for row in selected))
+
+    def test_extreme_memory_pressure_forces_sequential_language_workers(self) -> None:
+        with patch(
+            "luna_gui.core.terminal_results._available_memory_bytes",
+            return_value=2 * 1024 ** 3,
+        ):
+            self.assertEqual(_plot_worker_count(), 1)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import gc
 import html
 import json
 import mimetypes
@@ -15,6 +16,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from jinja2 import Environment, PackageLoader, select_autoescape
+
+from .plot_manifest import load_manifest, resolve_plot_path
 from .project import ProjectConfig
 from ..i18n import set_language, t
 
@@ -23,6 +27,8 @@ _A4_LANDSCAPE = (11.69, 8.27)
 _PDF_DPI = 180
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 _REPORT_TEMP_PREFIXES = ("_report_", "_report_pdf_")
+_IFP_ORDER = {"EIFP": 0, "FIFP": 1, "HIFP": 2}
+_MODEL_ORDER = {"extra_trees": 0, "gradient_boosting": 1}
 
 _FP_COLUMN_GUIDE = [
     ("Feature", "Identificador do bit/atributo do fingerprint usado para localizar a mesma feature em tabelas, gráficos e sessões estruturais."),
@@ -165,6 +171,12 @@ def collect_result_images(
             continue
         if path.name.lower().startswith(_REPORT_TEMP_PREFIXES):
             continue
+        try:
+            relative_parts = path.relative_to(results_dir).parts
+        except ValueError:
+            relative_parts = ()
+        if relative_parts and relative_parts[0].casefold() == "plots":
+            continue
         resolved = str(path.resolve(strict=False)).casefold()
         if resolved in excluded or resolved in seen:
             continue
@@ -197,6 +209,130 @@ def _selected_images(
 
 
 def _all_report_images(
+    cfg: ProjectConfig,
+    heatmap_png: str | Path | None,
+    interactions_png: str | Path | None,
+    cluster_png: str | Path | None,
+    extra_images: list[tuple[str, str | Path, str]] | None,
+) -> list[tuple[str, Path, str]]:
+    semantic = _semantic_report_images(
+        cfg,
+        heatmap_png,
+        interactions_png,
+        cluster_png,
+        extra_images,
+    )
+    return [(row["title"], row["path"], row["caption"]) for row in semantic]
+
+
+def _fallback_sequence(path: Path) -> tuple[int, str]:
+    kind = _image_kind(path)
+    if kind == "distribution":
+        return 10, "distribution"
+    if kind == "heatmap":
+        is_complete = "complete" in path.stem.casefold() or "completo" in path.stem.casefold()
+        return (30 if is_complete else 20), ("complete_heatmap" if is_complete else "interaction_heatmap")
+    if kind == "similarity":
+        return 40, "similarity"
+    if kind == "cluster":
+        return 50, "clusters"
+    if kind == "fingerprint":
+        return 100, "fingerprint"
+    return 10000, "appendix"
+
+
+def _path_fp_metadata(path: Path) -> tuple[str, str]:
+    tokens = [part.casefold() for part in path.parts]
+    ifp_type = next((value for value in _IFP_ORDER if value.casefold() in tokens), "")
+    model = ""
+    if "extra_trees" in tokens or "extra trees" in tokens:
+        model = "extra_trees"
+    elif "gradient_boosting" in tokens or "gradient boosting" in tokens:
+        model = "gradient_boosting"
+    return ifp_type, model
+
+
+def _semantic_report_images(
+    cfg: ProjectConfig,
+    heatmap_png: str | Path | None,
+    interactions_png: str | Path | None,
+    cluster_png: str | Path | None,
+    extra_images: list[tuple[str, str | Path, str]] | None,
+) -> list[dict]:
+    language = str(getattr(cfg, "language", "en") or "en")
+    manifest = load_manifest(cfg.workdir) if str(cfg.workdir).strip() else None
+    manifest_records = manifest.select(language=language, profile="report") if manifest else []
+    rows: list[dict] = []
+    excluded: list[Path] = []
+    if manifest_records:
+        for record in manifest_records:
+            path = resolve_plot_path(record, cfg.workdir)
+            if not path.exists():
+                continue
+            excluded.append(path)
+            rows.append({
+                "plot_id": record.plot_id,
+                "title": record.title,
+                "path": path,
+                "caption": record.caption,
+                "sequence": int(record.sequence),
+                "category": record.category,
+                "ifp_type": record.ifp_type,
+                "model": record.model,
+                "appendix": record.category == "appendix",
+            })
+    else:
+        selected = _selected_images(heatmap_png, interactions_png, cluster_png, extra_images)
+        excluded.extend(item[1] for item in selected)
+        for title, path, caption in selected:
+            sequence, category = _fallback_sequence(path)
+            ifp_type, model = _path_fp_metadata(path)
+            rows.append({
+                "plot_id": path.stem,
+                "title": title,
+                "path": path,
+                "caption": caption,
+                "sequence": sequence,
+                "category": category,
+                "ifp_type": ifp_type,
+                "model": model,
+                "appendix": category == "appendix",
+            })
+
+    discovered = collect_result_images(cfg.workdir, excluded) if str(cfg.workdir).strip() else []
+    for title, path, caption in discovered:
+        sequence, category = _fallback_sequence(path)
+        if manifest_records:
+            sequence, category = 10000, "appendix"
+        ifp_type, model = _path_fp_metadata(path)
+        rows.append({
+            "plot_id": path.stem,
+            "title": title,
+            "path": path,
+            "caption": caption,
+            "sequence": sequence,
+            "category": category,
+            "ifp_type": ifp_type,
+            "model": model,
+            "appendix": category == "appendix",
+        })
+    unique: dict[str, dict] = {}
+    for row in rows:
+        key = str(row["path"].resolve(strict=False)).casefold()
+        unique.setdefault(key, row)
+    return sorted(
+        unique.values(),
+        key=lambda row: (
+            bool(row["appendix"]),
+            int(row["sequence"]),
+            _IFP_ORDER.get(row["ifp_type"], 99),
+            _MODEL_ORDER.get(row["model"], 99),
+            str(row["plot_id"]),
+        ),
+    )
+
+
+def _legacy_all_report_images(
     cfg: ProjectConfig,
     heatmap_png: str | Path | None,
     interactions_png: str | Path | None,
@@ -244,10 +380,16 @@ def _fp_model_tables(fp_dashboards: dict | None) -> list[dict]:
                 "model_title": model_title,
                 "rows": rows,
             })
-    return tables
+    return sorted(
+        tables,
+        key=lambda table: (
+            _IFP_ORDER.get(table["ifp_type"], 99),
+            _MODEL_ORDER.get(table["model_key"], 99),
+        ),
+    )
 
 
-def build_report(
+def _build_report_legacy(
     cfg: ProjectConfig,
     analysis: dict,
     heatmap_png: Path | None = None,
@@ -257,7 +399,7 @@ def build_report(
     fp_dashboards: dict | None = None,
     extra_images: list[tuple[str, str | Path, str]] | None = None,
 ) -> str:
-    set_language(str(getattr(cfg, "language", "pt") or "pt"))
+    set_language(str(getattr(cfg, "language", "en") or "en"))
     payload = _pdf_payload(
         cfg,
         analysis,
@@ -340,7 +482,7 @@ def build_report(
             f"</tr></thead><tbody>{model_rows}</tbody></table></section>"
         )
 
-    html_language = {"pt": "pt-br", "en": "en", "es": "es"}.get(str(cfg.language), "pt-br")
+    html_language = {"pt": "pt-br", "en": "en", "es": "es"}.get(str(cfg.language), "en")
 
     return f"""<!doctype html>
 <html lang="{html_language}"><head><meta charset="utf-8">
@@ -389,6 +531,148 @@ th{{background:#efe7db;text-align:left}} .number{{text-align:right}}
 {cluster_table}
 </body></html>
 """
+
+
+def _sorted_count_rows(values: dict, limit: int | None = None) -> list[tuple[str, int | float]]:
+    rows = sorted(
+        ((str(key), value) for key, value in (values or {}).items()),
+        key=lambda item: (-float(item[1]), item[0].casefold(), item[0]),
+    )
+    return rows if limit is None else rows[: max(0, int(limit))]
+
+
+def _fp_report_sections(fp_dashboards: dict | None, images: list[dict]) -> list[dict]:
+    dashboards_by_type: dict[str, dict] = {}
+    for dashboard in (fp_dashboards or {}).values():
+        if not isinstance(dashboard, dict):
+            continue
+        ifp_type = str(dashboard.get("ifp_type") or dashboard.get("ifp_label") or "IFP")
+        dashboards_by_type.setdefault(ifp_type, dashboard)
+    tables = {
+        (table["ifp_type"], table["model_key"]): table
+        for table in _fp_model_tables(fp_dashboards)
+    }
+    sections: list[dict] = []
+    for ifp_type, dashboard in sorted(
+        dashboards_by_type.items(),
+        key=lambda item: (_IFP_ORDER.get(item[0], 99), item[0]),
+    ):
+        models: list[dict] = []
+        for model_key, model_title in (
+            ("extra_trees", "Extra Trees"),
+            ("gradient_boosting", "Gradient Boosting"),
+        ):
+            table = tables.get((ifp_type, model_key))
+            model_images = [
+                image
+                for image in images
+                if image.get("ifp_type") == ifp_type and image.get("model") == model_key
+            ]
+            if table or model_images:
+                models.append({
+                    "key": model_key,
+                    "title": model_title,
+                    "rows": list(table.get("rows", []) if table else []),
+                    "images": model_images,
+                })
+        sections.append({
+            "ifp_type": ifp_type,
+            "education": [t(paragraph) for paragraph in _FP_EDUCATION],
+            "column_guide": [(t(column), t(description)) for column, description in _FP_COLUMN_GUIDE],
+            "summary_rows": _fp_rows({ifp_type: dashboard}),
+            "models": models,
+        })
+    return sections
+
+
+def build_report(
+    cfg: ProjectConfig,
+    analysis: dict,
+    heatmap_png: Path | None = None,
+    interactions_png: Path | None = None,
+    cluster_png: Path | None = None,
+    clusters: list[tuple[str, int]] | None = None,
+    fp_dashboards: dict | None = None,
+    extra_images: list[tuple[str, str | Path, str]] | None = None,
+) -> str:
+    language = str(getattr(cfg, "language", "en") or "en")
+    set_language(language)
+    payload = _pdf_payload(
+        cfg,
+        analysis,
+        heatmap_png,
+        interactions_png,
+        cluster_png,
+        clusters,
+        fp_dashboards,
+        extra_images,
+    )
+    images = [dict(row) for row in payload["semantic_images"]]
+    for row in images:
+        row["data_uri"] = _img_b64(Path(row["path"]))
+        row["path"] = str(row["path"])
+    general_images = [
+        row for row in images
+        if not row.get("appendix") and row.get("category") != "fingerprint"
+    ]
+    appendix_images = [
+        row for row in images
+        if row.get("appendix") or (
+            row.get("category") == "fingerprint"
+            and (not row.get("ifp_type") or not row.get("model"))
+        )
+    ]
+    fp_sections = _fp_report_sections(fp_dashboards, images)
+    environment = Environment(
+        loader=PackageLoader("luna_gui", "templates"),
+        autoescape=select_autoescape(("html", "xml")),
+    )
+    template = environment.get_template("report.html.j2")
+    context = {
+        "html_language": {"pt": "pt-br", "en": "en", "es": "es"}.get(language, "en"),
+        "report_title": t("Relatório HIP²LInterActomics"),
+        "generated_label": t("Gerado em"),
+        "generated_at": payload["generated_at"],
+        "summary_title": t("Resumo"),
+        "protein_label": t("Proteína"),
+        "ligands_label": t("Ligantes"),
+        "selected_label": t("Total selecionado"),
+        "processed_label": t("Entradas processadas"),
+        "configuration_title": t("Configuração"),
+        "parameter_label": t("Parâmetro"),
+        "value_label": t("Valor"),
+        "interaction_count_title": t("Contagem por tipo de interação"),
+        "type_label": t("Tipo"),
+        "total_label": t("Total"),
+        "top_residue_title": t("Top 30 resíduos com mais interações"),
+        "residue_label": t("Cadeia/Resíduo/Número"),
+        "count_label": t("Contagem"),
+        "source_label": t("Fonte"),
+        "cluster_assignment_title": t("Atribuição de clusters"),
+        "ligand_label": t("Ligante"),
+        "fp_interpret_title": t("Como interpretar as análises de fingerprints"),
+        "fp_columns_title": t("Guia das colunas de Análises FP"),
+        "fp_summary_title": t("Resumo das análises de fingerprints"),
+        "column_label": t("Coluna"),
+        "interpretation_label": t("Interpretação"),
+        "top_features_title": t("Top 50 features"),
+        "rank_label": t("Posição"),
+        "assigned_level_label": t("Nível assinado"),
+        "assigned_class_label": t("Classe atribuída"),
+        "coverage_label": t("Cobertura (%)"),
+        "importance_label": t("Importância"),
+        "appendix_title": t("Apêndice de exceções"),
+        "cfg": cfg,
+        "analysis": analysis,
+        "cfg_rows": [(t(key), t(value)) for key, value in payload["cfg_rows"]],
+        "interaction_rows": _sorted_count_rows(analysis.get("interaction_counts", {}) or {}),
+        "top_residue_rows": _sorted_count_rows(analysis.get("residue_counts", {}) or {}, 30),
+        "general_images": general_images,
+        "clusters": payload["clusters"],
+        "fp_sections": fp_sections,
+        "appendix_images": appendix_images,
+    }
+    return template.render(**context)
 
 
 def save_report(path: str | Path, **kwargs) -> Path:
@@ -597,26 +881,277 @@ def _pdf_payload(
 ) -> dict:
     inter_counts = analysis.get("interaction_counts", {}) or {}
     residue_counts = analysis.get("residue_counts", {}) or {}
-    top_inter = sorted(inter_counts.items(), key=lambda item: -item[1])[:12]
-    top_res = sorted(residue_counts.items(), key=lambda item: -item[1])[:12]
+    top_inter = _sorted_count_rows(inter_counts, 12)
+    top_res = _sorted_count_rows(residue_counts, 30)
+    semantic_images = _semantic_report_images(
+        cfg,
+        heatmap_png,
+        interactions_png,
+        cluster_png,
+        extra_images,
+    )
     return {
-        "language": str(getattr(cfg, "language", "pt") or "pt"),
+        "language": str(getattr(cfg, "language", "en") or "en"),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "entries": analysis.get("entries", "não informado"),
         "cfg_rows": _cfg_rows_for_pdf(cfg),
         "top_inter": ", ".join(f"{key}: {value}" for key, value in top_inter) or "Sem interações contabilizadas.",
         "top_res": ", ".join(f"{key}: {value}" for key, value in top_res) or "Sem resíduos contabilizados.",
-        "images": [(title, str(path), caption) for title, path, caption in _all_report_images(cfg, heatmap_png, interactions_png, cluster_png, extra_images)],
+        "images": [
+            (row["title"], str(row["path"]), row["caption"])
+            for row in semantic_images
+        ],
+        "semantic_images": semantic_images,
+        "fp_sections": _fp_report_sections(fp_dashboards, semantic_images),
+        "top_res_rows": top_res,
         "fp_rows": _fp_rows(fp_dashboards),
         "fp_model_tables": _fp_model_tables(fp_dashboards),
-        "clusters": [(str(label), str(cluster_id)) for label, cluster_id in (clusters or [])[:80]],
+        "clusters": [(str(label), str(cluster_id)) for label, cluster_id in (clusters or [])],
     }
 
 
-def _write_pdf_payload(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+def _reportlab_write_text_page(canvas, title: str, paragraphs: list[str], rows: list[tuple[str, str]] | None, page_state: list[int]) -> None:
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    page_width, page_height = landscape(A4)
+    margin = 36.0
+    line_height = 13.0
+
+    def new_page() -> float:
+        page_state[0] += 1
+        canvas.setFillColorRGB(0.08, 0.36, 0.35)
+        canvas.rect(0, page_height - 58, page_width, 58, fill=1, stroke=0)
+        canvas.setFillColorRGB(1, 1, 1)
+        canvas.setFont("Helvetica-Bold", 15)
+        canvas.drawString(margin, page_height - 37, t(title))
+        canvas.setFillColorRGB(0.38, 0.33, 0.29)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.drawString(margin, 20, "HIP2LInterActomics")
+        canvas.drawRightString(page_width - margin, 20, str(page_state[0]))
+        return page_height - 78
+
+    def wrapped_lines(value: str, width: float, font: str = "Helvetica", size: float = 9.0) -> list[str]:
+        words = t(str(value)).split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if current and stringWidth(candidate, font, size) > width:
+                lines.append(current)
+                current = word
+            else:
+                current = candidate
+        if current or not lines:
+            lines.append(current)
+        return lines
+
+    y = new_page()
+    canvas.setFillColorRGB(0.18, 0.15, 0.12)
+    for paragraph in paragraphs:
+        lines = wrapped_lines(paragraph, page_width - 2 * margin)
+        if y - line_height * len(lines) < 42:
+            canvas.showPage()
+            y = new_page()
+        canvas.setFont("Helvetica", 9)
+        for line in lines:
+            canvas.drawString(margin, y, line)
+            y -= line_height
+        y -= 8
+
+    if rows:
+        key_width = 210.0
+        value_width = page_width - 2 * margin - key_width - 16
+        for key, value in rows:
+            key_lines = wrapped_lines(str(key), key_width, "Helvetica-Bold", 8)
+            value_lines = wrapped_lines(str(value), value_width, "Helvetica", 8)
+            row_lines = max(len(key_lines), len(value_lines))
+            row_height = row_lines * 11 + 8
+            if y - row_height < 42:
+                canvas.showPage()
+                y = new_page()
+            canvas.setFillColorRGB(0.98, 0.96, 0.92)
+            canvas.rect(margin, y - row_height + 3, page_width - 2 * margin, row_height, fill=1, stroke=0)
+            canvas.setFillColorRGB(0.08, 0.36, 0.35)
+            canvas.setFont("Helvetica-Bold", 8)
+            for index, line in enumerate(key_lines):
+                canvas.drawString(margin + 6, y - 8 - index * 11, line)
+            canvas.setFillColorRGB(0.18, 0.15, 0.12)
+            canvas.setFont("Helvetica", 8)
+            for index, line in enumerate(value_lines):
+                canvas.drawString(margin + key_width + 12, y - 8 - index * 11, line)
+            y -= row_height + 3
+    canvas.showPage()
+
+
+def _reportlab_write_image_page(canvas, image: dict, page_state: list[int]) -> str | None:
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from PIL import Image
+
+    path = Path(image["path"])
+    if not path.exists():
+        return f"Imagem não encontrada: {path}"
+    page_width, page_height = landscape(A4)
+    margin = 36.0
+    try:
+        with Image.open(path) as source:
+            image_width, image_height = source.size
+    except Exception as exc:
+        return f"{path}: {type(exc).__name__}: {exc}"
+
+    page_state[0] += 1
+    canvas.setFillColorRGB(0.08, 0.36, 0.35)
+    canvas.setFont("Helvetica-Bold", 14)
+    canvas.drawString(margin, page_height - 38, t(str(image["title"])))
+    available_width = page_width - 2 * margin
+    available_height = page_height - 150
+    scale = min(available_width / max(image_width, 1), available_height / max(image_height, 1))
+    draw_width = image_width * scale
+    draw_height = image_height * scale
+    x = (page_width - draw_width) / 2
+    y = 78 + (available_height - draw_height) / 2
+    reader = ImageReader(str(path))
+    canvas.drawImage(reader, x, y, width=draw_width, height=draw_height, preserveAspectRatio=True, anchor="c", mask="auto")
+
+    caption = t(str(image.get("caption") or ""))
+    words = caption.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and stringWidth(candidate, "Helvetica", 8) > available_width:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    canvas.setFillColorRGB(0.18, 0.15, 0.12)
+    canvas.setFont("Helvetica", 8)
+    for index, line in enumerate(lines[:4]):
+        canvas.drawString(margin, 62 - index * 10, line)
+    canvas.setFillColorRGB(0.38, 0.33, 0.29)
+    canvas.setFont("Helvetica", 7)
+    canvas.drawString(margin, 20, "HIP2LInterActomics")
+    canvas.drawRightString(page_width - margin, 20, str(page_state[0]))
+    canvas.showPage()
+    del reader
+    gc.collect()
+    return None
+
+
+def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen.canvas import Canvas
+
+    set_language(str(payload.get("language") or "en"))
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.part")
+    temporary.unlink(missing_ok=True)
+    warnings: list[str] = []
+    page_state = [0]
+    canvas = Canvas(str(temporary), pagesize=landscape(A4), pageCompression=1)
+    try:
+        _reportlab_write_text_page(
+            canvas,
+            "Relatório HIP²LInterActomics",
+            [
+                f"Gerado em {payload['generated_at']}.",
+                f"Entradas processadas: {payload['entries']}.",
+            ],
+            payload["cfg_rows"],
+            page_state,
+        )
+        _reportlab_write_text_page(
+            canvas,
+            "Top 30 resíduos com mais interações",
+            [payload["top_inter"]],
+            [(str(key), str(value)) for key, value in payload["top_res_rows"]],
+            page_state,
+        )
+        general_images = [
+            image for image in payload["semantic_images"]
+            if not image.get("appendix") and image.get("category") != "fingerprint"
+        ]
+        for image in general_images:
+            warning = _reportlab_write_image_page(canvas, image, page_state)
+            if warning:
+                warnings.append(warning)
+        if payload["clusters"]:
+            _reportlab_write_text_page(
+                canvas,
+                "Atribuição de clusters",
+                ["Tabela dos ligantes e seus grupos hierárquicos."],
+                payload["clusters"],
+                page_state,
+            )
+        for section in payload["fp_sections"]:
+            _reportlab_write_text_page(
+                canvas,
+                f"{section['ifp_type']}: Como interpretar as análises de fingerprints",
+                section["education"],
+                None,
+                page_state,
+            )
+            _reportlab_write_text_page(
+                canvas,
+                f"{section['ifp_type']}: Guia das colunas de Análises FP",
+                [],
+                section["column_guide"],
+                page_state,
+            )
+            _reportlab_write_text_page(
+                canvas,
+                f"{section['ifp_type']}: Resumo das análises de fingerprints",
+                [],
+                section["summary_rows"],
+                page_state,
+            )
+            for model in section["models"]:
+                model_rows = [
+                    (
+                        f"{row.get('rank', '-')}. feature {row.get('feature_id', '-')}",
+                        f"nível={row.get('assigned_level') or '-'}; classe={row.get('assigned_class') or '-'}; cobertura={float(row.get('coverage_pct', 0.0) or 0.0):.2f}%; importância={float(row.get('importance_score', 0.0) or 0.0):.8f}",
+                    )
+                    for row in model["rows"]
+                ]
+                _reportlab_write_text_page(
+                    canvas,
+                    f"Top 50 features: {section['ifp_type']} / {model['title']}",
+                    [],
+                    model_rows,
+                    page_state,
+                )
+                for image in model["images"]:
+                    warning = _reportlab_write_image_page(canvas, image, page_state)
+                    if warning:
+                        warnings.append(warning)
+        appendix = [image for image in payload["semantic_images"] if image.get("appendix")]
+        if appendix:
+            _reportlab_write_text_page(canvas, "Apêndice de exceções", [], None, page_state)
+            for image in appendix:
+                warning = _reportlab_write_image_page(canvas, image, page_state)
+                if warning:
+                    warnings.append(warning)
+        canvas.save()
+        temporary.replace(output)
+    except BaseException:
+        try:
+            canvas.save()
+        except Exception:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
+    return output, warnings
+
+
+def _write_pdf_payload_matplotlib(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
     from matplotlib.backends.backend_pdf import PdfPages
 
-    set_language(str(payload.get("language") or "pt"))
+    set_language(str(payload.get("language") or "en"))
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.part")
@@ -698,6 +1233,15 @@ def _write_pdf_payload(path: str | Path, payload: dict) -> tuple[Path, list[str]
         temporary.unlink(missing_ok=True)
         raise
     return output, warnings
+
+
+def _write_pdf_payload(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+    """Prefer incremental ReportLab pages, retaining the legacy fallback."""
+    try:
+        import reportlab  # noqa: F401
+    except ImportError:
+        return _write_pdf_payload_matplotlib(path, payload)
+    return _write_pdf_payload_reportlab(path, payload)
 
 
 def save_pdf_report(

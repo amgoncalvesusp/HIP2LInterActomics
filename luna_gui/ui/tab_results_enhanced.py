@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from ..core.project import ProjectConfig
 from ..core.analysis_runtime import run_analysis, run_residue_matrix
 from ..core.pymol_launcher import launch_pse_session
+from ..core.plot_manifest import load_manifest
 from ..core.report_export import save_pdf_report_isolated, save_report
 from ..i18n import translate_figure
 from ..core.results_analysis import (
@@ -923,18 +924,23 @@ class ResultsTab(QWidget):
         heatmap_png = wd / "_report_heatmap.png"
         inter_png = wd / "_report_interactions.png"
         cluster_png = wd / "_report_clusters.png"
-        try:
-            if HAS_MPL and self.fig.axes:
-                translate_figure(self.fig)
-                self.fig.savefig(heatmap_png, dpi=140, bbox_inches="tight")
-            if HAS_MPL and self.st_fig.axes:
-                translate_figure(self.st_fig)
-                self.st_fig.savefig(inter_png, dpi=140, bbox_inches="tight")
-            if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
-                translate_figure(self.cluster_fig)
-                self.cluster_fig.savefig(cluster_png, dpi=140, bbox_inches="tight")
-        except Exception:
-            pass
+        report_assets = load_manifest(wd).select(
+            language=str(getattr(self.cfg, "language", "en") or "en"),
+            profile="report",
+        )
+        if not report_assets:
+            try:
+                if HAS_MPL and self.fig.axes:
+                    translate_figure(self.fig)
+                    self.fig.savefig(heatmap_png, dpi=140, bbox_inches="tight")
+                if HAS_MPL and self.st_fig.axes:
+                    translate_figure(self.st_fig)
+                    self.st_fig.savefig(inter_png, dpi=140, bbox_inches="tight")
+                if HAS_MPL and HAS_CLUSTERING and self._cluster_result and self.cluster_fig.axes:
+                    translate_figure(self.cluster_fig)
+                    self.cluster_fig.savefig(cluster_png, dpi=140, bbox_inches="tight")
+            except Exception:
+                pass
 
         cluster_items = None
         if self._cluster_result:
@@ -948,9 +954,9 @@ class ResultsTab(QWidget):
                 out,
                 cfg=self.cfg,
                 analysis=self._last_analysis,
-                heatmap_png=heatmap_png if heatmap_png.exists() else None,
-                interactions_png=inter_png if inter_png.exists() else None,
-                cluster_png=cluster_png if cluster_png.exists() else None,
+                heatmap_png=heatmap_png if not report_assets and heatmap_png.exists() else None,
+                interactions_png=inter_png if not report_assets and inter_png.exists() else None,
+                cluster_png=cluster_png if not report_assets and cluster_png.exists() else None,
                 clusters=cluster_items,
                 fp_dashboards=getattr(self, "_fp_dashboards", {}),
             )

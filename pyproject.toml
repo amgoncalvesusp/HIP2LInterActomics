@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hip2linteractomics"
-version = "1.3.3"
+version = "1.4.0"
 description = "Desktop and headless workflows for LUNA intermolecular interaction analysis"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,8 +28,10 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
+  "Jinja2>=3.0",
   "matplotlib>=3.5",
   "numpy>=1.23",
+  "reportlab>=4.0",
   "scipy>=1.10",
   "scikit-learn>=1.0",
 ]
@@ -64,6 +66,8 @@ include = ["luna_gui*"]
 luna_gui = [
   "assets/*",
   "examples/*",
+  "locales/*.json",
+  "templates/*.j2",
 ]
 
 [tool.setuptools.data-files]

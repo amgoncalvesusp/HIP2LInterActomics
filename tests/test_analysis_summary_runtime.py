@@ -39,6 +39,37 @@ class AnalysisSummaryRuntimeTests(unittest.TestCase):
             self.assertEqual(result["residue_counts"]["A/PHE/99"], 7)
             cached = json.loads((results / "analysis_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(cached["source"], "residue_matrix.json")
+            self.assertEqual(cached["schema_version"], analysis_runtime.ANALYSIS_SUMMARY_SCHEMA_VERSION)
+            self.assertEqual(len(cached["source_signature"]), 64)
+
+    def test_invalidates_summary_when_residue_matrix_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workdir = Path(temporary)
+            results = workdir / "results"
+            results.mkdir()
+            matrix_path = results / "residue_matrix.json"
+            matrix_path.write_text(
+                json.dumps({
+                    "entries": ["lig1"],
+                    "residues": ["A/ASP/42"],
+                    "matrix": {"Hydrogen bond": [[1]]},
+                }),
+                encoding="utf-8",
+            )
+            first = analysis_runtime.run_analysis("missing-python", str(workdir))
+            matrix_path.write_text(
+                json.dumps({
+                    "entries": ["lig1"],
+                    "residues": ["A/ASP/42"],
+                    "matrix": {"Hydrogen bond": [[9]]},
+                }),
+                encoding="utf-8",
+            )
+
+            second = analysis_runtime.run_analysis("missing-python", str(workdir))
+
+            self.assertEqual(first["residue_counts"]["A/ASP/42"], 1)
+            self.assertEqual(second["residue_counts"]["A/ASP/42"], 9)
 
 
 if __name__ == "__main__":

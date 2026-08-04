@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from luna_gui.core.project import ProjectConfig
+from luna_gui.core.plot_manifest import PlotManifest, PlotRecord, manifest_path
 from luna_gui.core.report_export import (
     PdfReportError,
     _fit_image_box,
@@ -24,7 +25,12 @@ class ReportExportTests(unittest.TestCase):
         self.root = Path(self.tempdir.name)
         self.results = self.root / "results" / "terminal"
         self.results.mkdir(parents=True)
-        self.cfg = ProjectConfig(workdir=str(self.root), protein_file="protein.pdb", ligand_file="ligands.sdf")
+        self.cfg = ProjectConfig(
+            workdir=str(self.root),
+            protein_file="protein.pdb",
+            ligand_file="ligands.sdf",
+            language="pt",
+        )
         self.analysis = {
             "entries": 3,
             "interaction_counts": {"Hydrogen bond": 8, "Hydrophobic": 5},
@@ -145,6 +151,103 @@ class ReportExportTests(unittest.TestCase):
 
         self.assertEqual(result, output)
         self.assertTrue(output.read_bytes().startswith(b"%PDF"))
+
+    def test_manifest_filters_exactly_one_language_and_profile(self) -> None:
+        paths = {
+            "pt_report": self._image(self.root / "results/plots/pt/report/a.png", (200, 100), "red"),
+            "pt_screen": self._image(self.root / "results/plots/pt/screen/a.png", (200, 100), "green"),
+            "en_report": self._image(self.root / "results/plots/en/report/a.png", (200, 100), "blue"),
+        }
+        manifest = PlotManifest()
+        manifest.add(PlotRecord("distribution", "pt", "report", str(paths["pt_report"]), "PT report", "", 10, category="distribution"))
+        manifest.add(PlotRecord("distribution", "pt", "screen", str(paths["pt_screen"]), "PT screen", "", 10, category="distribution"))
+        manifest.add(PlotRecord("distribution", "en", "report", str(paths["en_report"]), "EN report", "", 10, category="distribution"))
+        manifest.save(manifest_path(self.root))
+
+        document = build_report(cfg=self.cfg, analysis=self.analysis)
+
+        self.assertEqual(document.count("data:image/png;base64,"), 1)
+        self.assertIn("PT report", document)
+        self.assertNotIn("PT screen", document)
+        self.assertNotIn("EN report", document)
+
+    def test_report_uses_scientific_order_and_deterministic_top30(self) -> None:
+        manifest = PlotManifest()
+        specs = [
+            ("clusters", "05 Clusters", 50, "clusters", "", ""),
+            ("complete", "03 Complete", 30, "complete_heatmap", "", ""),
+            ("distribution", "01 Distribution", 10, "distribution", "", ""),
+            ("by_type", "02 By type", 20, "interaction_heatmap", "", ""),
+            ("similarity", "04 Similarity", 40, "similarity", "", ""),
+            ("et_plot", "ET chart", 104, "fingerprint", "EIFP", "extra_trees"),
+            ("gb_plot", "GB chart", 144, "fingerprint", "EIFP", "gradient_boosting"),
+        ]
+        for plot_id, title, sequence, category, ifp_type, model in specs:
+            path = self._image(
+                self.root / f"results/plots/pt/report/{plot_id}.png",
+                (200, 100),
+                "#174f4b",
+            )
+            manifest.add(PlotRecord(
+                plot_id,
+                "pt",
+                "report",
+                str(path),
+                title,
+                "caption",
+                sequence,
+                ifp_type=ifp_type,
+                model=model,
+                category=category,
+            ))
+        manifest.save(manifest_path(self.root))
+        ranking = [{
+            "rank": 1,
+            "feature_id": 1,
+            "assigned_level": "1",
+            "assigned_class": "class",
+            "coverage_pct": 50.0,
+            "importance_score": 0.5,
+        }]
+        dashboard = {
+            "ifp_type": "EIFP",
+            "features": [{"feature_id": 1}],
+            "important_features": [{"feature_id": 1}],
+            "top_features_by_model": {
+                "extra_trees": ranking,
+                "gradient_boosting": ranking,
+            },
+        }
+        analysis = dict(self.analysis)
+        analysis["residue_counts"] = {f"A/RES/{index:02d}": 1 for index in range(35)}
+
+        document = build_report(
+            cfg=self.cfg,
+            analysis=analysis,
+            clusters=[("ligA", 1)],
+            fp_dashboards={"EIFP": dashboard},
+        )
+
+        ordered_tokens = [
+            "01 Distribution",
+            "02 By type",
+            "03 Complete",
+            "04 Similarity",
+            "05 Clusters",
+            "Atribuição de clusters",
+            "Como interpretar as análises de fingerprints",
+            "Top 50 features: EIFP / Extra Trees",
+            "ET chart",
+            "Top 50 features: EIFP / Gradient Boosting",
+            "GB chart",
+        ]
+        positions = [document.index(token) for token in ordered_tokens]
+        self.assertEqual(positions, sorted(positions))
+        top_section = document.split("Top 30 resíduos com mais interações", 1)[1].split("</table>", 1)[0]
+        self.assertEqual(top_section.count("<tr><td>"), 30)
+        self.assertIn("A/RES/00", top_section)
+        self.assertIn("A/RES/29", top_section)
+        self.assertNotIn("A/RES/30", top_section)
 
 
 if __name__ == "__main__":

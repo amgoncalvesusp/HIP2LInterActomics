@@ -42,6 +42,7 @@ from ..core.analysis_runtime import (
     run_residue_matrix,
 )
 from ..core.pymol_launcher import launch_pse_session
+from ..core.plot_manifest import load_manifest, resolve_plot_path
 from ..core.project import PROJECT_FILENAME, ProjectConfig
 from ..core.report_export import save_pdf_report_isolated
 from ..i18n import t, translate_figure
@@ -109,6 +110,8 @@ class ResultsTab(EnhancedResultsTab):
         self._workdir_project_cache: dict[str, tuple[float, ProjectConfig | None]] = {}
         self._fp_plot_canvases_ready = False
         self._automatic_export_running = False
+        self._language_plot_records = []
+        self._language_plot_paths: dict[str, list[Path]] = {}
         self._fp_plot_specs: list[tuple[str, str, QWidget, tuple[float, float], QLabel]] = []
         self._install_fullscreen_button()
         self._install_stats_scope_control()
@@ -991,7 +994,6 @@ class ResultsTab(EnhancedResultsTab):
         self.fig.tight_layout()
         self.canvas.draw()
         self.refresh_clusters()
-        self._save_automatic_figure(self.fig, "similarity", "similarity_matrix.png")
 
     def _render_cluster_chart(self, result) -> None:
         super()._render_cluster_chart(result)
@@ -1001,7 +1003,6 @@ class ResultsTab(EnhancedResultsTab):
             if ax.get_title() == "Matriz reordenada por cluster":
                 self._color_ticklabels_by_entry_group(ax, list(result.ordered_labels), axis="both")
         self.cluster_canvas.draw()
-        self._save_automatic_figure(self.cluster_fig, "clusters", "hierarchical_clusters.png")
 
     def _install_complete_heatmap_tab(self) -> None:
         self.complete_heatmap_tab = QWidget()
@@ -1308,6 +1309,22 @@ class ResultsTab(EnhancedResultsTab):
         self._load_cached_fp_analyses(wd)
         self._load_existing_fp_sessions(wd)
         self._refresh_pse_filter_list(wd)
+        self.on_language_changed(str(getattr(self.cfg, "language", "en") or "en"))
+
+    def on_language_changed(self, language_code: str) -> None:
+        """Resolve only the selected language's screen assets for this workdir."""
+        self.cfg.language = language_code
+        wd = self._current_wd()
+        if not wd:
+            self._language_plot_records = []
+            self._language_plot_paths = {}
+            return
+        selected = load_manifest(wd).select(language=language_code, profile="screen")
+        self._language_plot_records = selected
+        paths: dict[str, list[Path]] = {}
+        for record in selected:
+            paths.setdefault(record.plot_id, []).append(resolve_plot_path(record, wd))
+        self._language_plot_paths = paths
 
     def compute_stats(self) -> None:
         wd = self._current_wd()
@@ -1391,7 +1408,6 @@ class ResultsTab(EnhancedResultsTab):
         self.st_status.setText(f"{processed} entradas processadas")
         self._populate_stats_scope(result)
         self._render_cached_stats_chart()
-        QTimer.singleShot(0, self._export_stats_png)
 
     def _load_fingerprints(self, wd: Path) -> None:
         file_path = self._selected_fingerprint_path(wd)
@@ -1449,7 +1465,6 @@ class ResultsTab(EnhancedResultsTab):
         if interaction_types:
             self._render_residue_heatmap()
             self._render_complete_heatmap()
-            QTimer.singleShot(0, self._export_all_residue_heatmaps)
         elif HAS_MPL:
             self.hm_fig.clear()
             ax = self.hm_fig.add_subplot(111)
@@ -1476,7 +1491,6 @@ class ResultsTab(EnhancedResultsTab):
         self.cb_fp_analysis_type.blockSignals(False)
         self._render_fp_analysis_table()
         self._sync_fp_session_types()
-        QTimer.singleShot(0, self._export_all_fp_dashboard_pngs)
 
     def _populate_stats_scope(self, result: dict) -> None:
         if not hasattr(self, "cb_stats_scope"):
@@ -1922,7 +1936,7 @@ class ResultsTab(EnhancedResultsTab):
 
             ax.set_xticks(x)
             x_label_fontsize = 9 if len(xlabels) <= 80 else 8
-            ax.set_xticklabels(xlabels, rotation=90, fontsize=x_label_fontsize)
+            ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=x_label_fontsize)
             ax.set_xlabel(t(xlabel))
             ax.set_ylabel(t(ylabel))
             ax.set_title(t(panel_title))
@@ -2108,7 +2122,7 @@ class ResultsTab(EnhancedResultsTab):
 
         ax.set_xticks(x)
         x_label_fontsize = 9 if len(display_residues) <= 80 else 8
-        ax.set_xticklabels(display_residues, rotation=90, fontsize=x_label_fontsize)
+        ax.set_xticklabels(display_residues, rotation=45, ha="right", fontsize=x_label_fontsize)
         ax.set_xlabel("Aminoácidos")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
@@ -2184,7 +2198,7 @@ class ResultsTab(EnhancedResultsTab):
         else:
             im = ax.imshow(arr, cmap="viridis", aspect="auto")
             ax.set_xticks(list(range(len(residue_labels))))
-            ax.set_xticklabels(residue_labels, rotation=90, fontsize=7)
+            ax.set_xticklabels(residue_labels, rotation=45, ha="right", fontsize=7)
             _apply_tick_labels(
                 ax,
                 [self._display_ligand_name(entry) for entry in ordered_entries],
@@ -2318,7 +2332,7 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_xlim(0, len(residue_labels))
         ax.set_ylim(len(entries), 0)
         ax.set_xticks([idx + 0.5 for idx in range(len(residue_labels))])
-        ax.set_xticklabels(residue_labels, rotation=90, fontsize=7)
+        ax.set_xticklabels(residue_labels, rotation=45, ha="right", fontsize=7)
         if len(entries) > 220:
             ax.set_yticks([])
             ax.set_ylabel("Todos os ligantes")
@@ -3055,7 +3069,12 @@ class ResultsTab(EnhancedResultsTab):
         norm = BoundaryNorm(range(len(colors) + 1), cmap.N)
         im = ax.imshow(matrix, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
         ax.set_xticks(list(range(len(features))))
-        ax.set_xticklabels([self._fp_feature_label(feature) for feature in features], rotation=90, fontsize=7)
+        ax.set_xticklabels(
+            [self._fp_feature_label(feature) for feature in features],
+            rotation=45,
+            ha="right",
+            fontsize=7,
+        )
         _apply_tick_labels(
             ax,
             [self._display_ligand_name(entry) for entry in entries],
@@ -3343,7 +3362,12 @@ class ResultsTab(EnhancedResultsTab):
         norm = BoundaryNorm(range(len(colors) + 1), cmap.N)
         im = ax.imshow(matrix, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
         ax.set_xticks(list(range(len(features))))
-        ax.set_xticklabels([self._fp_feature_label(feature) for feature in features], rotation=90, fontsize=7)
+        ax.set_xticklabels(
+            [self._fp_feature_label(feature) for feature in features],
+            rotation=45,
+            ha="right",
+            fontsize=7,
+        )
         _apply_tick_labels(
             ax,
             [self._display_ligand_name(entry) for entry in entries],
@@ -3779,12 +3803,13 @@ class ResultsTab(EnhancedResultsTab):
         if not self._last_analysis:
             return
 
-        similarity_png = self._save_report_figure(getattr(self, "fig", None), wd / "_report_pdf_similarity.png")
-        interactions_png = self._save_report_stats_overview(wd / "_report_pdf_interactions_all.png")
+        report_assets = load_manifest(wd).select(
+            language=str(getattr(self.cfg, "language", "en") or "en"),
+            profile="report",
+        )
+        similarity_png = None
+        interactions_png = None
         cluster_png = None
-        if getattr(self, "_cluster_result", None):
-            cluster_png = self._save_report_figure(getattr(self, "cluster_fig", None), wd / "_report_pdf_clusters.png")
-
         extra_images: list[tuple[str, Path, str]] = []
         figure_specs = [
             ("hm_fig", "Mapa de calor por tipo", "Linhas representam ligantes e colunas representam resíduos. A intensidade da célula indica quantas vezes o tipo de interação selecionado aparece naquele par; colunas densas destacam resíduos recorrentes."),
@@ -3797,13 +3822,26 @@ class ResultsTab(EnhancedResultsTab):
             ("fp_interaction_fig", "FP - interações prevalentes", "Resume quais tipos de interação aparecem como dominantes nas features importantes, após aplicar o limiar configurado por z-score ou Otsu."),
             ("fp_interaction_heatmap_fig", "FP - mapa de calor de interações", "Cruza features importantes com interações prevalentes dos shells reais do LUNA. Ele revela se diferentes features importantes apontam para a mesma família de contatos."),
         ]
-        for attr, title, caption in figure_specs:
-            saved = self._save_report_figure(
-                getattr(self, attr, None),
-                wd / f"_report_pdf_{attr}.png",
+        if not report_assets:
+            similarity_png = self._save_report_figure(
+                getattr(self, "fig", None),
+                wd / "_report_pdf_similarity.png",
             )
-            if saved:
-                extra_images.append((title, saved, caption))
+            interactions_png = self._save_report_stats_overview(
+                wd / "_report_pdf_interactions_all.png"
+            )
+            if getattr(self, "_cluster_result", None):
+                cluster_png = self._save_report_figure(
+                    getattr(self, "cluster_fig", None),
+                    wd / "_report_pdf_clusters.png",
+                )
+            for attr, title, caption in figure_specs:
+                saved = self._save_report_figure(
+                    getattr(self, attr, None),
+                    wd / f"_report_pdf_{attr}.png",
+                )
+                if saved:
+                    extra_images.append((title, saved, caption))
 
         cluster_items = None
         if getattr(self, "_cluster_result", None):

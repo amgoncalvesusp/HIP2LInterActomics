@@ -17,7 +17,7 @@ IFP_SUFFIXES = {"HIFP": "H", "EIFP": "E", "FIFP": "F"}
 @dataclass
 class ProjectConfig:
     # GUI
-    language: str = "pt"          # pt | en | es
+    language: str = "en"          # en | pt | es
 
     # Inputs
     protein_file: str = ""

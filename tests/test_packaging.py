@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -20,7 +21,6 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
     assert 'contents_directory="."' in spec
     assert "os.add_dll_directory" in hook
     assert "PrivilegesRequired=lowest" in inno
-    assert '#define MyAppVersion "1.3.3"' in inno
     assert "ChangesEnvironment=yes" in inno
     assert "preservestringtype" not in inno
     assert "uninsneveruninstall" not in inno
@@ -31,6 +31,21 @@ def test_native_windows_distribution_has_required_build_artifacts() -> None:
     assert (ROOT / "installer/hipplinteractomics-terminal.cmd").is_file()
     assert (ROOT / "installer/hipplinteractomics-multiple-run.cmd").is_file()
     assert (ROOT / "luna_gui/assets/hip2l_interactomics_icon.ico").is_file()
+
+
+def test_release_version_is_consistent_across_all_packagers() -> None:
+    pyproject = _read("pyproject.toml")
+    inno = _read("installer/HIP2LInterActomics.iss")
+    linux = _read("installer/build_linux.sh")
+
+    project_version = re.search(r'^version = "([^"]+)"$', pyproject, re.MULTILINE)
+    windows_version = re.search(r'^#define MyAppVersion "([^"]+)"$', inno, re.MULTILINE)
+    linux_version = re.search(r'^APP_VERSION="\$\{APP_VERSION:-([^}]+)\}"$', linux, re.MULTILINE)
+
+    assert project_version is not None
+    assert windows_version is not None
+    assert linux_version is not None
+    assert project_version.group(1) == windows_version.group(1) == linux_version.group(1)
 
 
 def test_native_build_scripts_cover_windows_and_linux() -> None:

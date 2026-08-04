@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="{{ html_language }}">
+<head>
+<meta charset="utf-8">
+<title>{{ report_title }}</title>
+<style>
+@page{size:A4 landscape;margin:14mm}
+*{box-sizing:border-box}
+body{font-family:"Segoe UI",Arial,sans-serif;max-width:1180px;margin:2em auto;padding:0 1.2em;color:#2a221d;background:#faf6f0;line-height:1.45}
+h1{border-bottom:3px solid #0f766e;padding-bottom:.35em}
+h2{color:#0f766e;margin-top:1.6em} h3{color:#145c58;margin-top:1.2em}
+table{border-collapse:collapse;width:100%;table-layout:fixed;margin:.6em 0;background:#fffdfa}
+thead{display:table-header-group} tr{break-inside:avoid;page-break-inside:avoid}
+th,td{border:1px solid #ddd3c3;padding:7px 10px;font-size:13px;overflow-wrap:anywhere;vertical-align:top}
+th{background:#efe7db;text-align:left}.number{text-align:right}.meta,small{color:#6a5d52;font-size:12px}
+.plot{break-before:page;page-break-before:always;break-inside:avoid;page-break-inside:avoid}
+.plot img{display:block;max-width:100%;max-height:155mm;width:auto;height:auto;object-fit:contain;margin:.6em auto}
+.plot p{line-height:1.45;background:#fffdfa;border:1px solid #e7d9c5;padding:10px 12px}
+.page-break{break-before:page;page-break-before:always}.data-section{break-inside:auto}
+</style>
+</head>
+<body>
+<h1>{{ report_title }}</h1>
+<p class="meta">{{ generated_label }} {{ generated_at }}</p>
+<h2>{{ summary_title }}</h2>
+<ul>
+  <li><b>{{ protein_label }}:</b> {{ cfg.protein_file or "-" }}</li>
+  <li><b>{{ ligands_label }}:</b> {{ cfg.ligand_file or "-" }}</li>
+  <li><b>{{ selected_label }}:</b> {{ cfg.selected_ligands|length }}</li>
+  <li><b>Workdir:</b> {{ cfg.workdir or "-" }}</li>
+  <li><b>{{ processed_label }}:</b> {{ analysis.entries|default("-", true) }}</li>
+</ul>
+<h2>{{ configuration_title }}</h2>
+<table><thead><tr><th>{{ parameter_label }}</th><th>{{ value_label }}</th></tr></thead><tbody>
+{% for key, value in cfg_rows %}<tr><td>{{ key }}</td><td>{{ value }}</td></tr>{% endfor %}
+</tbody></table>
+<h2>{{ interaction_count_title }}</h2>
+<table><thead><tr><th>{{ type_label }}</th><th>{{ total_label }}</th></tr></thead><tbody>
+{% for key, value in interaction_rows %}<tr><td>{{ key }}</td><td class="number">{{ value }}</td></tr>{% endfor %}
+</tbody></table>
+<h2>{{ top_residue_title }}</h2>
+<table><thead><tr><th>{{ residue_label }}</th><th>{{ count_label }}</th></tr></thead><tbody>
+{% for key, value in top_residue_rows %}<tr><td>{{ key }}</td><td class="number">{{ value }}</td></tr>{% endfor %}
+</tbody></table>
+
+{% for image in general_images %}
+<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>
+{% endfor %}
+
+{% if clusters %}
+<section class="data-section page-break"><h2>{{ cluster_assignment_title }}</h2>
+<table><thead><tr><th>{{ ligand_label }}</th><th>Cluster</th></tr></thead><tbody>
+{% for label, cluster_id in clusters %}<tr><td>{{ label }}</td><td class="number">{{ cluster_id }}</td></tr>{% endfor %}
+</tbody></table></section>
+{% endif %}
+
+{% for fp in fp_sections %}
+<section class="data-section page-break"><h2>{{ fp.ifp_type }}</h2>
+<h3>{{ fp_interpret_title }}</h3>{% for paragraph in fp.education %}<p>{{ paragraph }}</p>{% endfor %}
+<h3>{{ fp_columns_title }}</h3>
+<table><thead><tr><th>{{ column_label }}</th><th>{{ interpretation_label }}</th></tr></thead><tbody>
+{% for column, description in fp.column_guide %}<tr><td>{{ column }}</td><td>{{ description }}</td></tr>{% endfor %}
+</tbody></table>
+<h3>{{ fp_summary_title }}</h3>
+<table><tbody>{% for key, value in fp.summary_rows %}<tr><td>{{ key }}</td><td>{{ value }}</td></tr>{% endfor %}</tbody></table>
+</section>
+{% for model in fp.models %}
+<section class="data-section page-break"><h2>{{ top_features_title }}: {{ fp.ifp_type }} / {{ model.title }}</h2>
+<table><thead><tr><th>{{ rank_label }}</th><th>Feature</th><th>{{ assigned_level_label }}</th><th>{{ assigned_class_label }}</th><th>{{ coverage_label }}</th><th>{{ importance_label }}</th></tr></thead><tbody>
+{% for row in model.rows %}<tr><td class="number">{{ row.rank }}</td><td>{{ row.feature_id }}</td><td>{{ row.assigned_level or "-" }}</td><td>{{ row.assigned_class or "-" }}</td><td class="number">{{ "%.2f"|format(row.coverage_pct) }}</td><td class="number">{{ "%.8f"|format(row.importance_score) }}</td></tr>{% endfor %}
+</tbody></table></section>
+{% for image in model.images %}<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>{% endfor %}
+{% endfor %}
+{% endfor %}
+
+{% if appendix_images %}<section class="page-break"><h2>{{ appendix_title }}</h2></section>
+{% for image in appendix_images %}<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>{% endfor %}
+{% endif %}
+</body></html>

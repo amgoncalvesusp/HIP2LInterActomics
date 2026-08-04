@@ -23,7 +23,15 @@ from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
 
 from ..core.project import ProjectConfig, save_to_workdir
-from ..i18n import LANGUAGES, install_translation_hooks, language, retranslate_ui, set_language, t
+from ..i18n import (
+    LANGUAGES,
+    install_translation_hooks,
+    language,
+    language_notifier,
+    retranslate_ui,
+    set_language,
+    t,
+)
 from .tab_setup import SetupTab
 from .tab_project import ProjectTab
 from .tab_analyses import AnalysesTab
@@ -46,8 +54,9 @@ class MainWindow(QMainWindow):
         self._fit_to_screen()
         self._settings = QSettings()
 
-        self.cfg = ProjectConfig()
-        set_language(getattr(self.cfg, "language", "pt"))
+        preferred_language = str(self._settings.value("interface/language", "en") or "en")
+        self.cfg = ProjectConfig(language=preferred_language if preferred_language in LANGUAGES else "en")
+        set_language(getattr(self.cfg, "language", "en"))
 
         self.tabs = QTabWidget()
         self.tabs.setUsesScrollButtons(True)
@@ -77,6 +86,10 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.tab_setup.detect)
 
         self._build_menu()
+        self._language_notifier = language_notifier()
+        if self._language_notifier is not None:
+            self._language_notifier.language_changed.connect(self._apply_language_change)
+        retranslate_ui(self)
         self.statusBar().showMessage(t("Pronto"))
 
         # Wire: before running, collect state and save project
@@ -254,11 +267,19 @@ class MainWindow(QMainWindow):
         m_help.addAction(act_docs)
 
     def _set_language(self, code: str) -> None:
+        previous = language()
         code = set_language(code)
+        if code == previous:
+            self._apply_language_change(code)
+
+    def _apply_language_change(self, code: str) -> None:
         self.cfg.language = code
+        self._settings.setValue("interface/language", code)
         for lang_code, action in getattr(self, "_language_actions", {}).items():
             action.setChecked(lang_code == code)
         retranslate_ui(self)
+        if self.tab_results is not None and hasattr(self.tab_results, "on_language_changed"):
+            self.tab_results.on_language_changed(code)
         self.statusBar().showMessage(t(f"Idioma alterado para {LANGUAGES[code]}"), 4000)
 
     def _set_theme(self, mode: str) -> None:
@@ -386,7 +407,7 @@ class MainWindow(QMainWindow):
         # Replace shared cfg fields and reflect in UI
         for k, v in vars(cfg).items():
             setattr(self.cfg, k, v)
-        self._set_language(getattr(self.cfg, "language", "pt"))
+        self._set_language(getattr(self.cfg, "language", "en"))
         # Push values back into widgets
         self.tab_project.protein_edit.setText(self.cfg.protein_file)
         self.tab_project.ligand_edit.setText(self.cfg.ligand_file)

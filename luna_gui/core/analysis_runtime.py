@@ -5,6 +5,7 @@ legacy subprocess helpers only when those artifacts are missing.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import signal
 import subprocess
@@ -16,6 +17,7 @@ from .env_manager import python_prefix, python_process_env
 from .pymol_launcher import iter_pymol_candidates
 
 IFP_SUFFIX_TO_TYPE = {"E": "EIFP", "H": "HIFP", "F": "FIFP"}
+ANALYSIS_SUMMARY_SCHEMA_VERSION = 2
 
 _NOISY_HELPER_MARKERS = (
     "openbabel/__init__.py",
@@ -1180,13 +1182,59 @@ def _cache_analysis_summary(workdir: Path, result: dict) -> None:
     if result.get("error"):
         return
     output = workdir / "results" / "analysis_summary.json"
+    cached_result = dict(result)
+    cached_result["schema_version"] = ANALYSIS_SUMMARY_SCHEMA_VERSION
+    cached_result["source_signature"] = _analysis_source_signature(workdir)
     temporary = output.with_name(f".{output.name}.part")
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
-        temporary.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        temporary.write_text(json.dumps(cached_result, indent=2, ensure_ascii=False), encoding="utf-8")
         temporary.replace(output)
     except OSError:
         temporary.unlink(missing_ok=True)
+
+
+def _analysis_source_signature(workdir: Path) -> str:
+    """Hash the residue matrix content and result-file metadata for cache invalidation."""
+    digest = hashlib.sha256()
+    results_dir = workdir / "results"
+    matrix_path = results_dir / "residue_matrix.json"
+    if matrix_path.exists():
+        digest.update(b"residue_matrix.json\0")
+        try:
+            with matrix_path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            pass
+    try:
+        result_files = sorted(
+            {
+                path
+                for pattern in ("*.pkl.gz", "*.pkl")
+                for path in results_dir.rglob(pattern)
+            },
+            key=lambda path: str(path).casefold(),
+        )
+    except OSError:
+        result_files = []
+    for path in result_files:
+        try:
+            stat = path.stat()
+            relative = path.relative_to(workdir).as_posix()
+            digest.update(f"{relative}\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode("utf-8"))
+        except (OSError, ValueError):
+            continue
+    return digest.hexdigest()
+
+
+def _analysis_cache_is_current(cached: dict | None, workdir: Path) -> bool:
+    if not isinstance(cached, dict) or cached.get("error"):
+        return False
+    return (
+        int(cached.get("schema_version", 0) or 0) == ANALYSIS_SUMMARY_SCHEMA_VERSION
+        and str(cached.get("source_signature") or "") == _analysis_source_signature(workdir)
+    )
 
 
 def _scaled_analysis_timeout(workdir: Path, requested_timeout: int) -> int:
@@ -1204,14 +1252,18 @@ def _scaled_analysis_timeout(workdir: Path, requested_timeout: int) -> int:
 def run_analysis(py_exe: str, workdir: str, timeout: int = 900) -> dict:
     wd = Path(workdir)
     cached = _load_cached_json(wd / "results" / "analysis_summary.json")
-    if cached is not None:
+    if _analysis_cache_is_current(cached, wd):
         return cached
-    matrix_summary = _summary_from_residue_matrix(
-        _load_cached_json(wd / "results" / "residue_matrix.json")
-    )
+    residue_artifact = _load_cached_json(wd / "results" / "residue_matrix.json")
+    matrix_summary = _summary_from_residue_matrix(residue_artifact)
     if matrix_summary is not None:
         _cache_analysis_summary(wd, matrix_summary)
-        return matrix_summary
+        return _load_cached_json(wd / "results" / "analysis_summary.json") or matrix_summary
+    if isinstance(cached, dict) and not cached.get("error"):
+        # Preserve old projects that have only the lightweight summary, while
+        # upgrading them so subsequent loads use the versioned cache contract.
+        _cache_analysis_summary(wd, cached)
+        return _load_cached_json(wd / "results" / "analysis_summary.json") or cached
     result = analysis_helper.run_analysis(
         py_exe,
         workdir,

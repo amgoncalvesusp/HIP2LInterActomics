@@ -27,7 +27,7 @@ O modo de terminal é realmente headless: não importa PyQt, não cria <code>QAp
 
 A aplicação produz tabelas de interações, fingerprints HIFP/EIFP/FIFP, matrizes de Tanimoto, agrupamentos, mapas de calor, análise de importância de features, sessões PyMOL e relatórios HTML/PDF.
 
-Os relatórios percorrem todas as imagens em <code>results/</code>, incluem uma interpretação científica por tipo de gráfico e geram o PDF inteiro em A4 paisagem, mantendo a proporção original das figuras. A conversão PDF é executada em processo isolado: falhas de memória ou de bibliotecas nativas são informadas na GUI sem encerrar o aplicativo. Em projetos legados, o resumo estatístico pode ser reconstruído e armazenado a partir de <code>results/residue_matrix.json</code>, evitando reprocessamentos longos.
+Os relatórios usam o manifesto semântico em <code>results/plots/plot_manifest.json</code> para selecionar somente o idioma e o perfil corretos, incluem uma interpretação científica por tipo de gráfico e geram o PDF em A4 paisagem, mantendo a proporção original das figuras. O PDF é montado página a página em processo isolado: falhas de memória ou de bibliotecas nativas são informadas na GUI sem encerrar o aplicativo. Em projetos legados, o resumo estatístico e os 30 resíduos mais frequentes podem ser reconstruídos e armazenados a partir de <code>results/residue_matrix.json</code>; o cache é invalidado quando a matriz de origem muda.
 
 As melhorias científicas propostas, ainda não implementadas, estão organizadas em [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
@@ -178,7 +178,7 @@ Para construir e instalar a distribuição oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.3.3-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.4.0-py3-none-any.whl
 ~~~
 
 ### Preparação do LUNA
@@ -367,7 +367,7 @@ O PyInstaller não faz compilação cruzada. O Windows produz <code>HIP2LInterAc
 
 Os dois instaladores também registram <code>hipplinteractomics-terminal</code> e <code>hipplinteractomics-multiple-run</code> no <code>PATH</code> do usuário. Abra um novo terminal depois da instalação. No Linux, os launchers ficam em <code>~/.local/bin</code>; no Windows, ficam em <code>&lt;instalação&gt;\bin</code>.
 
-Os resultados calculados geram PNGs em alta resolução sob <code>results/plots</code> ou <code>results/terminal</code>: estatísticas, mapas de calor por interação, mapa completo ligantes × resíduos, similaridade, clusters e todos os painéis de cada fingerprint ativo. As Análises FP incluem rankings independentes das 50 features principais por Extra Trees e Gradient Boosting. Os relatórios HTML e PDF usam a mesma sequência, incluem todos os gráficos encontrados, explicam as colunas FP e preservam a proporção das imagens em páginas A4 horizontais. Em trajetórias, os gráficos de resíduos e átomos aparecem verticalmente com suas legendas próprias, e o mapa 2D usa os mesmos IDs da matriz de átomos do ligante.
+Os resultados calculados geram seis conjuntos de PNGs sob <code>results/plots/{en,pt,es}/{screen,report}</code>: estatísticas, mapas de calor por interação, mapa completo ligantes × resíduos, similaridade, clusters e todos os painéis de cada fingerprint ativo. Cada idioma é renderizado em processo separado, com concorrência reduzida automaticamente quando há pouca RAM; toda figura Matplotlib é fechada após a gravação. Os heatmaps de tela e relatório têm exatamente 2480 × 3508 px, respectivamente a 180 e 600 DPI. As Análises FP incluem rankings independentes das 50 features principais por Extra Trees e Gradient Boosting. Os relatórios HTML e PDF seguem a ordem científica do manifesto, explicam as colunas FP e preservam a proporção das imagens em páginas A4 horizontais.
 
 #### Inclusão física do YAML nas distribuições
 
@@ -440,7 +440,7 @@ El flujo de terminal es completamente headless: no importa PyQt, no crea <code>Q
 
 La aplicación puede producir tablas de interacciones, fingerprints HIFP/EIFP/FIFP, matrices de Tanimoto, clusters, mapas de calor, análisis supervisados de importancia, sesiones PyMOL e informes HTML/PDF.
 
-Los informes recorren todas las imágenes de <code>results/</code>, añaden una explicación científica por tipo de gráfico y generan todo el PDF en A4 horizontal sin deformar las figuras. La conversión se ejecuta en un proceso aislado, por lo que un fallo de memoria o de una biblioteca nativa se muestra en la GUI sin cerrar la aplicación. En proyectos antiguos, el resumen estadístico se puede reconstruir y almacenar desde <code>results/residue_matrix.json</code>.
+Los informes usan el manifiesto semántico <code>results/plots/plot_manifest.json</code> para seleccionar únicamente el idioma y el perfil correctos, añaden explicaciones científicas y generan el PDF en A4 horizontal sin deformar las figuras. El PDF se construye página a página en un proceso aislado, por lo que un fallo de memoria o de una biblioteca nativa se muestra en la GUI sin cerrar la aplicación. En proyectos antiguos, el resumen estadístico y los 30 residuos más frecuentes se reconstruyen desde <code>results/residue_matrix.json</code>; el caché se invalida cuando cambia la matriz de origen.
 
 Las mejoras científicas propuestas, todavía no implementadas, están organizadas en [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
@@ -581,7 +581,7 @@ Para construir e instalar el wheel oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.3.3-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.4.0-py3-none-any.whl
 ~~~
 
 ### Preparación de LUNA
@@ -731,7 +731,7 @@ PyInstaller no realiza compilación cruzada. Windows produce <code>HIP2LInterAct
 
 Ambos instaladores también registran <code>hipplinteractomics-terminal</code> y <code>hipplinteractomics-multiple-run</code> en el <code>PATH</code> del usuario. Abra una terminal nueva después de la instalación. En Linux, los launchers se guardan en <code>~/.local/bin</code>; en Windows, en <code>&lt;instalación&gt;\bin</code>.
 
-Los resultados calculados generan PNG de alta resolución en <code>results/plots</code> o <code>results/terminal</code>: estadísticas, mapas de calor por interacción, mapa completo ligandos × residuos, similitud, clusters y todos los paneles de cada fingerprint activo. Análisis FP incluye rankings independientes de las 50 features principales por Extra Trees y Gradient Boosting. Los reportes HTML y PDF comparten la misma secuencia, incluyen todos los gráficos encontrados, explican las columnas FP y conservan la proporción de las imágenes en páginas A4 horizontales. En trayectorias, los gráficos de residuos y átomos aparecen verticalmente con sus propias leyendas, y el mapa 2D usa los mismos IDs de la matriz de átomos del ligando.
+Los resultados calculados generan seis conjuntos de PNG en <code>results/plots/{en,pt,es}/{screen,report}</code>: estadísticas, mapas de calor, similitud, clusters y todos los paneles de cada fingerprint activo. Cada idioma se renderiza en un proceso separado y la concurrencia se reduce automáticamente cuando hay poca RAM; todas las figuras Matplotlib se cierran después de guardarse. Los heatmaps de pantalla e informe miden exactamente 2480 × 3508 px a 180 y 600 DPI, respectivamente. Análisis FP incluye rankings independientes de las 50 features principales por Extra Trees y Gradient Boosting. Los reportes HTML y PDF respetan el orden científico del manifiesto y conservan la proporción de las imágenes en páginas A4 horizontales.
 
 #### Inclusión física del YAML
 
@@ -791,7 +791,7 @@ The terminal path is fully headless. It does not import PyQt, create a <code>QAp
 
 The application can produce interaction tables, HIFP/EIFP/FIFP fingerprints, Tanimoto matrices, clusters, heatmaps, supervised feature-importance analyses, PyMOL sessions, and HTML/PDF reports.
 
-Reports scan every image under <code>results/</code>, add a scientific interpretation for each plot type, and render every PDF page as landscape A4 while preserving each figure's aspect ratio. PDF conversion runs in an isolated process, so an out-of-memory condition or native-library failure is reported in the GUI without terminating the application. Legacy projects can rebuild and cache their statistics summary from <code>results/residue_matrix.json</code>.
+Reports use the semantic manifest at <code>results/plots/plot_manifest.json</code> to select only the requested language and profile, add scientific interpretations, and render every PDF page as landscape A4 while preserving each figure's aspect ratio. The PDF is assembled one page at a time in an isolated process, so an out-of-memory condition or native-library failure is reported in the GUI without terminating the application. Legacy projects can rebuild the statistics summary and top 30 residues from <code>results/residue_matrix.json</code>; the cache is invalidated when its source matrix changes.
 
 Proposed scientific improvements that are not yet implemented are organized in the [Scientific Methodology Roadmap](docs/SCIENTIFIC_METHODOLOGY.md).
 
@@ -932,7 +932,7 @@ Build and install the official wheel with:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.3.3-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.4.0-py3-none-any.whl
 ~~~
 
 ### Preparing LUNA
@@ -1082,7 +1082,7 @@ PyInstaller does not cross-compile. Windows produces <code>HIP2LInterActomics-Se
 
 Both installers also register <code>hipplinteractomics-terminal</code> and <code>hipplinteractomics-multiple-run</code> on the user's <code>PATH</code>. Open a new terminal after installation. Linux launchers live in <code>~/.local/bin</code>; Windows launchers live in <code>&lt;installation&gt;\bin</code>.
 
-Completed results generate high-resolution PNG files under <code>results/plots</code> or <code>results/terminal</code>: statistics, per-interaction heatmaps, the complete ligands × residues map, similarity, clusters and every panel for each active fingerprint. FP Analyses includes independent top-50 feature rankings from Extra Trees and Gradient Boosting. HTML and PDF reports share the same sequence, include every discovered chart, explain all FP columns and preserve image aspect ratios on landscape A4 pages. For trajectories, residue and ligand-atom charts are stacked vertically with their own legends, while the 2D ligand map uses the exact atom IDs from the ligand-atom matrix.
+Completed results generate six PNG sets under <code>results/plots/{en,pt,es}/{screen,report}</code>: statistics, per-interaction heatmaps, the complete ligands × residues map, similarity, clusters, and every panel for each active fingerprint. Each language renders in its own process, with concurrency reduced automatically under low memory; every Matplotlib figure is closed after saving. Screen and report heatmaps are exactly 2480 × 3508 px at 180 and 600 DPI, respectively. FP Analyses includes independent top-50 feature rankings from Extra Trees and Gradient Boosting. HTML and PDF reports follow the manifest's scientific order and preserve image aspect ratios on landscape A4 pages.
 
 #### Physical YAML inclusion
 

@@ -29,6 +29,12 @@ try:
 except Exception:
     count_interaction_types = None
 
+AA_RESIDUES = {
+    "ALA", "ARG", "ASN", "ASP", "ASH", "CYS", "CYM", "CYX", "GLN", "GLU", "GLH",
+    "GLY", "HIS", "HID", "HIE", "HIP", "HSD", "HSE", "HSP", "ILE", "LEU", "LYS",
+    "LYN", "MET", "MSE", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", "SEC",
+}
+
 # LUNA stores per-entry pickles under <workdir>/results/ (compressed).
 patterns = [
     os.path.join(workdir, "results", "**", "*.pkl.gz"),
@@ -65,14 +71,19 @@ for f in files:
             out["errors"].append("count_interaction_types: %s" % e)
     # Tally per-residue
     for it in interactions:
+        interaction_residues = set()
         try:
             for grp in (it.src_grp, it.trgt_grp):
                 for atm in getattr(grp, "atoms", []) or []:
                     res = atm.parent
+                    if str(getattr(res, "resname", "") or "").strip().upper() not in AA_RESIDUES:
+                        continue
                     name = "%s/%s/%s" % (res.parent.id, res.resname, res.id[1])
-                    out["residue_counts"][name] = out["residue_counts"].get(name, 0) + 1
+                    interaction_residues.add(name)
         except Exception:
             pass
+        for name in interaction_residues:
+            out["residue_counts"][name] = out["residue_counts"].get(name, 0) + 1
 print(json.dumps(out))
 """
 

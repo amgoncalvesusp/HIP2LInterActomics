@@ -6,19 +6,22 @@ matplotlib text at runtime, so the scientific/data values remain untouched.
 """
 from __future__ import annotations
 
+import json
 import re
+from importlib import resources
 from typing import Any, Callable
 
 
 LANGUAGES = {
-    "pt": "Português",
     "en": "English",
+    "pt": "Português",
     "es": "Español",
 }
 
-_current_language = "pt"
+_current_language = "en"
 _qt_hooks_installed = False
 _mpl_hooks_installed = False
+_language_notifier = None
 
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
@@ -977,10 +980,50 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
 }
 
+def _load_locale_catalog(language_code: str) -> dict[str, str]:
+    try:
+        source = resources.files("luna_gui").joinpath("locales", f"{language_code}.json")
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (AttributeError, FileNotFoundError, OSError, ValueError):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in payload.items()
+        if str(key).strip() and isinstance(value, str)
+    }
+
+
+LOCALE_CATALOGS: dict[str, dict[str, str]] = {
+    code: _load_locale_catalog(code)
+    for code in LANGUAGES
+}
+
+
+def language_notifier():
+    """Return the process-wide Qt language signal without burdening headless use."""
+    global _language_notifier
+    if _language_notifier is not None:
+        return _language_notifier
+    try:
+        from PyQt6.QtCore import QObject, pyqtSignal
+    except Exception:
+        return None
+
+    class LanguageNotifier(QObject):
+        language_changed = pyqtSignal(str)
+
+    _language_notifier = LanguageNotifier()
+    return _language_notifier
+
+
 _REVERSE_TRANSLATIONS: dict[str, str] = {}
 for source, values in TRANSLATIONS.items():
     _REVERSE_TRANSLATIONS[source] = source
     for translated in values.values():
+        _REVERSE_TRANSLATIONS[translated] = source
+for catalog in LOCALE_CATALOGS.values():
+    for source, translated in catalog.items():
+        _REVERSE_TRANSLATIONS[source] = source
         _REVERSE_TRANSLATIONS[translated] = source
 
 
@@ -990,10 +1033,16 @@ def language() -> str:
 
 def set_language(lang: str) -> str:
     global _current_language
-    lang = str(lang or "pt").lower()
+    lang = str(lang or "en").lower()
     if lang not in LANGUAGES:
-        lang = "pt"
+        lang = "en"
+    changed = lang != _current_language
     _current_language = lang
+    if changed and _language_notifier is not None:
+        try:
+            _language_notifier.language_changed.emit(lang)
+        except RuntimeError:
+            pass
     return lang
 
 
@@ -1006,11 +1055,17 @@ def t(value: Any, lang: str | None = None) -> str:
     text = "" if value is None else str(value)
     source = source_text(text)
     target = lang or _current_language
-    translated = TRANSLATIONS.get(source, {}).get(target)
+    translated = LOCALE_CATALOGS.get(target, {}).get(source)
+    if translated is None:
+        translated = TRANSLATIONS.get(source, {}).get(target)
+    if translated is None and target != "en":
+        translated = LOCALE_CATALOGS.get("en", {}).get(source)
+    if translated is None and target != "en":
+        translated = TRANSLATIONS.get(source, {}).get("en")
     if translated is not None:
         return translated
-    if target == "pt":
-        return source
+    if target == "en":
+        return TRANSLATIONS.get(source, {}).get("en", source)
     return _translate_patterns(source, target)
 
 
