@@ -89,3 +89,58 @@ def test_language_change_emits_qt_signal() -> None:
     set_language("pt")
     set_language("en")
     assert received[-2:] == ["pt", "en"]
+
+
+def test_critical_workflow_strings_translate_in_all_three_languages() -> None:
+    expected = {
+        "&Aparência": ("&Appearance", "&Apariencia"),
+        "Fechar aplicativo": ("Close application", "Cerrar aplicación"),
+        "Usar bit fingerprints (padrão: count)": (
+            "Use bit fingerprints (default: count)",
+            "Usar bit fingerprints (predeterminado: count)",
+        ),
+        "Seed da importância:": ("Importance seed:", "Semilla de importancia:"),
+        "Selecionar/desselecionar todas": ("Select/deselect all", "Seleccionar/deseleccionar todas"),
+        "add_atom_atom (interações atômicas genéricas)": (
+            "add_atom_atom (generic atom-atom interactions)",
+            "add_atom_atom (interacciones atómicas genéricas)",
+        ),
+        "Gerar relatório PDF": ("Generate PDF report", "Generar reporte PDF"),
+        "plots generation": ("plots generation", "generación de gráficos"),
+        "All Frames": ("All Frames", "Todos los frames"),
+    }
+    for source, (english, spanish) in expected.items():
+        assert t(source, lang="pt") in {source, "geração de gráficos", "Todos os frames"}
+        assert t(source, lang="en") == english
+        assert t(source, lang="es") == spanish
+
+
+def test_dynamic_setup_and_count_patterns_are_translated() -> None:
+    assert t("Prefixo do env: C:/Users/test/luna-env", lang="en") == "Environment prefix: C:/Users/test/luna-env"
+    assert t("Python do env: /opt/luna/bin/python", lang="es") == "Python del entorno: /opt/luna/bin/python"
+    assert t("8 de 10 ligantes selecionados", lang="en") == "8 of 10 selected ligands"
+    assert t("8 de 10 ligantes selecionados", lang="es") == "8 de 10 ligandos seleccionados"
+
+
+def test_fp_method_description_templates_are_translatable() -> None:
+    source = "Features confiáveis por classe: {count}/{total}"
+    assert t(source, lang="en").format(count=8, total=10) == "Class-reliable features: 8/10"
+    assert t(source, lang="es").format(count=8, total=10) == "Features confiables por clase: 8/10"
+
+
+def test_every_information_circle_tooltip_has_english_and_spanish_text() -> None:
+    for path in (ROOT / "luna_gui" / "ui").glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "InfoButton"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                continue
+            source = node.args[0].value
+            assert t(source, lang="en") != source, f"Missing English InfoButton tooltip: {source}"
+            assert t(source, lang="es") != source, f"Missing Spanish InfoButton tooltip: {source}"

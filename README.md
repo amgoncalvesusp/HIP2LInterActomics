@@ -178,7 +178,7 @@ Para construir e instalar a distribuição oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.4.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.5.0-py3-none-any.whl
 ~~~
 
 ### Preparação do LUNA
@@ -367,7 +367,9 @@ O PyInstaller não faz compilação cruzada. O Windows produz <code>HIP2LInterAc
 
 Os dois instaladores também registram <code>hipplinteractomics-terminal</code> e <code>hipplinteractomics-multiple-run</code> no <code>PATH</code> do usuário. Abra um novo terminal depois da instalação. No Linux, os launchers ficam em <code>~/.local/bin</code>; no Windows, ficam em <code>&lt;instalação&gt;\bin</code>.
 
-Os resultados calculados geram seis conjuntos de PNGs sob <code>results/plots/{en,pt,es}/{screen,report}</code>: estatísticas, mapas de calor por interação, mapa completo ligantes × resíduos, similaridade, clusters e todos os painéis de cada fingerprint ativo. Cada idioma é renderizado em processo separado, com concorrência reduzida automaticamente quando há pouca RAM; toda figura Matplotlib é fechada após a gravação. Os heatmaps de tela e relatório têm exatamente 2480 × 3508 px, respectivamente a 180 e 600 DPI. As Análises FP incluem rankings independentes das 50 features principais por Extra Trees e Gradient Boosting. Os relatórios HTML e PDF seguem a ordem científica do manifesto, explicam as colunas FP e preservam a proporção das imagens em páginas A4 horizontais.
+Ao concluir o cálculo na aba <strong>4. Executar</strong>, o aplicativo gera automaticamente todos os gráficos em inglês, português e espanhol e mostra a fase <em>geração de gráficos</em> na barra de progresso. A aba <strong>5. Resultados</strong> mantém a geração manual e também aceita arquivos comprimidos ZIP/TAR de resultados para reconstruir os gráficos.
+
+Os resultados calculados geram seis conjuntos de PNGs sob <code>results/plots/{en,pt,es}/{screen,report}</code>: estatísticas, mapas de calor por interação, mapa completo ligantes × resíduos, similaridade, clusters e todos os painéis de cada fingerprint ativo. Cada idioma é renderizado em processo separado, com concorrência reduzida automaticamente quando há pouca RAM; toda figura Matplotlib é fechada após a gravação. Os heatmaps de tela e relatório têm exatamente 2480 × 3508 px, respectivamente a 180 e 300 DPI. Em trajetórias, o eixo Y usa nove referências simétricas com números de frame; nos demais projetos, usa os dois extremos com o nome traduzido da variável. O mapa completo usa fundo escuro. As Análises FP incluem rankings independentes das 50 features principais por Extra Trees e Gradient Boosting. Os relatórios HTML e PDF são gerados no idioma ativo, incluem obrigatoriamente todos os heatmaps por tipo, seguem a ordem científica do manifesto, explicam as análises e preservam a proporção das imagens em páginas A4 horizontais.
 
 #### Inclusão física do YAML nas distribuições
 
@@ -581,7 +583,7 @@ Para construir e instalar el wheel oficial:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.4.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.5.0-py3-none-any.whl
 ~~~
 
 ### Preparación de LUNA
@@ -731,7 +733,9 @@ PyInstaller no realiza compilación cruzada. Windows produce <code>HIP2LInterAct
 
 Ambos instaladores también registran <code>hipplinteractomics-terminal</code> y <code>hipplinteractomics-multiple-run</code> en el <code>PATH</code> del usuario. Abra una terminal nueva después de la instalación. En Linux, los launchers se guardan en <code>~/.local/bin</code>; en Windows, en <code>&lt;instalación&gt;\bin</code>.
 
-Los resultados calculados generan seis conjuntos de PNG en <code>results/plots/{en,pt,es}/{screen,report}</code>: estadísticas, mapas de calor, similitud, clusters y todos los paneles de cada fingerprint activo. Cada idioma se renderiza en un proceso separado y la concurrencia se reduce automáticamente cuando hay poca RAM; todas las figuras Matplotlib se cierran después de guardarse. Los heatmaps de pantalla e informe miden exactamente 2480 × 3508 px a 180 y 600 DPI, respectivamente. Análisis FP incluye rankings independientes de las 50 features principales por Extra Trees y Gradient Boosting. Los reportes HTML y PDF respetan el orden científico del manifiesto y conservan la proporción de las imágenes en páginas A4 horizontales.
+Al terminar el cálculo en la pestaña <strong>4. Ejecutar</strong>, la aplicación genera automáticamente todos los gráficos en inglés, portugués y español y muestra la fase <em>generación de gráficos</em> en la barra de progreso. La pestaña <strong>5. Resultados</strong> conserva la generación manual y acepta archivos comprimidos ZIP/TAR de resultados para reconstruir los gráficos.
+
+Los resultados calculados generan seis conjuntos de PNG en <code>results/plots/{en,pt,es}/{screen,report}</code>: estadísticas, mapas de calor, similitud, clusters y todos los paneles de cada fingerprint activo. Cada idioma se renderiza en un proceso separado y la concurrencia se reduce automáticamente cuando hay poca RAM; todas las figuras Matplotlib se cierran después de guardarse. Los heatmaps de pantalla e informe miden exactamente 2480 × 3508 px a 180 y 300 DPI, respectivamente. En trayectorias, el eje Y usa nueve referencias simétricas con números de frame; en otros proyectos, usa los dos extremos con el nombre traducido de la variable. El mapa completo usa fondo oscuro. Análisis FP incluye rankings independientes de las 50 features principales por Extra Trees y Gradient Boosting. Los reportes HTML y PDF se generan en el idioma activo, incluyen obligatoriamente todos los heatmaps por tipo, respetan el orden científico del manifiesto y conservan la proporción de las imágenes en páginas A4 horizontales.
 
 #### Inclusión física del YAML
 
@@ -932,7 +936,7 @@ Build and install the official wheel with:
 ~~~bash
 python -m pip install build
 python -m build
-python -m pip install dist/hip2linteractomics-1.4.0-py3-none-any.whl
+python -m pip install dist/hip2linteractomics-1.5.0-py3-none-any.whl
 ~~~
 
 ### Preparing LUNA
@@ -1082,7 +1086,9 @@ PyInstaller does not cross-compile. Windows produces <code>HIP2LInterActomics-Se
 
 Both installers also register <code>hipplinteractomics-terminal</code> and <code>hipplinteractomics-multiple-run</code> on the user's <code>PATH</code>. Open a new terminal after installation. Linux launchers live in <code>~/.local/bin</code>; Windows launchers live in <code>&lt;installation&gt;\bin</code>.
 
-Completed results generate six PNG sets under <code>results/plots/{en,pt,es}/{screen,report}</code>: statistics, per-interaction heatmaps, the complete ligands × residues map, similarity, clusters, and every panel for each active fingerprint. Each language renders in its own process, with concurrency reduced automatically under low memory; every Matplotlib figure is closed after saving. Screen and report heatmaps are exactly 2480 × 3508 px at 180 and 600 DPI, respectively. FP Analyses includes independent top-50 feature rankings from Extra Trees and Gradient Boosting. HTML and PDF reports follow the manifest's scientific order and preserve image aspect ratios on landscape A4 pages.
+When calculation finishes in the <strong>4. Run</strong> tab, the application automatically generates every plot in English, Portuguese, and Spanish and reports the <em>plots generation</em> phase in the progress bar. The <strong>5. Results</strong> tab retains manual generation and can import ZIP/TAR result archives to rebuild plots.
+
+Completed results generate six PNG sets under <code>results/plots/{en,pt,es}/{screen,report}</code>: statistics, per-interaction heatmaps, the complete ligands × residues map, similarity, clusters, and every panel for each active fingerprint. Each language renders in its own process, with concurrency reduced automatically under low memory; every Matplotlib figure is closed after saving. Screen and report heatmaps are exactly 2480 × 3508 px at 180 and 300 DPI, respectively. Trajectories use nine symmetric Y-axis references labelled with frame numbers; other projects use the two endpoints and the translated variable name. The complete heatmap uses a dark background. FP Analyses includes independent top-50 feature rankings from Extra Trees and Gradient Boosting. HTML and PDF reports use the active GUI language, always include every per-type heatmap, follow the manifest's scientific order, explain each analysis, and preserve image aspect ratios on landscape A4 pages.
 
 #### Physical YAML inclusion
 

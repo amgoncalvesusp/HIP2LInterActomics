@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
@@ -34,6 +34,7 @@ from .plot_profiles import (
     PlotProfile,
     configure_heatmap_axes,
     enable_constrained_layout,
+    reference_tick_indices,
 )
 from .project import IFP_SUFFIXES, ProjectConfig, resolve_sim_matrix_output_paths
 from ..i18n import t
@@ -222,6 +223,7 @@ def _save_residue_heatmaps(
     output_dir: Path,
     language: str = "en",
     profile: PlotProfile | None = None,
+    trajectory_analysis: bool = False,
 ) -> list[Path]:
     entries = list(residue_artifact.get("entries", []) or [])
     residues = list(residue_artifact.get("residues", []) or [])
@@ -252,11 +254,22 @@ def _save_residue_heatmaps(
         image = axis.imshow(values, cmap="viridis", aspect="auto")
         axis.set_title(f"{t('Mapa de interação por resíduo', lang=language)}: {t(interaction_type, lang=language)}")
         axis.set_xlabel(t("Resíduos", lang=language))
-        axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(entries)} {t('total', lang=language)})")
+        axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
         axis.set_xticks(range(len(residues)))
         axis.set_xticklabels(residues, rotation=45, ha="right", fontsize=7)
-        axis.set_yticks(range(len(entries)))
-        axis.set_yticklabels(entries, fontsize=7)
+        y_indices = reference_tick_indices(len(entries), trajectory_analysis)
+        axis.set_yticks(y_indices)
+        axis.set_yticklabels(
+            [
+                (
+                    f"{t('Frame', lang=language)}: {results_analysis.trajectory_frame_number(entries[index]) or entries[index]}"
+                    if trajectory_analysis
+                    else f"{t('Ligante', lang=language)}: {entries[index]}"
+                )
+                for index in y_indices
+            ],
+            fontsize=7,
+        )
         fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
         output = output_dir / f"residue_map_{_safe_token(str(interaction_type))}.png"
         outputs.append(
@@ -278,6 +291,7 @@ def _save_complete_residue_heatmap(
     output_dir: Path,
     language: str = "en",
     profile: PlotProfile | None = None,
+    trajectory_analysis: bool = False,
 ) -> Path | None:
     entries, residues, matrix, _interaction_types = results_analysis.build_complete_heatmap(residue_artifact)
     values = np.asarray(matrix, dtype=float)
@@ -293,14 +307,32 @@ def _save_complete_residue_heatmap(
         )
     )
     image = axis.imshow(values, cmap="viridis", aspect="auto")
+    fig.patch.set_facecolor("#0b1220")
+    axis.set_facecolor("#0b1220")
     axis.set_title(t("Mapa de calor completo ligantes x resíduos", lang=language))
     axis.set_xlabel(t("Resíduos", lang=language))
-    axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(entries)} {t('total', lang=language)})")
+    axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
     axis.set_xticks(range(len(residues)))
     axis.set_xticklabels(residues, rotation=45, ha="right", fontsize=7)
-    axis.set_yticks(range(len(entries)))
-    axis.set_yticklabels(entries, fontsize=7)
-    fig.colorbar(image, ax=axis, fraction=0.035, pad=0.03)
+    y_indices = reference_tick_indices(len(entries), trajectory_analysis)
+    axis.set_yticks(y_indices)
+    axis.set_yticklabels(
+        [
+            (
+                f"{t('Frame', lang=language)}: {results_analysis.trajectory_frame_number(entries[index]) or entries[index]}"
+                if trajectory_analysis
+                else f"{t('Ligante', lang=language)}: {entries[index]}"
+            )
+            for index in y_indices
+        ],
+        fontsize=7,
+    )
+    axis.tick_params(colors="#e5e7eb")
+    axis.xaxis.label.set_color("#e5e7eb")
+    axis.yaxis.label.set_color("#e5e7eb")
+    axis.title.set_color("#f8fafc")
+    colorbar = fig.colorbar(image, ax=axis, fraction=0.035, pad=0.03)
+    colorbar.ax.tick_params(colors="#e5e7eb")
     return _save_plot(
         fig,
         output_dir / "complete_ligands_residues_heatmap.png",
@@ -903,6 +935,7 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
     records: list[PlotRecord] = []
     ifp_order = {"EIFP": 0, "FIFP": 1, "HIFP": 2}
     model_order = {"extra_trees": 0, "gradient_boosting": 1}
+    trajectory_analysis = bool(payload.get("trajectory_analysis", False))
 
     for profile_name, profile in PLOT_PROFILES.items():
         profile_root = workdir / "results" / "plots" / language / profile_name
@@ -932,6 +965,7 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
             profile_root / "heatmaps",
             language,
             profile,
+            trajectory_analysis,
         )
         for index, path in enumerate(heatmaps):
             records.append(_plot_record(
@@ -950,6 +984,7 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
             profile_root / "heatmaps",
             language,
             profile,
+            trajectory_analysis,
         )
         if complete:
             records.append(_plot_record(
@@ -1081,6 +1116,7 @@ def _render_trilingual_plots(
     workdir: Path,
     payload: dict,
     settings: Mapping[str, Any] | None = None,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> tuple[PlotManifest, list[str]]:
     """Render EN/PT/ES in independent spawn processes with bounded concurrency."""
     plots_root = workdir / "results" / "plots"
@@ -1095,6 +1131,7 @@ def _render_trilingual_plots(
     manifest = PlotManifest()
     errors: list[str] = []
     worker_limit = _plot_worker_count(settings)
+    completed_count = 0
     try:
         while pending or active:
             while pending and len(active) < worker_limit:
@@ -1131,6 +1168,12 @@ def _render_trilingual_plots(
                 status_path.unlink(missing_ok=True)
                 process.close()
                 completed.append(language)
+                completed_count += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        35 + round(55 * completed_count / max(1, len(LANGUAGES))),
+                        f"{language}: screen 180 DPI + report 300 DPI",
+                    )
             for language in completed:
                 active.pop(language, None)
             if active and not completed:
@@ -1175,7 +1218,13 @@ def run_terminal_results(
         "fp_dashboards": {},
         "similarities": {},
         "clusters": {},
+        "trajectory_analysis": bool(getattr(cfg, "trajectory_analysis", False)),
     }
+
+    def report_progress(percent: int, stage: str) -> None:
+        print(f"[plots-progress] {max(0, min(100, int(percent)))}% - {stage}", flush=True)
+
+    report_progress(0, "loading cached results")
 
     summary = analysis_runtime.run_analysis(py_exe, str(workdir))
     if isinstance(summary, dict) and not summary.get("error"):
@@ -1188,6 +1237,7 @@ def run_terminal_results(
         manifest["errors"].append(
             str(summary.get("error") if isinstance(summary, dict) else "Unable to load interaction summary.")
         )
+    report_progress(10, "interaction statistics")
 
     residue = analysis_runtime.run_residue_matrix(py_exe, str(workdir))
     if isinstance(residue, dict) and not residue.get("error"):
@@ -1200,6 +1250,7 @@ def run_terminal_results(
         manifest["errors"].append(
             str(residue.get("error") if isinstance(residue, dict) else "Unable to load residue matrix.")
         )
+    report_progress(20, "interaction heatmaps")
 
     fp_artifacts = results_analysis.load_fp_analysis_artifacts(workdir)
     requested_types = set(cfg.selected_ifp_types())
@@ -1222,6 +1273,7 @@ def run_terminal_results(
             manifest["outputs"][f"{ifp_type}_fp_dashboard"] = _relative_to_workdir(dashboard_path, workdir)
         except Exception as exc:
             manifest["errors"].append(f"{ifp_type}: fingerprint dashboard export failed: {exc}")
+    report_progress(30, "fingerprint analyses")
 
     matrix_limit = _int_setting(settings, "terminal_matrix_max_entries", 5000)
     cluster_limit = _int_setting(settings, "terminal_cluster_max_entries", 5000)
@@ -1303,6 +1355,7 @@ def run_terminal_results(
         workdir,
         render_payload,
         settings,
+        progress_callback=report_progress,
     )
     manifest["errors"].extend(render_errors)
     manifest["outputs"]["plot_manifest"] = _relative_to_workdir(
@@ -1316,9 +1369,11 @@ def run_terminal_results(
         manifest["outputs"]["fp_pymol_session"] = _relative_to_workdir(session, workdir)
     if session_error:
         manifest["errors"].append(session_error)
+    report_progress(96, "writing manifests")
 
     terminal_manifest_path = output_dir / "terminal_results_manifest.json"
     _write_json(terminal_manifest_path, manifest)
     manifest["outputs"]["manifest"] = _relative_to_workdir(terminal_manifest_path, workdir)
     _write_json(terminal_manifest_path, manifest)
+    report_progress(100, "complete")
     return manifest

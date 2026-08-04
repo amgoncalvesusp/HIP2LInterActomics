@@ -10,6 +10,7 @@ from luna_gui.core.plot_profiles import (
     SCREEN_PROFILE,
     PlotProfile,
     RenderJob,
+    reference_tick_indices,
     render_plot,
 )
 
@@ -39,6 +40,20 @@ def test_screen_and_report_profiles_are_pixel_exact_and_release_figures() -> Non
             with Image.open(result) as image:
                 assert image.size == (2480, 3508)
             assert plt.get_fignums() == []
+    assert SCREEN_PROFILE.dpi == 180
+    assert REPORT_PROFILE.dpi == 300
+
+
+def test_heatmap_reference_ticks_use_nine_frames_or_two_values() -> None:
+    trajectory = reference_tick_indices(101, trajectory=True)
+    values = reference_tick_indices(101, trajectory=False)
+
+    assert len(trajectory) == 9
+    assert trajectory[0] == 0
+    assert trajectory[4] == 50
+    assert trajectory[-1] == 100
+    assert all(left + right == 100 for left, right in zip(trajectory, reversed(trajectory)))
+    assert values == [0, 100]
 
 
 def test_large_synthetic_heatmap_releases_all_matplotlib_figures() -> None:

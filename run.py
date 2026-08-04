@@ -27,6 +27,10 @@ def _attach_windows_console() -> None:
 def _dispatch_cli(argv: list[str]) -> int | None:
     executable = Path(sys.argv[0]).stem.casefold().replace("_", "-")
     command = argv[0].casefold() if argv else ""
+    if command == "--render-pdf-job":
+        from luna_gui.core.report_worker import main
+
+        return int(main(argv[1:]))
     if command == "--terminal" or executable == "hipplinteractomics-terminal":
         _attach_windows_console()
         from hipplinteractomics_terminal import main

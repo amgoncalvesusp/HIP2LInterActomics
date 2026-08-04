@@ -278,6 +278,16 @@ class MainWindow(QMainWindow):
         for lang_code, action in getattr(self, "_language_actions", {}).items():
             action.setChecked(lang_code == code)
         retranslate_ui(self)
+        for tab in (
+            self.tab_setup,
+            self.tab_project,
+            self.tab_analyses,
+            self.tab_run,
+            self.tab_results,
+            self.tab_history,
+        ):
+            if tab is not None and hasattr(tab, "retranslate_dynamic"):
+                tab.retranslate_dynamic()
         if self.tab_results is not None and hasattr(self.tab_results, "on_language_changed"):
             self.tab_results.on_language_changed(code)
         self.statusBar().showMessage(t(f"Idioma alterado para {LANGUAGES[code]}"), 4000)

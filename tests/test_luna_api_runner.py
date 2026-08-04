@@ -28,10 +28,38 @@ class LunaApiRunnerTests(unittest.TestCase):
     def test_ligand_atom_map_reuses_exact_matrix_identifiers(self) -> None:
         self.assertIn("def _align_atom_map_labels", API_RUNNER_SCRIPT)
         self.assertIn(
-            "_rdkit_heavy_atom_mol_and_labels(source, mol, matrix_labels)",
+            "matrix_metadata=matrix_metadata",
             API_RUNNER_SCRIPT,
         )
-        self.assertIn('"labels_match_matrix": set(labels) == set(matrix_labels)', API_RUNNER_SCRIPT)
+        self.assertIn('"labels_match_matrix": all(label in labels for label in matrix_labels)', API_RUNNER_SCRIPT)
+        self.assertIn('"atom_label_mapping": label_mapping', API_RUNNER_SCRIPT)
+
+    def test_ligand_atom_alignment_uses_serials_for_interacting_subset(self) -> None:
+        tree = ast.parse(API_RUNNER_SCRIPT)
+        names = {"_normalized_atom_label", "_numeric_atom_token", "_align_atom_map_labels"}
+        functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in names
+        ]
+        namespace = {"re": __import__("re")}
+        exec(compile(ast.Module(body=functions, type_ignores=[]), "<atom-alignment>", "exec"), namespace)
+
+        labels, mapping = namespace["_align_atom_map_labels"](
+            ["C1", "C2", "N3", "O4"],
+            ["LIG-CARBON", "N3"],
+            source_records=[
+                {"source_index": 0, "serial": 1},
+                {"source_index": 1, "serial": 2},
+                {"source_index": 2, "serial": 3},
+                {"source_index": 3, "serial": 4},
+            ],
+            matrix_metadata={"LIG-CARBON": {"serial": 2}, "N3": {"serial": 3}},
+            return_mapping=True,
+        )
+
+        self.assertEqual(labels, ["C1", "LIG-CARBON", "N3", "O4"])
+        self.assertTrue(mapping[1]["matched"])
+        self.assertEqual(mapping[1]["matrix_label"], "LIG-CARBON")
 
     def test_project_config_uses_python_api_for_fork_and_multi_ifp(self) -> None:
         self.assertTrue(ProjectConfig(fork_from="D:/old_project").uses_python_api())

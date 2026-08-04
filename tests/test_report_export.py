@@ -13,7 +13,11 @@ from luna_gui.core.report_export import (
     PdfReportError,
     _fit_image_box,
     build_report,
+    cleanup_pdf_render_job,
     collect_result_images,
+    create_pdf_render_job,
+    execute_pdf_render_job,
+    read_pdf_render_status,
     save_pdf_report,
     save_pdf_report_isolated,
 )
@@ -152,6 +156,41 @@ class ReportExportTests(unittest.TestCase):
         self.assertEqual(result, output)
         self.assertTrue(output.read_bytes().startswith(b"%PDF"))
 
+    def test_external_worker_job_uses_atomic_status_and_valid_pdf(self) -> None:
+        output = self.root / "worker-report.pdf"
+        job_path, status_path = create_pdf_render_job(
+            output,
+            cfg=self.cfg,
+            analysis=self.analysis,
+        )
+        try:
+            exit_code = execute_pdf_render_job(job_path, status_path)
+            status = read_pdf_render_status(status_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIsNotNone(status)
+            self.assertTrue(status["ok"])
+            self.assertTrue(output.read_bytes().startswith(b"%PDF"))
+            self.assertFalse(output.with_name(f".{output.name}.part").exists())
+        finally:
+            cleanup_pdf_render_job(job_path)
+
+    def test_external_worker_job_reports_failure_without_raising_in_parent(self) -> None:
+        blocked_parent = self.root / "blocked-worker"
+        blocked_parent.write_text("not a directory", encoding="utf-8")
+        job_path, status_path = create_pdf_render_job(
+            blocked_parent / "report.pdf",
+            cfg=self.cfg,
+            analysis=self.analysis,
+        )
+        try:
+            self.assertEqual(execute_pdf_render_job(job_path, status_path), 1)
+            status = read_pdf_render_status(status_path)
+            self.assertIsNotNone(status)
+            self.assertFalse(status["ok"])
+        finally:
+            cleanup_pdf_render_job(job_path)
+
     def test_manifest_filters_exactly_one_language_and_profile(self) -> None:
         paths = {
             "pt_report": self._image(self.root / "results/plots/pt/report/a.png", (200, 100), "red"),
@@ -170,6 +209,33 @@ class ReportExportTests(unittest.TestCase):
         self.assertIn("PT report", document)
         self.assertNotIn("PT screen", document)
         self.assertNotIn("EN report", document)
+
+    def test_report_includes_every_per_type_heatmap_from_active_language(self) -> None:
+        manifest = PlotManifest()
+        for index, interaction_type in enumerate(("Hydrogen bond", "Hydrophobic", "Ionic")):
+            path = self._image(
+                self.root / f"results/plots/pt/report/heatmaps/residue_map_{index}.png",
+                (600, 900),
+                "#174f4b",
+            )
+            manifest.add(PlotRecord(
+                f"interaction_heatmap_{index}",
+                "pt",
+                "report",
+                str(path),
+                f"Heatmap por tipo: {interaction_type}",
+                "Explicação científica do padrão de frequência e permanência.",
+                20 + index,
+                category="interaction_heatmap",
+            ))
+        manifest.save(manifest_path(self.root))
+
+        document = build_report(cfg=self.cfg, analysis=self.analysis)
+
+        self.assertEqual(document.count("data:image/png;base64,"), 3)
+        for interaction_type in ("Hydrogen bond", "Hydrophobic", "Ionic"):
+            self.assertIn(f"Heatmap por tipo: {interaction_type}", document)
+        self.assertEqual(document.count("Explicação científica do padrão"), 3)
 
     def test_report_uses_scientific_order_and_deterministic_top30(self) -> None:
         manifest = PlotManifest()

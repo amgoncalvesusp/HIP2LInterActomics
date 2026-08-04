@@ -980,6 +980,319 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
 }
 
+# Strings introduced or audited by the complete PT/EN/ES workflow. Keeping
+# these in one block makes dynamic labels and native dialogs share the same
+# source text as the widget translation hooks.
+TRANSLATIONS.update({
+    "&Aparência": {"en": "&Appearance", "es": "&Apariencia"},
+    "Fechar aplicativo": {"en": "Close application", "es": "Cerrar aplicación"},
+    "Deseja realmente fechar o HIP²LInterActomics?": {
+        "en": "Do you really want to close HIP²LInterActomics?",
+        "es": "¿Realmente deseas cerrar HIP²LInterActomics?",
+    },
+    "Informação": {"en": "Information", "es": "Información"},
+    "=== Verificação de ambiente ===": {
+        "en": "=== Environment check ===",
+        "es": "=== Verificación del entorno ===",
+    },
+    "Conda: NÃO encontrado.": {"en": "Conda: NOT found.", "es": "Conda: NO encontrado."},
+    "Verificação concluída.": {"en": "Environment check completed.", "es": "Verificación completada."},
+    "Verificando ambiente em segundo plano...": {
+        "en": "Checking the environment in the background...",
+        "es": "Verificando el entorno en segundo plano...",
+    },
+    "Erro — Conda não encontrado. Instale o Miniconda primeiro.": {
+        "en": "Error - Conda was not found. Install Miniconda first.",
+        "es": "Error: no se encontró Conda. Instala Miniconda primero.",
+    },
+    "LUNA pronto": {"en": "LUNA ready", "es": "LUNA listo"},
+    "Conda ausente": {"en": "Conda missing", "es": "Falta Conda"},
+    "Instale o Miniconda primeiro.": {
+        "en": "Install Miniconda first.",
+        "es": "Instala Miniconda primero.",
+    },
+    "Erro ao preparar ambiente": {
+        "en": "Environment preparation error",
+        "es": "Error al preparar el entorno",
+    },
+    "=== Iniciando instalação do LUNA ===": {
+        "en": "=== Starting LUNA installation ===",
+        "es": "=== Iniciando la instalación de LUNA ===",
+    },
+    "Isso pode levar vários minutos.": {
+        "en": "This may take several minutes.",
+        "es": "Esto puede tardar varios minutos.",
+    },
+    "=== Instalação concluída ===": {
+        "en": "=== Installation completed ===",
+        "es": "=== Instalación completada ===",
+    },
+    "Verifica e prepara o ambiente luna-env. Esta etapa garante LUNA, scikit-learn e dependencias de analise para executar o fluxo.": {
+        "en": "Checks and prepares the luna-env environment. This step provides LUNA, scikit-learn and the analysis dependencies required by the workflow.",
+        "es": "Verifica y prepara el entorno luna-env. Este paso proporciona LUNA, scikit-learn y las dependencias de análisis necesarias para ejecutar el flujo.",
+    },
+    "Use quando quiser reabrir um projeto LUNA existente e acrescentar novas entradas sem apagar resultados antigos.": {
+        "en": "Use this to reopen an existing LUNA project and add entries without deleting previous results.",
+        "es": "Úsalo para reabrir un proyecto LUNA existente y añadir entradas sin borrar resultados anteriores.",
+    },
+    "Diretório raiz do projeto. A GUI salva configurações, entradas, logs, resultados, relatórios e sessões PyMOL nesta pasta.": {
+        "en": "Project root directory. The GUI stores settings, inputs, logs, results, reports and PyMOL sessions in this folder.",
+        "es": "Directorio raíz del proyecto. La GUI guarda configuraciones, entradas, logs, resultados, informes y sesiones PyMOL en esta carpeta.",
+    },
+    "Divide arquivos de complexos em proteína, ligante e águas. Aceita MOL2/PDB e remove pares LP de águas para evitar confusão no LUNA.": {
+        "en": "Splits complex files into protein, ligand and waters. It accepts MOL2/PDB and removes water LP pairs to avoid ambiguity in LUNA.",
+        "es": "Divide archivos de complejos en proteína, ligando y aguas. Acepta MOL2/PDB y elimina pares LP de aguas para evitar ambigüedad en LUNA.",
+    },
+    "Arquivo PDB único: uma proteína para todos os ligantes. Pasta: usa a proteína correspondente a cada ligante/frame pelo nome-base.": {
+        "en": "Single PDB file: one protein for all ligands. Folder: matches each ligand/frame to its protein by base name.",
+        "es": "Archivo PDB único: una proteína para todos los ligandos. Carpeta: empareja cada ligando/frame con su proteína por nombre base.",
+    },
+    "Entrada de ligantes ou frames. Pode ser arquivo MOL2/SDF/PDB ou pasta para consolidar/selecionar multiplas moleculas.": {
+        "en": "Ligand or frame input. It may be a MOL2/SDF/PDB file or a folder used to consolidate/select multiple molecules.",
+        "es": "Entrada de ligandos o frames. Puede ser un archivo MOL2/SDF/PDB o una carpeta para consolidar/seleccionar varias moléculas.",
+    },
+    "Mantém águas do complexo no PDB da proteína e executa LUNA permitindo interações mediadas por água.": {
+        "en": "Keeps complex waters in the protein PDB and runs LUNA with water-mediated interactions enabled.",
+        "es": "Mantiene las aguas del complejo en el PDB de la proteína y ejecuta LUNA permitiendo interacciones mediadas por agua.",
+    },
+    "Ative quando cada entrada representa um frame/pose. Os gráficos passam a usar percentuais de frames/entradas.": {
+        "en": "Enable this when each entry represents a frame/pose. Charts will use frame/entry percentages.",
+        "es": "Actívalo cuando cada entrada represente un frame/pose. Los gráficos usarán porcentajes de frames/entradas.",
+    },
+    "Usar bit fingerprints (padrão: count)": {
+        "en": "Use bit fingerprints (default: count)",
+        "es": "Usar bit fingerprints (predeterminado: count)",
+    },
+    "Seed da importância:": {"en": "Importance seed:", "es": "Semilla de importancia:"},
+    "Selecionar/desselecionar todas": {
+        "en": "Select/deselect all",
+        "es": "Seleccionar/deseleccionar todas",
+    },
+    "Arquivo .cfg:": {"en": ".cfg file:", "es": "Archivo .cfg:"},
+    "add_proximal (inclui contatos só por proximidade)": {
+        "en": "add_proximal (includes proximity-only contacts)",
+        "es": "add_proximal (incluye contactos solo por proximidad)",
+    },
+    "add_atom_atom (interações atômicas genéricas)": {
+        "en": "add_atom_atom (generic atom-atom interactions)",
+        "es": "add_atom_atom (interacciones atómicas genéricas)",
+    },
+    "add_dependent_inter (bridges de água etc.)": {
+        "en": "add_dependent_inter (water bridges, etc.)",
+        "es": "add_dependent_inter (puentes de agua, etc.)",
+    },
+    "add_h2o_pairs_with_no_target (águas sem alvo)": {
+        "en": "add_h2o_pairs_with_no_target (waters without a target)",
+        "es": "add_h2o_pairs_with_no_target (aguas sin blanco)",
+    },
+    "ignore_self_inter (recomendado)": {
+        "en": "ignore_self_inter (recommended)",
+        "es": "ignore_self_inter (recomendado)",
+    },
+    "Exportar gráfico atual...": {"en": "Export current chart...", "es": "Exportar gráfico actual..."},
+    "Exportar relatório HTML": {"en": "Export HTML report", "es": "Exportar informe HTML"},
+    "Gerar relatório PDF": {"en": "Generate PDF report", "es": "Generar informe PDF"},
+    "Gerando PDF...": {"en": "Generating PDF...", "es": "Generando PDF..."},
+    "Relatório PDF": {"en": "PDF report", "es": "Informe PDF"},
+    "Relatório PDF salvo": {"en": "PDF report saved", "es": "Informe PDF guardado"},
+    "Erro ao gerar PDF": {"en": "PDF generation error", "es": "Error al generar el PDF"},
+    "A geração do relatório PDF já está em andamento.": {
+        "en": "PDF report generation is already in progress.",
+        "es": "La generación del informe PDF ya está en curso.",
+    },
+    "A geração do PDF excedeu o tempo limite e foi interrompida. O aplicativo permaneceu aberto.": {
+        "en": "PDF generation exceeded the time limit and was stopped. The application remained open.",
+        "es": "La generación del PDF excedió el tiempo límite y fue interrumpida. La aplicación permaneció abierta.",
+    },
+    "O processo isolado do PDF foi encerrado pelo sistema. Isso pode indicar falta de memória ou falha de uma biblioteca nativa. O aplicativo permaneceu aberto.": {
+        "en": "The isolated PDF process was terminated by the system. This may indicate insufficient memory or a native-library failure. The application remained open.",
+        "es": "El proceso aislado del PDF fue terminado por el sistema. Esto puede indicar falta de memoria o un fallo de una biblioteca nativa. La aplicación permaneció abierta.",
+    },
+    "Falha ao gerar o PDF: {error}": {
+        "en": "Failed to generate the PDF: {error}",
+        "es": "No se pudo generar el PDF: {error}",
+    },
+    "O gerador de PDF terminou sem produzir o arquivo (código {code}).": {
+        "en": "The PDF generator ended without producing the file (code {code}).",
+        "es": "El generador de PDF terminó sin producir el archivo (código {code}).",
+    },
+    "erro desconhecido": {"en": "unknown error", "es": "error desconocido"},
+    "plots generation": {"en": "plots generation", "pt": "geração de gráficos", "es": "generación de gráficos"},
+    "Importar arquivo comprimido...": {"en": "Import compressed archive...", "es": "Importar archivo comprimido..."},
+    "Gerar gráficos": {"en": "Generate plots", "es": "Generar gráficos"},
+    "Gerando gráficos...": {"en": "Generating plots...", "es": "Generando gráficos..."},
+    "Geração de gráficos": {"en": "Plot generation", "es": "Generación de gráficos"},
+    "Erro na geração de gráficos": {"en": "Plot generation error", "es": "Error al generar gráficos"},
+    "Falha na geração de gráficos": {"en": "Plot generation failed", "es": "Falló la generación de gráficos"},
+    "Gráficos concluídos": {"en": "Plots completed", "es": "Gráficos completados"},
+    "A geração de gráficos já está em andamento.": {"en": "Plot generation is already in progress.", "es": "La generación de gráficos ya está en curso."},
+    "Todos os gráficos EN/PT/ES foram gerados.": {"en": "All EN/PT/ES plots were generated.", "es": "Se generaron todos los gráficos EN/PT/ES."},
+    "O processo terminou sem saída.": {"en": "The process ended without output.", "es": "El proceso terminó sin salida."},
+    "Erro ao importar resultados": {"en": "Results import error", "es": "Error al importar resultados"},
+    "Resultados importados": {"en": "Results imported", "es": "Resultados importados"},
+    "Arquivo extraído e carregado em:\n{workdir}": {
+        "en": "Archive extracted and loaded at:\n{workdir}",
+        "es": "Archivo extraído y cargado en:\n{workdir}",
+    },
+    "Importar resultados comprimidos": {
+        "en": "Import compressed results",
+        "es": "Importar resultados comprimidos",
+    },
+    "Arquivos de resultados (*.zip *.tar *.tar.gz *.tgz *.tar.bz2 *.tar.xz);;Todos (*)": {
+        "en": "Results archives (*.zip *.tar *.tar.gz *.tgz *.tar.bz2 *.tar.xz);;All (*)",
+        "es": "Archivos de resultados (*.zip *.tar *.tar.gz *.tgz *.tar.bz2 *.tar.xz);;Todos (*)",
+    },
+    "Análise e geração de gráficos concluídas.\nResultados em: {workdir}": {
+        "en": "Analysis and plot generation completed.\nResults at: {workdir}",
+        "es": "Análisis y generación de gráficos completados.\nResultados en: {workdir}",
+    },
+    "Falha ao iniciar o processo": {
+        "en": "Failed to start the process",
+        "es": "No se pudo iniciar el proceso",
+    },
+    "Extrai com segurança um arquivo ZIP/TAR de resultados e carrega o workdir encontrado.": {"en": "Safely extracts a ZIP/TAR results archive and loads the detected workdir.", "es": "Extrae de forma segura un archivo ZIP/TAR de resultados y carga el workdir detectado."},
+    "Gera novamente todos os gráficos em inglês, português e espanhol para tela e relatório.": {"en": "Regenerates every plot in English, Portuguese and Spanish for screen and report use.", "es": "Regenera todos los gráficos en inglés, portugués y español para pantalla e informe."},
+    "All Frames": {"en": "All Frames", "pt": "Todos os frames", "es": "Todos los frames"},
+    "Variável": {"en": "Variable", "es": "Variable"},
+    "Amplia o gráfico atualmente visível. Use para inspecionar mapas de calor e barras sem mudar os dados.": {
+        "en": "Enlarges the currently visible chart so heatmaps and bars can be inspected without changing the data.",
+        "es": "Amplía el gráfico visible para inspeccionar mapas de calor y barras sin cambiar los datos.",
+    },
+    "Estes filtros são apenas visuais: ligam/desligam famílias de interações no gráfico de estatísticas sem alterar os arquivos do projeto.": {
+        "en": "These filters are visual only: they toggle interaction families in the statistics chart without changing project files.",
+        "es": "Estos filtros son solo visuales: activan o desactivan familias de interacciones en el gráfico estadístico sin cambiar los archivos del proyecto.",
+    },
+    "Filtros visuais do mapa de calor completo. Eles ajudam a remover interações desfavoráveis/repulsivas ou empilhamentos para comparar padrões.": {
+        "en": "Visual filters for the complete heatmap. They hide unfavorable/repulsive interactions or stacking interactions when comparing patterns.",
+        "es": "Filtros visuales del mapa de calor completo. Ocultan interacciones desfavorables/repulsivas o apilamientos al comparar patrones.",
+    },
+    "Substitui temporariamente os fingerprints importantes calculados por IDs escolhidos pelo usuário. Todos os gráficos de análises FP passam a usar essa seleção.": {
+        "en": "Temporarily replaces calculated important fingerprints with user-selected IDs. Every FP analysis chart uses this selection.",
+        "es": "Reemplaza temporalmente los fingerprints importantes calculados por IDs elegidos por el usuario. Todos los gráficos de análisis FP usan esta selección.",
+    },
+})
+
+TRANSLATIONS.update({
+    "seleção manual ({found} de {total} IDs encontrados)": {
+        "en": "manual selection ({found} of {total} IDs found)",
+        "es": "selección manual ({found} de {total} IDs encontrados)",
+    },
+    "selecionadas por modelo por nível (p < {cutoff:.2f} ou Otsu)": {
+        "en": "selected by per-level model (p < {cutoff:.2f} or Otsu)",
+        "es": "seleccionadas por modelo por nivel (p < {cutoff:.2f} u Otsu)",
+    },
+    "selecionadas por p < {cutoff:.2f}": {
+        "en": "selected by p < {cutoff:.2f}",
+        "es": "seleccionadas por p < {cutoff:.2f}",
+    },
+    "matriz FP regravada com níveis": {
+        "en": "FP matrix rewritten with levels",
+        "es": "matriz FP reescrita con niveles",
+    },
+    "{molecules} moléculas - {features} features": {
+        "en": "{molecules} molecules - {features} features",
+        "es": "{molecules} moléculas - {features} features",
+    },
+    "Limiar de atribuição da classe: {value:.2f}%": {
+        "en": "Class assignment threshold: {value:.2f}%",
+        "es": "Umbral de asignación de clase: {value:.2f}%",
+    },
+    "fonte: {value}": {"en": "source: {value}", "es": "fuente: {value}"},
+    "Otsu habilitado": {"en": "Otsu enabled", "es": "Otsu habilitado"},
+    "Limiar de atribuição do nível: {value:.2f}%": {
+        "en": "Level assignment threshold: {value:.2f}%",
+        "es": "Umbral de asignación de nivel: {value:.2f}%",
+    },
+    "fonte nível: {value}": {"en": "level source: {value}", "es": "fuente del nivel: {value}"},
+    "Limiar de atribuição do tipo de interação: {value:.2f}%": {
+        "en": "Interaction-type assignment threshold: {value:.2f}%",
+        "es": "Umbral de asignación del tipo de interacción: {value:.2f}%",
+    },
+    "Limiar do par interação/resíduo: {value:.2f}%": {
+        "en": "Interaction/residue pair threshold: {value:.2f}%",
+        "es": "Umbral del par interacción/residuo: {value:.2f}%",
+    },
+    "Features confiáveis por classe: {count}/{total}": {
+        "en": "Class-reliable features: {count}/{total}",
+        "es": "Features confiables por clase: {count}/{total}",
+    },
+    "Features confiáveis por nível: {count}/{total}": {
+        "en": "Level-reliable features: {count}/{total}",
+        "es": "Features confiables por nivel: {count}/{total}",
+    },
+    "{count} indeterminados": {"en": "{count} undetermined", "es": "{count} indeterminados"},
+    "Features elegíveis para importância: {count}/{total}": {
+        "en": "Features eligible for importance: {count}/{total}",
+        "es": "Features elegibles para importancia: {count}/{total}",
+    },
+    "Features importantes: {count}": {"en": "Important features: {count}", "es": "Features importantes: {count}"},
+    "Rótulos: {source}": {"en": "Labels: {source}", "es": "Etiquetas: {source}"},
+    "CSV externo": {"en": "external CSV", "es": "CSV externo"},
+    "fallback automático": {"en": "automatic fallback", "es": "fallback automático"},
+    "pareadas: {count}": {"en": "matched: {count}", "es": "emparejadas: {count}"},
+    "tarefa: {task}": {"en": "task: {task}", "es": "tarea: {task}"},
+    "regressão": {"en": "regression", "es": "regresión"},
+    "classificação": {"en": "classification", "es": "clasificación"},
+    "detalhe FP: indisponível ({detail})": {
+        "en": "FP detail: unavailable ({detail})",
+        "es": "detalle FP: no disponible ({detail})",
+    },
+    "Algoritmo: {algorithm}": {"en": "Algorithm: {algorithm}", "es": "Algoritmo: {algorithm}"},
+    "Modelo: {model}. {note}": {"en": "Model: {model}. {note}", "es": "Modelo: {model}. {note}"},
+    "Equação de Keiser and Hert [1] para transformar os s-score dos coeficientes de importâncias em p-values: p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), onde z é o Z-score Importance mostrado na tabela para a feature.": {
+        "en": "Keiser and Hert [1] equation for transforming importance-coefficient s-scores into p-values: p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), where z is the Z-score Importance shown for the feature.",
+        "es": "Ecuación de Keiser y Hert [1] para transformar los s-score de los coeficientes de importancia en p-values: p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), donde z es el Z-score Importance mostrado para la feature.",
+    },
+    "A coluna 'Cobertura (%)' segue o bit na base inteira, mas os percentuais do perfil da base usam apenas as ocorrências classificadas do bit.": {
+        "en": "The 'Coverage (%)' column tracks the bit across the full dataset, while dataset-profile percentages use only classified occurrences of the bit.",
+        "es": "La columna 'Cobertura (%)' sigue el bit en toda la base, mientras que los porcentajes del perfil usan solo las ocurrencias clasificadas del bit.",
+    },
+    "Os gráficos abaixo usam {selection}; os modelos estocásticos usam seed {seed}.": {
+        "en": "The plots below use {selection}; stochastic models use seed {seed}.",
+        "es": "Los gráficos siguientes usan {selection}; los modelos estocásticos usan la semilla {seed}.",
+    },
+    "limiar do par interação/resíduo = {value:.2f}% definido pelo menor percentual entre pares com z-score > 1": {
+        "en": "interaction/residue pair threshold = {value:.2f}%, defined by the lowest percentage among pairs with z-score > 1",
+        "es": "umbral del par interacción/residuo = {value:.2f}%, definido por el menor porcentaje entre pares con z-score > 1",
+    },
+    "limiar do par interação/resíduo = {value:.2f}% definido por Otsu's Thresholding": {
+        "en": "interaction/residue pair threshold = {value:.2f}%, defined by Otsu's Thresholding",
+        "es": "umbral del par interacción/residuo = {value:.2f}%, definido por Otsu's Thresholding",
+    },
+    "sem pares interação/resíduo com z-score > 1; apenas 100% foi aceito como par prevalente": {
+        "en": "no interaction/residue pairs had z-score > 1; only 100% was accepted as a prevalent pair",
+        "es": "no hubo pares interacción/residuo con z-score > 1; solo se aceptó 100% como par prevalente",
+    },
+    "Gráficos ativos: base = {base}; {selection}; algoritmo = {algorithm}.": {
+        "en": "Active plots: dataset = {base}; {selection}; algorithm = {algorithm}.",
+        "es": "Gráficos activos: base = {base}; {selection}; algoritmo = {algorithm}.",
+    },
+    "Configuração atual: cutoff p-value = {cutoff:.2f}; tarefa = {task}; algoritmo solicitado = {algorithm}; modelo usado = {model}; seed = {seed}.": {
+        "en": "Current configuration: p-value cutoff = {cutoff:.2f}; task = {task}; requested algorithm = {algorithm}; model used = {model}; seed = {seed}.",
+        "es": "Configuración actual: cutoff de p-value = {cutoff:.2f}; tarea = {task}; algoritmo solicitado = {algorithm}; modelo usado = {model}; semilla = {seed}.",
+    },
+    "Z-score de classe: média = {mean:.4f}, desvio = {std:.4f}.": {
+        "en": "Class Z-score: mean = {mean:.4f}, deviation = {std:.4f}.",
+        "es": "Z-score de clase: media = {mean:.4f}, desviación = {std:.4f}.",
+    },
+    "Z-score Importance: média = {mean:.4f}, desvio = {std:.4f}.": {
+        "en": "Z-score Importance: mean = {mean:.4f}, deviation = {std:.4f}.",
+        "es": "Z-score Importance: media = {mean:.4f}, desviación = {std:.4f}.",
+    },
+    "Os modelos de importância são ajustados separadamente por nível assinado; fingerprints sem nível assinado ficam fora do treino e da importância.": {
+        "en": "Importance models are fitted separately by assigned level; fingerprints without an assigned level are excluded from training and importance.",
+        "es": "Los modelos de importancia se ajustan por separado según el nivel asignado; los fingerprints sin nivel asignado quedan fuera del entrenamiento y de la importancia.",
+    },
+    "Interação prevalente: para cada feature importante, calcula-se a frequência percentual do par tipo de interação/resíduo nos shells reais do LUNA. O resíduo só aparece no gráfico quando o par exato passa o {rule}.": {
+        "en": "Prevalent interaction: for each important feature, the percentage frequency of each interaction-type/residue pair is calculated from real LUNA shells. A residue appears in the plot only when the exact pair passes the {rule}.",
+        "es": "Interacción prevalente: para cada feature importante se calcula la frecuencia porcentual del par tipo de interacción/residuo en los shells reales de LUNA. El residuo aparece en el gráfico solo cuando el par exacto supera el {rule}.",
+    },
+    "Sem fp_detail, estes dois gráficos não recebem contagens de interação/resíduo: {detail}": {
+        "en": "Without fp_detail, these two plots do not receive interaction/residue counts: {detail}",
+        "es": "Sin fp_detail, estos dos gráficos no reciben conteos de interacción/residuo: {detail}",
+    },
+})
+
 def _load_locale_catalog(language_code: str) -> dict[str, str]:
     try:
         source = resources.files("luna_gui").joinpath("locales", f"{language_code}.json")
@@ -1058,6 +1371,8 @@ def t(value: Any, lang: str | None = None) -> str:
     translated = LOCALE_CATALOGS.get(target, {}).get(source)
     if translated is None:
         translated = TRANSLATIONS.get(source, {}).get(target)
+    if translated is None and target == "pt":
+        return source
     if translated is None and target != "en":
         translated = LOCALE_CATALOGS.get("en", {}).get(source)
     if translated is None and target != "en":
@@ -1065,12 +1380,60 @@ def t(value: Any, lang: str | None = None) -> str:
     if translated is not None:
         return translated
     if target == "en":
-        return TRANSLATIONS.get(source, {}).get("en", source)
+        return _translate_patterns(source, target)
     return _translate_patterns(source, target)
 
 
 def _translate_patterns(text: str, lang: str) -> str:
     patterns: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = [
+        (
+            re.compile(r"^Conda: (.+)$"),
+            lambda m: f"Conda: {m.group(1)}",
+        ),
+        (
+            re.compile(r"^Prefixo do env: (.+)$"),
+            lambda m: (
+                f"Environment prefix: {m.group(1)}"
+                if lang == "en"
+                else f"Prefijo del entorno: {m.group(1)}"
+            ),
+        ),
+        (
+            re.compile(r"^Python do env: (.+)$"),
+            lambda m: (
+                f"Environment Python: {m.group(1)}"
+                if lang == "en"
+                else f"Python del entorno: {m.group(1)}"
+            ),
+        ),
+        (
+            re.compile(r"^run\.py: (.+)$"),
+            lambda m: f"run.py: {m.group(1)}",
+        ),
+        (
+            re.compile(r"^LUNA pronto — run\.py: (.+)$"),
+            lambda m: (
+                f"LUNA ready - run.py: {m.group(1)}"
+                if lang == "en"
+                else f"LUNA listo - run.py: {m.group(1)}"
+            ),
+        ),
+        (
+            re.compile(r"^Prefixo alvo do ambiente: (.+)$"),
+            lambda m: (
+                f"Target environment prefix: {m.group(1)}"
+                if lang == "en"
+                else f"Prefijo de destino del entorno: {m.group(1)}"
+            ),
+        ),
+        (
+            re.compile(r"^Ambiente parcial removido: (.+)$"),
+            lambda m: (
+                f"Partial environment removed: {m.group(1)}"
+                if lang == "en"
+                else f"Entorno parcial eliminado: {m.group(1)}"
+            ),
+        ),
         (
             re.compile(r"^(\d+) de (\d+) ligantes selecionados$"),
             lambda m: (
@@ -1248,11 +1611,17 @@ def install_qt_hooks() -> None:
         from PyQt6.QtWidgets import (
             QAbstractButton,
             QComboBox,
+            QDoubleSpinBox,
+            QFileDialog,
+            QFormLayout,
             QGroupBox,
             QLabel,
             QLineEdit,
             QMenu,
+            QMessageBox,
             QProgressBar,
+            QSpinBox,
+            QStatusBar,
             QTabWidget,
             QTableWidget,
             QWidget,
@@ -1287,6 +1656,57 @@ def install_qt_hooks() -> None:
     wrap_simple(QAction, "setToolTip", "_luna_i18n_tooltip")
     wrap_simple(QMenu, "setTitle", "_luna_i18n_title")
     wrap_simple(QProgressBar, "setFormat", "_luna_i18n_format")
+    wrap_simple(QSpinBox, "setSpecialValueText", "_luna_i18n_special_value")
+    wrap_simple(QDoubleSpinBox, "setSpecialValueText", "_luna_i18n_special_value")
+    wrap_simple(QWidget, "setAccessibleName", "_luna_i18n_accessible_name")
+
+    form_add_row = QFormLayout.addRow
+
+    def add_row(self, *args):
+        args = list(args)
+        if args and isinstance(args[0], str):
+            args[0] = t(source_text(args[0]))
+        return form_add_row(self, *args)
+
+    QFormLayout.addRow = add_row
+
+    status_show_message = QStatusBar.showMessage
+
+    def show_message(self, message: str, *args):
+        return status_show_message(self, t(source_text(message)), *args)
+
+    QStatusBar.showMessage = show_message
+
+    for method_name in ("about", "critical", "information", "question", "warning"):
+        original = getattr(QMessageBox, method_name)
+
+        def translated_message_box(parent, title, message, *args, _original=original, **kwargs):
+            return _original(
+                parent,
+                t(source_text(title)),
+                t(source_text(message)),
+                *args,
+                **kwargs,
+            )
+
+        setattr(QMessageBox, method_name, staticmethod(translated_message_box))
+
+    for method_name in ("getExistingDirectory", "getOpenFileName", "getOpenFileNames", "getSaveFileName"):
+        original = getattr(QFileDialog, method_name)
+
+        def translated_file_dialog(parent=None, caption="", directory="", *args, _original=original, **kwargs):
+            translated_args = list(args)
+            if translated_args and isinstance(translated_args[0], str):
+                translated_args[0] = t(source_text(translated_args[0]))
+            return _original(
+                parent,
+                t(source_text(caption)),
+                directory,
+                *translated_args,
+                **kwargs,
+            )
+
+        setattr(QFileDialog, method_name, staticmethod(translated_file_dialog))
 
     combo_add_item = QComboBox.addItem
 
@@ -1442,11 +1862,13 @@ def retranslate_ui(root) -> None:
         from PyQt6.QtWidgets import (
             QAbstractButton,
             QComboBox,
+            QDoubleSpinBox,
             QGroupBox,
             QLabel,
             QLineEdit,
             QMenu,
             QProgressBar,
+            QSpinBox,
             QTabWidget,
             QTableWidget,
         )
@@ -1475,6 +1897,10 @@ def retranslate_ui(root) -> None:
         if isinstance(widget, QProgressBar):
             source = getattr(widget, "_luna_i18n_format", None) or source_text(widget.format())
             widget.setFormat(source)
+        if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            special = getattr(widget, "_luna_i18n_special_value", None) or source_text(widget.specialValueText())
+            if special:
+                widget.setSpecialValueText(special)
         if isinstance(widget, QComboBox):
             for index in range(widget.count()):
                 if widget.itemData(index) is not None:
@@ -1493,6 +1919,13 @@ def retranslate_ui(root) -> None:
             tooltip = ""
         if tooltip:
             widget.setToolTip(source_text(tooltip))
+        try:
+            accessible_name = widget.accessibleName()
+        except Exception:
+            accessible_name = ""
+        if accessible_name:
+            source = getattr(widget, "_luna_i18n_accessible_name", None) or source_text(accessible_name)
+            widget.setAccessibleName(source)
         fig = getattr(widget, "figure", None)
         if fig is not None:
             translate_figure(fig)

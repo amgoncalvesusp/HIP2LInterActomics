@@ -30,7 +30,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar dependencias de build." }
     }
 
-    & $Python -c "import PyQt6, matplotlib, numpy, scipy, sklearn, PyInstaller"
+    & $Python -c "import PyQt6, jinja2, matplotlib, numpy, reportlab, scipy, sklearn, PyInstaller"
     if ($LASTEXITCODE -ne 0) {
         throw "Dependencias ausentes. Rode novamente com -InstallBuildDependencies."
     }

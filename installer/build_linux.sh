@@ -19,7 +19,7 @@ WORK_DIR="${OUTPUT_ROOT}/pyinstaller-work"
 BUNDLE_ROOT="${OUTPUT_ROOT}/bundle"
 ARCHIVE_ROOT="${OUTPUT_ROOT}/installer"
 APPDIR="${OUTPUT_ROOT}/appimage/HIP2LInterActomics.AppDir"
-APP_VERSION="${APP_VERSION:-1.4.0}"
+APP_VERSION="${APP_VERSION:-1.5.0}"
 
 mkdir -p "${OUTPUT_ROOT}" "${WORK_DIR}" "${BUNDLE_ROOT}" "${ARCHIVE_ROOT}"
 if "${PYTHON_BIN}" -c "import ensurepip" >/dev/null 2>&1 \
@@ -32,7 +32,7 @@ else
     echo "[AVISO] python3-venv indisponivel; usando dependencias privadas em ${SITE_DIR}." >&2
     mkdir -p "${SITE_DIR}"
     if ! PYTHONPATH="${SITE_DIR}" "${PYTHON_BIN}" -c \
-        "import PyQt6, matplotlib, numpy, scipy, sklearn, PyInstaller" >/dev/null 2>&1; then
+        "import PyQt6, jinja2, matplotlib, numpy, reportlab, scipy, sklearn, PyInstaller" >/dev/null 2>&1; then
         "${PYTHON_BIN}" -m pip install --upgrade --target "${SITE_DIR}" \
             -r "${REPO_ROOT}/requirements.txt" "pyinstaller>=6.10,<7"
     fi

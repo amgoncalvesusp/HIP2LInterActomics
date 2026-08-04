@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from ..core.project import ProjectConfig
 from ..core import env_manager as em, luna_runner, ligand_io, luna_api_runner
+from ..i18n import t
 
 
 class RunTab(QWidget):
@@ -28,6 +29,8 @@ class RunTab(QWidget):
         self.proc: QProcess | None = None
         self.collect_callback = None  # set by MainWindow
         self._last_progress_pct = 0
+        self._phase = "idle"
+        self._luna_completed = False
 
         layout = QVBoxLayout(self)
 
@@ -177,6 +180,8 @@ class RunTab(QWidget):
         self._last_progress_pct = 0
 
         self.proc = QProcess(self)
+        self._phase = "luna"
+        self._luna_completed = False
         self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         # Force UTF-8 so LUNA's unicode status characters don't crash on cp1252 (Windows)
         proc_env = QProcessEnvironment()
@@ -187,6 +192,7 @@ class RunTab(QWidget):
         self.proc.setProcessEnvironment(proc_env)
         self.proc.readyReadStandardOutput.connect(self._on_stdout)
         self.proc.finished.connect(self._on_finished)
+        self.proc.errorOccurred.connect(self._on_process_error)
         self.btn_run.setEnabled(False)
         self.btn_cancel.setEnabled(True)
         self.proc.start(cmd[0], cmd[1:])
@@ -197,6 +203,8 @@ class RunTab(QWidget):
             self.log.appendPlainText("\n[cancelado pelo usuário]")
 
     def _on_stdout(self) -> None:
+        if self.proc is None:
+            return
         data = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
         self.log.insertPlainText(data)
         self._update_progress_from_text(data)
@@ -205,6 +213,13 @@ class RunTab(QWidget):
 
     def _update_progress_from_text(self, text: str) -> None:
         clean = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+        plot_progress = list(re.finditer(r"\[plots-progress\]\s*(\d{1,3})%\s*-\s*([^\r\n]+)", clean))
+        if plot_progress:
+            match = plot_progress[-1]
+            pct = max(0, min(100, int(match.group(1))))
+            stage = match.group(2).strip()
+            self._set_progress(pct, f"{t('plots generation')} - {stage}")
+            return
         api_progress = list(re.finditer(r"\[luna-api-progress\]\s*(\d{1,3})%\s*-\s*([^\r\n]+)", clean))
         if api_progress:
             match = api_progress[-1]
@@ -247,14 +262,102 @@ class RunTab(QWidget):
         self.progress.setFormat(f"{pct}% - {stage}")
 
     def _on_finished(self, code: int, _status) -> None:
-        self.log.appendPlainText(f"\n=== LUNA finalizou (exit code {code}) ===")
+        phase = self._phase
+        process = self.proc
+        self.proc = None
+        if process is not None:
+            process.deleteLater()
+        if phase == "luna":
+            self.log.appendPlainText(f"\n=== LUNA finalizou (exit code {code}) ===")
+            if code == 0:
+                self._luna_completed = True
+                self._start_plot_generation()
+                return
+            self._finish_run_failure(code)
+            return
+        if phase == "plots":
+            self.log.appendPlainText(f"\n=== Plots finalizaram (exit code {code}) ===")
+            if code == 0:
+                self._phase = "idle"
+                self.btn_run.setEnabled(True)
+                self.btn_cancel.setEnabled(False)
+                self.progress.setValue(100)
+                self.progress.setFormat(t("100% - concluído"))
+                self.finished_ok.emit()
+                QMessageBox.information(
+                    self,
+                    t("Concluído"),
+                    t("Análise e geração de gráficos concluídas.\nResultados em: {workdir}").format(
+                        workdir=self.cfg.workdir
+                    ),
+                )
+                return
+            self._finish_run_failure(code, plots=True)
+
+    def _start_plot_generation(self) -> None:
+        project_path = Path(self.cfg.workdir) / ".luna_gui.json"
+        if getattr(sys, "frozen", False):
+            cmd = [
+                sys.executable,
+                "--terminal",
+                "--results-only",
+                "--config",
+                str(project_path),
+                "--python-exe",
+                self.py_exe,
+            ]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "hipplinteractomics_terminal",
+                "--results-only",
+                "--config",
+                str(project_path),
+                "--python-exe",
+                self.py_exe,
+            ]
+        self._phase = "plots"
+        self._last_progress_pct = 0
+        self.progress.setValue(0)
+        self.progress.setFormat(f"0% - {t('plots generation')}")
+        self.cmd_label.setText("$ " + " ".join(cmd))
+        self.log.appendPlainText(f"\n=== {t('plots generation')} (EN/PT/ES; 180/300 DPI) ===\n")
+
+        process = QProcess(self)
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        proc_env = QProcessEnvironment.systemEnvironment()
+        proc_env.insert("PYTHONIOENCODING", "utf-8")
+        proc_env.insert("PYTHONUTF8", "1")
+        process.setProcessEnvironment(proc_env)
+        process.readyReadStandardOutput.connect(self._on_stdout)
+        process.finished.connect(self._on_finished)
+        process.errorOccurred.connect(self._on_process_error)
+        self.proc = process
+        process.start(cmd[0], cmd[1:])
+
+    def _on_process_error(self, error: QProcess.ProcessError) -> None:
+        if error != QProcess.ProcessError.FailedToStart or self._phase == "idle":
+            return
+        phase = self._phase
+        process = self.proc
+        self.proc = None
+        if process is not None:
+            process.deleteLater()
+        self.log.appendPlainText(f"\n=== {t('Falha ao iniciar o processo')} ===")
+        self._finish_run_failure(-1, plots=phase == "plots")
+
+    def _finish_run_failure(self, code: int, *, plots: bool = False) -> None:
+        self._phase = "idle"
         self.btn_run.setEnabled(True)
         self.btn_cancel.setEnabled(False)
-        if code == 0:
-            self.progress.setValue(100)
-            self.progress.setFormat("100% - concluído")
-            self.finished_ok.emit()
-            QMessageBox.information(self, "Concluído",
-                                    f"Análise concluída.\nResultados em: {self.cfg.workdir}")
-        else:
-            self.progress.setFormat(f"Falhou (exit code {code})")
+        self.progress.setFormat(t(f"Falhou (exit code {code})"))
+        if plots and self._luna_completed:
+            QMessageBox.warning(
+                self,
+                t("Falha na geração de gráficos"),
+                t(
+                    "A análise do LUNA foi concluída, mas a geração automática dos gráficos falhou. "
+                    "Os resultados foram preservados e os gráficos podem ser gerados manualmente na aba 5. Resultados."
+                ),
+            )

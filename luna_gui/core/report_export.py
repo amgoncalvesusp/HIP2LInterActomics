@@ -8,6 +8,8 @@ import json
 import mimetypes
 import multiprocessing
 import os
+import pickle
+import shutil
 import tempfile
 import textwrap
 import time
@@ -24,7 +26,7 @@ from ..i18n import set_language, t
 
 
 _A4_LANDSCAPE = (11.69, 8.27)
-_PDF_DPI = 180
+_PDF_DPI = 300
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 _REPORT_TEMP_PREFIXES = ("_report_", "_report_pdf_")
 _IFP_ORDER = {"EIFP": 0, "FIFP": 1, "HIFP": 2}
@@ -1262,7 +1264,89 @@ def save_pdf_report(
 
 
 def _write_worker_status(status_path: str, payload: dict) -> None:
-    Path(status_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    output = Path(status_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.part")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(output)
+
+
+def create_pdf_render_job(
+    path: str | Path,
+    cfg: ProjectConfig,
+    analysis: dict,
+    heatmap_png: Path | None = None,
+    interactions_png: Path | None = None,
+    cluster_png: Path | None = None,
+    clusters: list[tuple[str, int]] | None = None,
+    fp_dashboards: dict | None = None,
+    extra_images: list[tuple[str, str | Path, str]] | None = None,
+) -> tuple[Path, Path]:
+    """Serialize a trusted local PDF job for a dedicated renderer process."""
+    payload = _pdf_payload(
+        cfg,
+        analysis,
+        heatmap_png,
+        interactions_png,
+        cluster_png,
+        clusters,
+        fp_dashboards,
+        extra_images,
+    )
+    job_dir = Path(tempfile.mkdtemp(prefix="hip2l-pdf-job-"))
+    job_path = job_dir / "job.pickle"
+    status_path = job_dir / "status.json"
+    temporary = job_dir / ".job.pickle.part"
+    try:
+        with temporary.open("wb") as handle:
+            pickle.dump(
+                {"output": str(Path(path)), "payload": payload},
+                handle,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+        temporary.replace(job_path)
+    except BaseException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+    return job_path, status_path
+
+
+def execute_pdf_render_job(job_path: str | Path, status_path: str | Path) -> int:
+    """Execute a serialized job without importing Qt in the worker process."""
+    try:
+        with Path(job_path).open("rb") as handle:
+            job = pickle.load(handle)
+        output, warnings = _write_pdf_payload(job["output"], job["payload"])
+        _write_worker_status(
+            str(status_path),
+            {"ok": True, "path": str(output), "warnings": warnings},
+        )
+        return 0
+    except BaseException as exc:
+        try:
+            _write_worker_status(
+                str(status_path),
+                {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "traceback": traceback.format_exc(limit=12),
+                },
+            )
+        except BaseException:
+            pass
+        return 1
+
+
+def read_pdf_render_status(status_path: str | Path) -> dict | None:
+    try:
+        payload = json.loads(Path(status_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def cleanup_pdf_render_job(job_path: str | Path) -> None:
+    shutil.rmtree(Path(job_path).parent, ignore_errors=True)
 
 
 def _pdf_process_worker(status_path: str, path: str, payload: dict) -> None:

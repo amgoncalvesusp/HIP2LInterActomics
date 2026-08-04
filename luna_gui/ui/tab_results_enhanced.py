@@ -2,26 +2,35 @@
 from __future__ import annotations
 
 import csv
+import copy
 import math
+import re
 import shutil
 import subprocess
 import sys
 import warnings
+from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QProcess, QProcessEnvironment, QStandardPaths, QTimer, Qt
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QFileDialog, QListWidget, QListWidgetItem,
     QMessageBox, QTabWidget, QSpinBox, QComboBox, QHeaderView,
 )
 
-from ..core.project import ProjectConfig
+from ..core.project import IFP_ALL, PROJECT_FILENAME, ProjectConfig, save_to_workdir
 from ..core.analysis_runtime import run_analysis, run_residue_matrix
 from ..core.pymol_launcher import launch_pse_session
 from ..core.plot_manifest import load_manifest
-from ..core.report_export import save_pdf_report_isolated, save_report
-from ..i18n import translate_figure
+from ..core.results_archive import ResultsArchiveError, extract_results_archive
+from ..core.report_export import (
+    cleanup_pdf_render_job,
+    create_pdf_render_job,
+    read_pdf_render_status,
+    save_report,
+)
+from ..i18n import t, translate_figure
 from ..core.results_analysis import (
     count_tanimoto_similarity,
     load_analysis_summary,
@@ -92,6 +101,16 @@ class ResultsTab(QWidget):
         self._sim_matrix = None
         self._cluster_result = None
         self._residue_matrix: dict = {}
+        self._pdf_process: QProcess | None = None
+        self._pdf_job_path: Path | None = None
+        self._pdf_status_path: Path | None = None
+        self._pdf_output_path: Path | None = None
+        self._pdf_timed_out = False
+        self._pdf_timeout = QTimer(self)
+        self._pdf_timeout.setSingleShot(True)
+        self._pdf_timeout.timeout.connect(self._on_pdf_timeout)
+        self._manual_plot_process: QProcess | None = None
+        self._manual_plot_output = ""
 
         layout = QVBoxLayout(self)
 
@@ -114,22 +133,34 @@ class ResultsTab(QWidget):
         btn_load = QPushButton("Carregar resultados")
         btn_load.setToolTip("Lê fingerprints, matriz de similaridade e sessões PyMOL do workdir selecionado.")
         btn_load.clicked.connect(self.load_all)
+        self.btn_import_archive = QPushButton("Importar arquivo comprimido...")
+        self.btn_import_archive.setToolTip("Extrai com segurança um arquivo ZIP/TAR de resultados e carrega o workdir encontrado.")
+        self.btn_import_archive.clicked.connect(self._import_results_archive)
+        self.btn_generate_plots = QPushButton("Gerar gráficos")
+        self.btn_generate_plots.setToolTip("Gera novamente todos os gráficos em inglês, português e espanhol para tela e relatório.")
+        self.btn_generate_plots.clicked.connect(self._generate_plots_manually)
         btn_export_chart = QPushButton("Exportar gráfico atual...")
         btn_export_chart.setToolTip("Salva a figura da aba atual em PNG, SVG ou PDF.")
         btn_export_chart.clicked.connect(self.export_current_chart)
         btn_report = QPushButton("Exportar relatório HTML")
         btn_report.setToolTip("Gera um relatório HTML com os principais gráficos e resumos disponíveis.")
         btn_report.clicked.connect(self.export_report)
-        btn_report_pdf = QPushButton("Gerar relatório PDF")
-        btn_report_pdf.setToolTip("Gera um PDF com parâmetros, explicações e interpretação básica das análises.")
-        btn_report_pdf.clicked.connect(self.export_pdf_report)
+        self.btn_report_pdf = QPushButton("Gerar relatório PDF")
+        self.btn_report_pdf.setToolTip("Gera um PDF com parâmetros, explicações e interpretação básica das análises.")
+        self.btn_report_pdf.clicked.connect(self.export_pdf_report)
         wd_row.addWidget(self.wd_edit, 1)
         wd_row.addWidget(btn_wd)
         wd_row.addWidget(btn_load)
-        wd_row.addWidget(btn_export_chart)
-        wd_row.addWidget(btn_report)
-        wd_row.addWidget(btn_report_pdf)
+        wd_row.addWidget(self.btn_import_archive)
         layout.addLayout(wd_row)
+
+        report_row = QHBoxLayout()
+        report_row.addWidget(self.btn_generate_plots)
+        report_row.addWidget(btn_export_chart)
+        report_row.addWidget(btn_report)
+        report_row.addWidget(self.btn_report_pdf)
+        report_row.addStretch()
+        layout.addLayout(report_row)
 
         self.inner = QTabWidget()
         self.inner.setUsesScrollButtons(True)
@@ -325,10 +356,264 @@ class ResultsTab(QWidget):
         pse_layout.addWidget(self.pse_list, 1)
         self.inner.addTab(self.pse_tab, "Sessões PyMOL")
 
+    def _start_pdf_report(
+        self,
+        output: str | Path,
+        *,
+        heatmap_png: Path | None = None,
+        interactions_png: Path | None = None,
+        cluster_png: Path | None = None,
+        clusters: list[tuple[str, int]] | None = None,
+        fp_dashboards: dict | None = None,
+        extra_images: list[tuple[str, str | Path, str]] | None = None,
+        timeout_seconds: int = 900,
+    ) -> bool:
+        if self._pdf_process is not None:
+            QMessageBox.information(
+                self,
+                t("Relatório PDF"),
+                t("A geração do relatório PDF já está em andamento."),
+            )
+            return False
+        try:
+            job_path, status_path = create_pdf_render_job(
+                output,
+                cfg=self.cfg,
+                analysis=self._last_analysis,
+                heatmap_png=heatmap_png,
+                interactions_png=interactions_png,
+                cluster_png=cluster_png,
+                clusters=clusters,
+                fp_dashboards=fp_dashboards,
+                extra_images=extra_images,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, t("Erro ao gerar PDF"), str(exc))
+            return False
+
+        process = QProcess(self)
+        if getattr(sys, "frozen", False):
+            process.setProgram(sys.executable)
+            process.setArguments(["--render-pdf-job", str(job_path), str(status_path)])
+        else:
+            process.setProgram(sys.executable)
+            process.setArguments([
+                "-m",
+                "luna_gui.core.report_worker",
+                str(job_path),
+                str(status_path),
+            ])
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
+        process.finished.connect(self._on_pdf_finished)
+        process.errorOccurred.connect(self._on_pdf_process_error)
+
+        self._pdf_process = process
+        self._pdf_job_path = job_path
+        self._pdf_status_path = status_path
+        self._pdf_output_path = Path(output)
+        self._pdf_timed_out = False
+        self.btn_report_pdf.setEnabled(False)
+        self.btn_report_pdf.setText(t("Gerando PDF..."))
+        self._pdf_timeout.start(max(int(timeout_seconds), 1) * 1000)
+        process.start()
+        return True
+
+    def _on_pdf_timeout(self) -> None:
+        process = self._pdf_process
+        if process is None:
+            return
+        self._pdf_timed_out = True
+        process.terminate()
+        QTimer.singleShot(3000, self._kill_timed_out_pdf_process)
+
+    def _kill_timed_out_pdf_process(self) -> None:
+        process = self._pdf_process
+        if process is not None and process.state() != QProcess.ProcessState.NotRunning:
+            process.kill()
+
+    def _on_pdf_process_error(self, error: QProcess.ProcessError) -> None:
+        if error == QProcess.ProcessError.FailedToStart:
+            self._finish_pdf_process(-1, crashed=True)
+
+    def _on_pdf_finished(self, exit_code: int, exit_status: QProcess.ExitStatus) -> None:
+        self._finish_pdf_process(
+            int(exit_code),
+            crashed=exit_status == QProcess.ExitStatus.CrashExit,
+        )
+
+    def _finish_pdf_process(self, exit_code: int, *, crashed: bool) -> None:
+        process = self._pdf_process
+        job_path = self._pdf_job_path
+        if process is None or job_path is None:
+            return
+        self._pdf_timeout.stop()
+        status = read_pdf_render_status(self._pdf_status_path) if self._pdf_status_path else None
+        stderr = bytes(process.readAllStandardError()).decode("utf-8", errors="replace").strip()
+        output = self._pdf_output_path
+        timed_out = self._pdf_timed_out
+
+        self._pdf_process = None
+        self._pdf_job_path = None
+        self._pdf_status_path = None
+        self._pdf_output_path = None
+        self._pdf_timed_out = False
+        process.deleteLater()
+        cleanup_pdf_render_job(job_path)
+        self.btn_report_pdf.setEnabled(True)
+        self.btn_report_pdf.setText(t("Gerar relatório PDF"))
+
+        if status and status.get("ok") and output and output.exists():
+            QMessageBox.information(self, t("Relatório PDF salvo"), str(output))
+            return
+        if timed_out:
+            detail = t("A geração do PDF excedeu o tempo limite e foi interrompida. O aplicativo permaneceu aberto.")
+        elif status and not status.get("ok"):
+            detail = t("Falha ao gerar o PDF: {error}").format(
+                error=str(status.get("error") or t("erro desconhecido"))
+            )
+        elif crashed:
+            detail = t(
+                "O processo isolado do PDF foi encerrado pelo sistema. Isso pode indicar falta de memória ou falha de uma biblioteca nativa. O aplicativo permaneceu aberto."
+            )
+        else:
+            detail = t("O gerador de PDF terminou sem produzir o arquivo (código {code}).").format(code=exit_code)
+        if stderr:
+            detail = f"{detail}\n\n{stderr[-1200:]}"
+        QMessageBox.critical(self, t("Erro ao gerar PDF"), detail)
+
     def _pick_wd(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Workdir do projeto LUNA")
         if d:
             self.wd_edit.setText(d)
+
+    def _import_results_archive(self) -> None:
+        archive, _ = QFileDialog.getOpenFileName(
+            self,
+            "Importar resultados comprimidos",
+            "",
+            "Arquivos de resultados (*.zip *.tar *.tar.gz *.tgz *.tar.bz2 *.tar.xz);;Todos (*)",
+        )
+        if not archive:
+            return
+        base = Path(
+            QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)
+            or str(Path.home() / ".hip2linteractomics")
+        ) / "imported_results"
+        token = Path(archive).name
+        for suffix in (".tar.gz", ".tar.bz2", ".tar.xz", ".zip", ".tgz", ".tar"):
+            if token.casefold().endswith(suffix):
+                token = token[:-len(suffix)]
+                break
+        token = "".join(
+            char if char.isalnum() or char in "-_" else "_"
+            for char in token
+        ).strip("_") or "results"
+        destination = base / f"{token}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+        try:
+            workdir = extract_results_archive(archive, destination)
+        except (OSError, ResultsArchiveError) as exc:
+            QMessageBox.critical(self, t("Erro ao importar resultados"), str(exc))
+            return
+        self.wd_edit.setText(str(workdir))
+        self.load_all()
+        QMessageBox.information(
+            self,
+            t("Resultados importados"),
+            t("Arquivo extraído e carregado em:\n{workdir}").format(workdir=workdir),
+        )
+
+    def _manual_plot_command(self, project_path: Path) -> list[str]:
+        args = ["--results-only", "--config", str(project_path)]
+        if self.py_exe:
+            args.extend(["--python-exe", self.py_exe])
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--terminal", *args]
+        return [sys.executable, "-m", "hipplinteractomics_terminal", *args]
+
+    def _generate_plots_manually(self) -> None:
+        if self._manual_plot_process is not None:
+            QMessageBox.information(
+                self,
+                t("Geração de gráficos"),
+                t("A geração de gráficos já está em andamento."),
+            )
+            return
+        workdir = self._current_wd()
+        if workdir is None:
+            return
+        project_path = workdir / PROJECT_FILENAME
+        try:
+            if project_path.exists():
+                render_cfg = ProjectConfig.load(project_path)
+            else:
+                render_cfg = copy.deepcopy(self.cfg)
+                render_cfg.ifp_type = IFP_ALL
+            render_cfg.workdir = str(workdir)
+            render_cfg.language = str(getattr(self.cfg, "language", "en") or "en")
+            save_to_workdir(render_cfg)
+        except Exception as exc:
+            QMessageBox.critical(self, t("Erro na geração de gráficos"), str(exc))
+            return
+
+        command = self._manual_plot_command(project_path)
+        process = QProcess(self)
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        environment = QProcessEnvironment.systemEnvironment()
+        environment.insert("PYTHONIOENCODING", "utf-8")
+        environment.insert("PYTHONUTF8", "1")
+        process.setProcessEnvironment(environment)
+        process.readyReadStandardOutput.connect(self._on_manual_plot_output)
+        process.finished.connect(self._on_manual_plot_finished)
+        process.errorOccurred.connect(self._on_manual_plot_error)
+        self._manual_plot_process = process
+        self._manual_plot_output = ""
+        self.btn_generate_plots.setEnabled(False)
+        self.btn_generate_plots.setText(t("Gerando gráficos..."))
+        self.st_status.setText(t("plots generation"))
+        process.start(command[0], command[1:])
+
+    def _on_manual_plot_output(self) -> None:
+        process = self._manual_plot_process
+        if process is None:
+            return
+        output = bytes(process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        self._manual_plot_output = (self._manual_plot_output + output)[-12000:]
+        matches = list(
+            re.finditer(r"\[plots-progress\]\s*(\d{1,3})%\s*-\s*([^\r\n]+)", output)
+        )
+        if matches:
+            match = matches[-1]
+            self.st_status.setText(
+                f"{t('plots generation')}: {match.group(1)}% - {match.group(2).strip()}"
+            )
+
+    def _on_manual_plot_error(self, error: QProcess.ProcessError) -> None:
+        if error == QProcess.ProcessError.FailedToStart:
+            self._finish_manual_plot_process(-1)
+
+    def _on_manual_plot_finished(self, exit_code: int, _exit_status) -> None:
+        self._finish_manual_plot_process(int(exit_code))
+
+    def _finish_manual_plot_process(self, exit_code: int) -> None:
+        process = self._manual_plot_process
+        if process is None:
+            return
+        self._manual_plot_process = None
+        process.deleteLater()
+        self.btn_generate_plots.setEnabled(True)
+        self.btn_generate_plots.setText(t("Gerar gráficos"))
+        if exit_code == 0:
+            self.st_status.setText(t("Gráficos concluídos"))
+            self.load_all()
+            QMessageBox.information(
+                self,
+                t("Geração de gráficos"),
+                t("Todos os gráficos EN/PT/ES foram gerados."),
+            )
+            return
+        detail = self._manual_plot_output.strip()[-1600:] or t("O processo terminou sem saída.")
+        self.st_status.setText(t("Falha na geração de gráficos"))
+        QMessageBox.critical(self, t("Erro na geração de gráficos"), detail)
 
     def _current_wd(self) -> Path | None:
         wd = self.wd_edit.text().strip() or self.cfg.workdir
@@ -1006,22 +1291,14 @@ class ResultsTab(QWidget):
                 for label, cluster_id, _ in cluster_rows(self._cluster_result)
             ]
 
-        try:
-            save_pdf_report_isolated(
-                out,
-                cfg=self.cfg,
-                analysis=self._last_analysis,
-                heatmap_png=heatmap_png if heatmap_png.exists() else None,
-                interactions_png=inter_png if inter_png.exists() else None,
-                cluster_png=cluster_png if cluster_png.exists() else None,
-                clusters=cluster_items,
-                fp_dashboards=getattr(self, "_fp_dashboards", {}),
-                progress_callback=QApplication.processEvents,
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Erro ao gerar PDF", str(exc))
-            return
-        QMessageBox.information(self, "Relatório PDF salvo", out)
+        self._start_pdf_report(
+            out,
+            heatmap_png=heatmap_png if heatmap_png.exists() else None,
+            interactions_png=inter_png if inter_png.exists() else None,
+            cluster_png=cluster_png if cluster_png.exists() else None,
+            clusters=cluster_items,
+            fp_dashboards=getattr(self, "_fp_dashboards", {}),
+        )
 
 
 def _apply_tick_labels(

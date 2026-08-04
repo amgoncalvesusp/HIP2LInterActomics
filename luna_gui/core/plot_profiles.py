@@ -22,7 +22,7 @@ class PlotProfile:
 
 
 SCREEN_PROFILE = PlotProfile("screen", 2480, 3508, 180)
-REPORT_PROFILE = PlotProfile("report", 2480, 3508, 600)
+REPORT_PROFILE = PlotProfile("report", 2480, 3508, 300)
 PLOT_PROFILES = {
     SCREEN_PROFILE.name: SCREEN_PROFILE,
     REPORT_PROFILE.name: REPORT_PROFILE,
@@ -47,6 +47,18 @@ def adaptive_label_size(item_count: int, *, minimum: float = 4.0, maximum: float
     """Return a readable tick size without hiding scientific categories."""
     count = max(1, int(item_count or 0))
     return max(minimum, min(maximum, 11.0 - (count ** 0.5) * 0.55))
+
+
+def reference_tick_indices(item_count: int, trajectory: bool) -> list[int]:
+    """Return the exact Y reference policy shared by GUI and reports."""
+    count = max(0, int(item_count or 0))
+    if count == 0:
+        return []
+    requested = 9 if trajectory else 2
+    if count <= requested:
+        return list(range(count))
+    denominator = requested - 1
+    return [round(index * (count - 1) / denominator) for index in range(requested)]
 
 
 def configure_heatmap_axes(ax, x_count: int = 0, y_count: int = 0) -> None:

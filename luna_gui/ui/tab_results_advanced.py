@@ -11,7 +11,6 @@ import numpy as np
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QApplication,
     QComboBox,
     QCompleter,
     QDialog,
@@ -43,8 +42,8 @@ from ..core.analysis_runtime import (
 )
 from ..core.pymol_launcher import launch_pse_session
 from ..core.plot_manifest import load_manifest, resolve_plot_path
+from ..core.plot_profiles import reference_tick_indices
 from ..core.project import PROJECT_FILENAME, ProjectConfig
-from ..core.report_export import save_pdf_report_isolated
 from ..i18n import t, translate_figure
 from ..core.results_analysis import (
     CLASS_UNRELIABLE,
@@ -127,9 +126,9 @@ class ResultsTab(EnhancedResultsTab):
 
     def _install_fullscreen_button(self) -> None:
         root_layout = self.layout()
-        if root_layout is None or root_layout.count() < 2:
+        if root_layout is None or root_layout.count() < 3:
             return
-        row = root_layout.itemAt(1).layout()
+        row = root_layout.itemAt(2).layout()
         if row is None:
             return
         btn_fullscreen = QPushButton("Full screen")
@@ -615,6 +614,34 @@ class ResultsTab(EnhancedResultsTab):
 
     def _residue_xticklabels(self, residues: list[str]) -> list[str]:
         return [format_residue_label(residue) for residue in residues]
+
+    def _apply_heatmap_reference_ticks(self, ax, entries: list[str], *, offset: float = 0.0) -> list[int]:
+        trajectory = self._results_trajectory_mode()
+        indices = reference_tick_indices(len(entries), trajectory)
+        if trajectory:
+            labels = [
+                f"{t('Frame')}: {trajectory_frame_number(entries[index]) or self._display_ligand_name(entries[index])}"
+                for index in indices
+            ]
+            axis_label = t("All Frames")
+        else:
+            _labels_csv, _id_column, labels_column, _task = self._results_label_settings()
+            context = self._entry_label_context(entries)
+            values = dict(context.get("values") or {})
+            variable_label = t("Variável")
+            if labels_column:
+                variable_label = f"{variable_label} ({labels_column})"
+            else:
+                variable_label = t("Ligante")
+            labels = [
+                f"{variable_label}: {values.get(entries[index], self._display_ligand_name(entries[index]))}"
+                for index in indices
+            ]
+            axis_label = variable_label
+        ax.set_yticks([index + offset for index in indices])
+        ax.set_yticklabels(labels, fontsize=7)
+        ax.set_ylabel(axis_label)
+        return indices
 
     @staticmethod
     def _display_ligand_name(entry_name: str) -> str:
@@ -2199,17 +2226,8 @@ class ResultsTab(EnhancedResultsTab):
             im = ax.imshow(arr, cmap="viridis", aspect="auto")
             ax.set_xticks(list(range(len(residue_labels))))
             ax.set_xticklabels(residue_labels, rotation=45, ha="right", fontsize=7)
-            _apply_tick_labels(
-                ax,
-                [self._display_ligand_name(entry) for entry in ordered_entries],
-                axis="y",
-                max_labels=28,
-                rotation=0,
-                ligand_axis=True,
-            )
+            self._apply_heatmap_reference_ticks(ax, ordered_entries)
             self._color_ticklabels_by_entry_group(ax, ordered_entries, axis="y")
-            if len(ordered_entries) <= 220:
-                ax.set_ylabel("Ligantes")
             ax.set_xlabel("Resíduos")
             title = "\n".join(textwrap.wrap(str(interaction_type), width=72, break_long_words=False)) or str(interaction_type)
             ax.set_title(title, pad=16)
@@ -2300,7 +2318,8 @@ class ResultsTab(EnhancedResultsTab):
             self.hm_all_canvas.draw()
             return
 
-        ax.set_facecolor("#f4efe6")
+        self.hm_all_fig.patch.set_facecolor("#0b1220")
+        ax.set_facecolor("#0b1220")
         for row_idx, row in enumerate(layered_cells):
             for col_idx, cell_types in enumerate(row):
                 if not cell_types:
@@ -2309,8 +2328,8 @@ class ResultsTab(EnhancedResultsTab):
                             (col_idx, row_idx),
                             1.0,
                             1.0,
-                            facecolor="#f4efe6",
-                            edgecolor="#ffffff",
+                            facecolor="#0b1220",
+                            edgecolor="#334155",
                             linewidth=0.35,
                         )
                     )
@@ -2324,7 +2343,7 @@ class ResultsTab(EnhancedResultsTab):
                             stripe_width,
                             1.0,
                             facecolor=get_interaction_color(interaction_name),
-                            edgecolor="#ffffff",
+                            edgecolor="#334155",
                             linewidth=0.2,
                         )
                     )
@@ -2333,19 +2352,14 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_ylim(len(entries), 0)
         ax.set_xticks([idx + 0.5 for idx in range(len(residue_labels))])
         ax.set_xticklabels(residue_labels, rotation=45, ha="right", fontsize=7)
-        if len(entries) > 220:
-            ax.set_yticks([])
-            ax.set_ylabel("Todos os ligantes")
-        else:
-            ax.set_yticks([idx + 0.5 for idx in range(len(entries))])
-            ax.set_yticklabels(
-                [self._display_ligand_name(entry) for entry in entries],
-                fontsize=7 * 0.85,
-            )
-            self._color_ticklabels_by_entry_group(ax, entries, axis="y", offset=0.5)
-            ax.set_ylabel("Ligantes")
+        self._apply_heatmap_reference_ticks(ax, entries, offset=0.5)
+        self._color_ticklabels_by_entry_group(ax, entries, axis="y", offset=0.5)
         ax.set_xlabel("Resíduos")
         ax.set_title("Tipos de interação por par ligante x resíduo")
+        ax.tick_params(colors="#e5e7eb")
+        ax.xaxis.label.set_color("#e5e7eb")
+        ax.yaxis.label.set_color("#e5e7eb")
+        ax.title.set_color("#f8fafc")
 
         legend_types = sorted(interaction_types, key=interaction_priority_key)
         if legend_types:
@@ -2353,7 +2367,7 @@ class ResultsTab(EnhancedResultsTab):
                 Patch(facecolor=get_interaction_color(name), edgecolor="none", label=name)
                 for name in legend_types
             ]
-            ax.legend(
+            legend = ax.legend(
                 handles=handles,
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.09),
@@ -2361,9 +2375,11 @@ class ResultsTab(EnhancedResultsTab):
                 fontsize=8,
                 frameon=False,
             )
+            for label in legend.get_texts():
+                label.set_color("#e5e7eb")
         displayed_entries = [self._display_ligand_name(entry) for entry in entries]
         longest_entry = max((len(label) for label in displayed_entries), default=1)
-        left_margin = 0.08 if len(entries) > 220 else min(0.38, max(0.12, 0.06 + (0.006 * longest_entry)))
+        left_margin = min(0.38, max(0.12, 0.06 + (0.006 * longest_entry)))
         self.hm_all_fig.subplots_adjust(
             left=left_margin,
             bottom=min(0.48, 0.12 + (0.045 * legend_rows)),
@@ -2685,89 +2701,120 @@ class ResultsTab(EnhancedResultsTab):
             detail_note = str(dashboard.get("detail_error", "") or "").strip()
         selection_mode = str(filtered_dashboard.get("important_selection", "") or "")
         if selection_mode == "manual":
-            selection_text = (
-                f"seleção manual ({len(important)} de {len(filtered_dashboard.get('manual_feature_ids', []) or [])} IDs encontrados)"
+            selection_text = t("seleção manual ({found} de {total} IDs encontrados)").format(
+                found=len(important),
+                total=len(filtered_dashboard.get("manual_feature_ids", []) or []),
             )
         elif selection_mode == "per_level_pvalue_or_otsu":
-            selection_text = f"selecionadas por modelo por nível (p < {pvalue_cutoff:.2f} ou Otsu)"
+            selection_text = t("selecionadas por modelo por nível (p < {cutoff:.2f} ou Otsu)").format(
+                cutoff=pvalue_cutoff
+            )
         else:
-            selection_text = f"selecionadas por p < {pvalue_cutoff:.2f}"
+            selection_text = t("selecionadas por p < {cutoff:.2f}").format(cutoff=pvalue_cutoff)
         level_assignment = dashboard.get("level_assignment") or {}
         assigned_matrix = dashboard.get("assigned_matrix") or {}
         level_threshold_pct = float(level_assignment.get("threshold_pct", 100.0) or 100.0)
         level_threshold_source = str(level_assignment.get("threshold_source", "") or "")
         assigned_count = int(level_assignment.get("assigned_count", 0) or 0)
         undetermined_count = int(level_assignment.get("undetermined_count", 0) or 0)
-        assigned_matrix_note = (
-            " | matriz FP regravada com níveis"
-            if bool(assigned_matrix.get("rewritten", False))
-            else ""
-        )
+        assigned_matrix_note = t("matriz FP regravada com níveis") if bool(assigned_matrix.get("rewritten", False)) else ""
         self.fp_analysis_status.setText(
-            f"{dashboard.get('total_molecules', 0)} moléculas - {len(features)} features"
+            t("{molecules} moléculas - {features} features").format(
+                molecules=dashboard.get("total_molecules", 0),
+                features=len(features),
+            )
         )
-        self.fp_analysis_summary.setText(
-            f"Limiar de atribuição da classe: {threshold_pct:.2f}% | "
-            f"fonte: {threshold_source or 'z-score'}"
-            + (" (Otsu habilitado)" if use_otsu_threshold else "")
-            + " | "
-            f"Limiar de atribuição do nível: {level_threshold_pct:.2f}% | "
-            f"fonte nível: {level_threshold_source or 'z-score'} | "
-            f"Limiar de atribuição do tipo de interação: {interaction_threshold_pct:.2f}% | "
-            f"Limiar do par interação/resíduo: {pair_threshold_pct:.2f}% | "
-            f"Features confiáveis por classe: {reliable_count}/{len(features)} | "
-            f"Features confiáveis por nível: {assigned_count}/{len(features)}"
-            + (f" ({undetermined_count} indeterminados)" if undetermined_count else "")
-            + assigned_matrix_note
-            + " | "
-            f"Features elegíveis para importância: {importance_eligible_count}/{len(features)} | "
-            f"Features importantes: {len(important)} | "
-            f"Rótulos: {'CSV externo' if label_source == 'external_csv' else 'fallback automático'}"
-            + (f" [ID: {labels_id_column}]" if label_source == 'external_csv' and labels_id_column else "")
-            + (f" ({labels_column})" if label_source == 'external_csv' and labels_column else "")
-            + (f" | pareadas: {matched_molecules}" if label_source == "external_csv" else "")
-            + f" | tarefa: {'regressão' if label_kind == 'regression' else 'classificação'}"
-            + f" | seed: {random_seed}"
-            + (f" | detalhe FP: indisponível ({detail_note})" if detail_note else "")
-            + f" | {selection_text} | "
-            + f"Algoritmo: {algorithm_preference} | "
-            + f"Modelo: {model_name}. {model_note}"
-        )
+        summary_parts = [
+            t("Limiar de atribuição da classe: {value:.2f}%").format(value=threshold_pct),
+            t("fonte: {value}").format(value=threshold_source or "z-score"),
+        ]
+        if use_otsu_threshold:
+            summary_parts.append(t("Otsu habilitado"))
+        summary_parts.extend([
+            t("Limiar de atribuição do nível: {value:.2f}%").format(value=level_threshold_pct),
+            t("fonte nível: {value}").format(value=level_threshold_source or "z-score"),
+            t("Limiar de atribuição do tipo de interação: {value:.2f}%").format(value=interaction_threshold_pct),
+            t("Limiar do par interação/resíduo: {value:.2f}%").format(value=pair_threshold_pct),
+            t("Features confiáveis por classe: {count}/{total}").format(count=reliable_count, total=len(features)),
+            t("Features confiáveis por nível: {count}/{total}").format(count=assigned_count, total=len(features)),
+        ])
+        if undetermined_count:
+            summary_parts.append(t("{count} indeterminados").format(count=undetermined_count))
+        if assigned_matrix_note:
+            summary_parts.append(assigned_matrix_note)
+        summary_parts.extend([
+            t("Features elegíveis para importância: {count}/{total}").format(count=importance_eligible_count, total=len(features)),
+            t("Features importantes: {count}").format(count=len(important)),
+            t("Rótulos: {source}").format(source=t("CSV externo") if label_source == "external_csv" else t("fallback automático")),
+        ])
+        if label_source == "external_csv" and labels_id_column:
+            summary_parts.append(f"ID: {labels_id_column}")
+        if label_source == "external_csv" and labels_column:
+            summary_parts.append(labels_column)
+        if label_source == "external_csv":
+            summary_parts.append(t("pareadas: {count}").format(count=matched_molecules))
+        summary_parts.extend([
+            t("tarefa: {task}").format(task=t("regressão") if label_kind == "regression" else t("classificação")),
+            f"seed: {random_seed}",
+        ])
+        if detail_note:
+            summary_parts.append(t("detalhe FP: indisponível ({detail})").format(detail=detail_note))
+        summary_parts.extend([
+            selection_text,
+            t("Algoritmo: {algorithm}").format(algorithm=algorithm_preference),
+            t("Modelo: {model}. {note}").format(model=model_name, note=model_note),
+        ])
+        self.fp_analysis_summary.setText(" | ".join(summary_parts))
         self.fp_analysis_formula.setText(
-            "Equação de Keiser and Hert [1] para transformar os s-score dos coeficientes de importâncias em p-values: "
-            "p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), "
-            "onde z é o Z-score Importance mostrado na tabela para a feature. "
-            "A coluna 'Cobertura (%)' segue o bit na base inteira, mas os percentuais do perfil "
-            "da base usam apenas as ocorrências classificadas do bit. "
-            f"Os gráficos abaixo usam {selection_text}; os modelos estocásticos usam seed {random_seed}."
+            t(
+                "Equação de Keiser and Hert [1] para transformar os s-score dos coeficientes de importâncias em p-values: "
+                "p = 1 - exp(-exp(((-z*pi)/sqrt(6)) - 0.577215665)), onde z é o Z-score Importance mostrado na tabela para a feature."
+            )
+            + " "
+            + t(
+                "A coluna 'Cobertura (%)' segue o bit na base inteira, mas os percentuais do perfil da base usam apenas as ocorrências classificadas do bit."
+            )
+            + " "
+            + t("Os gráficos abaixo usam {selection}; os modelos estocásticos usam seed {seed}.").format(
+                selection=selection_text,
+                seed=random_seed,
+            )
         )
         interaction_rule = (
-            f"limiar do par interação/resíduo = {pair_threshold_pct:.2f}% "
-            "definido pelo menor percentual entre pares com z-score > 1"
+            t("limiar do par interação/resíduo = {value:.2f}% definido pelo menor percentual entre pares com z-score > 1").format(value=pair_threshold_pct)
             if pair_threshold_source == "zscore_gt_1"
             else (
-                f"limiar do par interação/resíduo = {pair_threshold_pct:.2f}% definido por Otsu's Thresholding"
+                t("limiar do par interação/resíduo = {value:.2f}% definido por Otsu's Thresholding").format(value=pair_threshold_pct)
                 if pair_threshold_source in {"otsu", "otsu_single_value"}
-                else "sem pares interação/resíduo com z-score > 1; apenas 100% foi aceito como par prevalente"
+                else t("sem pares interação/resíduo com z-score > 1; apenas 100% foi aceito como par prevalente")
             )
         )
         active_ifp_label = str(filtered_dashboard.get("ifp_label", ifp_type) or ifp_type)
         self.fp_analysis_active_context.setText(
-            f"Gráficos ativos: base = {active_ifp_label}; "
-            f"{selection_text}; "
-            f"algoritmo = {algorithm_preference}."
+            t("Gráficos ativos: base = {base}; {selection}; algoritmo = {algorithm}.").format(
+                base=active_ifp_label,
+                selection=selection_text,
+                algorithm=algorithm_preference,
+            )
         )
         self.fp_analysis_method.setText(
-            f"Configuração atual: cutoff p-value = {pvalue_cutoff:.2f}; "
-            f"tarefa = {task_kind_preference}; algoritmo solicitado = {algorithm_preference}; modelo usado = {model_name}; seed = {random_seed}. "
-            f"Z-score de classe: média = {class_zscore_mean:.4f}, desvio = {class_zscore_std:.4f}. "
-            f"Z-score Importance: média = {importance_zscore_mean:.4f}, desvio = {importance_zscore_std:.4f}. "
-            f"Os modelos de importância são ajustados separadamente por nível assinado; fingerprints sem nível "
-            f"assinado ficam fora do treino e da importância. "
-            f"Interação prevalente: para cada feature importante, calcula-se a frequência percentual "
-            f"do par tipo de interação/resíduo nos shells reais do LUNA. O resíduo só aparece no gráfico "
-            f"quando o par exato passa o {interaction_rule}."
-            + (f" Sem fp_detail, estes dois gráficos não recebem contagens de interação/resíduo: {detail_note}" if detail_note else "")
+            t(
+                "Configuração atual: cutoff p-value = {cutoff:.2f}; tarefa = {task}; algoritmo solicitado = {algorithm}; modelo usado = {model}; seed = {seed}."
+            ).format(cutoff=pvalue_cutoff, task=task_kind_preference, algorithm=algorithm_preference, model=model_name, seed=random_seed)
+            + " "
+            + t("Z-score de classe: média = {mean:.4f}, desvio = {std:.4f}.").format(mean=class_zscore_mean, std=class_zscore_std)
+            + " "
+            + t("Z-score Importance: média = {mean:.4f}, desvio = {std:.4f}.").format(mean=importance_zscore_mean, std=importance_zscore_std)
+            + " "
+            + t("Os modelos de importância são ajustados separadamente por nível assinado; fingerprints sem nível assinado ficam fora do treino e da importância.")
+            + " "
+            + t(
+                "Interação prevalente: para cada feature importante, calcula-se a frequência percentual do par tipo de interação/resíduo nos shells reais do LUNA. O resíduo só aparece no gráfico quando o par exato passa o {rule}."
+            ).format(rule=interaction_rule)
+            + (
+                " " + t("Sem fp_detail, estes dois gráficos não recebem contagens de interação/resíduo: {detail}").format(detail=detail_note)
+                if detail_note else ""
+            )
         )
         self.fp_analysis_table.setSortingEnabled(False)
         self.fp_analysis_table.setRowCount(len(features))
@@ -3850,23 +3897,15 @@ class ResultsTab(EnhancedResultsTab):
                 for label, cluster_id, _ in cluster_rows(self._cluster_result)
             ]
 
-        try:
-            save_pdf_report_isolated(
-                out,
-                cfg=self.cfg,
-                analysis=self._last_analysis,
-                heatmap_png=similarity_png,
-                interactions_png=interactions_png,
-                cluster_png=cluster_png,
-                clusters=cluster_items,
-                fp_dashboards=getattr(self, "_fp_dashboards", {}),
-                extra_images=extra_images,
-                progress_callback=QApplication.processEvents,
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Erro ao gerar PDF", str(exc))
-            return
-        QMessageBox.information(self, "Relatório PDF salvo", out)
+        self._start_pdf_report(
+            out,
+            heatmap_png=similarity_png,
+            interactions_png=interactions_png,
+            cluster_png=cluster_png,
+            clusters=cluster_items,
+            fp_dashboards=getattr(self, "_fp_dashboards", {}),
+            extra_images=extra_images,
+        )
 
     def _current_figure(self):
         current = self.inner.currentWidget()

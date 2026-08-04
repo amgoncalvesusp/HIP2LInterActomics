@@ -1112,6 +1112,36 @@ def _interaction_ligand_atom_labels(interaction):
     return labels
 
 
+def _atom_serial(atom):
+    value = getattr(atom, "serial_number", None)
+    if value is None:
+        try:
+            value = atom.get_serial_number()
+        except Exception:
+            value = None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _interaction_ligand_atom_records(interaction):
+    records = []
+    for group in (getattr(interaction, "src_grp", None), getattr(interaction, "trgt_grp", None)):
+        if _group_role(group) != "ligand":
+            continue
+        for atom in getattr(group, "atoms", []) or []:
+            label = _atom_label(atom)
+            if not label:
+                continue
+            records.append({
+                "matrix_label": label,
+                "serial": _atom_serial(atom),
+                "element": str(getattr(atom, "element", "") or "").strip().upper(),
+            })
+    return records
+
+
 def _interaction_residue_labels(interaction):
     src_grp = getattr(interaction, "src_grp", None)
     trgt_grp = getattr(interaction, "trgt_grp", None)
@@ -1220,12 +1250,26 @@ def _normalized_atom_label(value):
     return re.sub(r"[^A-Za-z0-9]+", "", str(value or "")).upper()
 
 
-def _align_atom_map_labels(source_labels, matrix_labels):
+def _numeric_atom_token(value):
+    values = re.findall(r"\d+", str(value or ""))
+    return int(values[-1]) if values else None
+
+
+def _align_atom_map_labels(source_labels, matrix_labels, source_records=None, matrix_metadata=None, return_mapping=False):
     """Use the matrix IDs on the drawing while preserving the molecule atom order."""
     source = [str(label) for label in source_labels]
     preferred = [str(label) for label in (matrix_labels or []) if str(label).strip()]
     if not preferred:
-        return source
+        mapping = [
+            {"source_index": index, "source_label": label, "display_label": label, "matrix_label": "", "matched": False}
+            for index, label in enumerate(source)
+        ]
+        return (source, mapping) if return_mapping else source
+
+    source_records = list(source_records or [])
+    metadata = dict(matrix_metadata or {})
+    while len(source_records) < len(source):
+        source_records.append({})
 
     preferred_by_key = {}
     for label in preferred:
@@ -1239,38 +1283,141 @@ def _align_atom_map_labels(source_labels, matrix_labels):
         if match:
             used.add(match)
 
+    def assign(source_index, candidate):
+        if not candidate or candidate in used or aligned[source_index]:
+            return False
+        aligned[source_index] = candidate
+        used.add(candidate)
+        return True
+
+    # LUNA and RDKit may expose different names for the same atom. Serial
+    # numbers are the stable bridge for PDB and MOL2 inputs.
+    for source_index, record in enumerate(source_records[:len(source)]):
+        if aligned[source_index]:
+            continue
+        source_serial = record.get("serial")
+        if source_serial is None:
+            continue
+        candidates = [
+            label for label in preferred
+            if label not in used and (metadata.get(label) or {}).get("serial") == source_serial
+        ]
+        if len(candidates) == 1:
+            assign(source_index, candidates[0])
+
+    # Some parsers drop serial metadata but retain it as the numeric suffix of
+    # the matrix identifier. Only accept unambiguous matches.
+    for source_index, record in enumerate(source_records[:len(source)]):
+        if aligned[source_index]:
+            continue
+        source_tokens = {
+            value for value in (
+                record.get("serial"),
+                record.get("source_index", source_index) + 1,
+                _numeric_atom_token(source[source_index]),
+            )
+            if value is not None
+        }
+        candidates = [
+            label for label in preferred
+            if label not in used and _numeric_atom_token(label) in source_tokens
+        ]
+        if len(candidates) == 1:
+            assign(source_index, candidates[0])
+
     remaining = [label for label in preferred if label not in used]
     if len(preferred) == len(source):
         remaining_iter = iter(remaining)
         aligned = [label or next(remaining_iter) for label in aligned]
     else:
         aligned = [label or source[index] for index, label in enumerate(aligned)]
-    return aligned
+    mapping = [
+        {
+            "source_index": index,
+            "source_label": source[index],
+            "display_label": aligned[index],
+            "matrix_label": aligned[index] if aligned[index] in preferred else "",
+            "matched": aligned[index] in preferred,
+        }
+        for index in range(len(source))
+    ]
+    return (aligned, mapping) if return_mapping else aligned
 
 
-def _rdkit_heavy_atom_mol_and_labels(path, mol, matrix_labels=None):
+def _rdkit_source_atom_records(path, mol, labels):
+    records = []
+    mol2_serials = []
+    if Path(path).suffix.lower() == ".mol2":
+        try:
+            in_atoms = False
+            for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("@<TRIPOS>ATOM"):
+                    in_atoms = True
+                    continue
+                if line.startswith("@<TRIPOS>") and in_atoms:
+                    break
+                if in_atoms:
+                    parts = line.split()
+                    if parts:
+                        mol2_serials.append(int(parts[0]))
+        except Exception:
+            mol2_serials = []
+    for atom in mol.GetAtoms():
+        index = int(atom.GetIdx())
+        serial = mol2_serials[index] if index < len(mol2_serials) else None
+        try:
+            pdb_info = atom.GetPDBResidueInfo()
+            if pdb_info is not None:
+                serial = int(pdb_info.GetSerialNumber())
+        except Exception:
+            pass
+        records.append({
+            "source_index": index,
+            "source_label": labels[index] if index < len(labels) else f"{atom.GetSymbol()}{index + 1}",
+            "serial": serial if serial is not None else index + 1,
+            "element": str(atom.GetSymbol() or "").strip().upper(),
+        })
+    return records
+
+
+def _rdkit_heavy_atom_mol_and_labels(path, mol, matrix_labels=None, matrix_metadata=None):
     try:
         from rdkit import Chem
     except Exception:
         return mol, _rdkit_atom_labels_for_source(path, mol)
     source_mol = Chem.Mol(mol)
     source_labels = _rdkit_atom_labels_for_source(path, source_mol)
+    source_records = _rdkit_source_atom_records(path, source_mol, source_labels)
     for atom in source_mol.GetAtoms():
         idx = int(atom.GetIdx())
         label = source_labels[idx] if idx < len(source_labels) else f"{atom.GetSymbol()}{idx + 1}"
         atom.SetProp("_hip2l_atom_label", str(label))
+        atom.SetIntProp("_hip2l_source_index", idx)
     try:
         heavy_mol = Chem.RemoveHs(source_mol, sanitize=False)
     except Exception:
         heavy_mol = source_mol
     labels = []
+    heavy_records = []
     for atom in heavy_mol.GetAtoms():
         try:
             label = atom.GetProp("_hip2l_atom_label")
         except Exception:
             label = f"{atom.GetSymbol()}{atom.GetIdx() + 1}"
         labels.append(str(label))
-    return heavy_mol, _align_atom_map_labels(labels, matrix_labels)
+        try:
+            source_index = int(atom.GetIntProp("_hip2l_source_index"))
+        except Exception:
+            source_index = int(atom.GetIdx())
+        heavy_records.append(source_records[source_index] if source_index < len(source_records) else {"source_index": source_index})
+    aligned, mapping = _align_atom_map_labels(
+        labels,
+        matrix_labels,
+        source_records=heavy_records,
+        matrix_metadata=matrix_metadata,
+        return_mapping=True,
+    )
+    return heavy_mol, aligned, mapping
 
 
 def _export_ligand_atom_map(params, residue_artifact):
@@ -1288,7 +1435,13 @@ def _export_ligand_atom_map(params, residue_artifact):
             from rdkit.Chem import AllChem, Draw
 
             matrix_labels = list(residue_artifact.get("ligand_atoms", []) or [])
-            draw_mol, labels = _rdkit_heavy_atom_mol_and_labels(source, mol, matrix_labels)
+            matrix_metadata = dict(residue_artifact.get("ligand_atom_metadata", {}) or {})
+            draw_mol, labels, label_mapping = _rdkit_heavy_atom_mol_and_labels(
+                source,
+                mol,
+                matrix_labels,
+                matrix_metadata,
+            )
             try:
                 AllChem.Compute2DCoords(draw_mol)
             except Exception:
@@ -1308,7 +1461,8 @@ def _export_ligand_atom_map(params, residue_artifact):
                 "source_file": str(source),
                 "atom_labels": labels,
                 "matrix_atom_labels": matrix_labels,
-                "labels_match_matrix": set(labels) == set(matrix_labels),
+                "atom_label_mapping": label_mapping,
+                "labels_match_matrix": all(label in labels for label in matrix_labels),
                 "heavy_atoms_only": True,
             }
             _save_json(meta_path, meta)
@@ -1335,6 +1489,7 @@ def _export_summary_artifacts(proj, workdir, params=None):
     entries = []
     residues = set()
     ligand_atoms = set()
+    ligand_atom_metadata = {}
     interaction_types = set()
 
     for entry in list(getattr(proj, "entries", []) or []):
@@ -1367,6 +1522,10 @@ def _export_summary_artifacts(proj, workdir, params=None):
                 by_type = ligand_atom_counts.setdefault(itype, {})
                 by_entry = by_type.setdefault(entry_name, {})
                 by_entry[label] = by_entry.get(label, 0) + 1
+            for record in _interaction_ligand_atom_records(interaction):
+                label = str(record.get("matrix_label") or "")
+                if label:
+                    ligand_atom_metadata.setdefault(label, record)
 
         if per_entry_counts:
             summary["entries"] += 1
@@ -1395,6 +1554,10 @@ def _export_summary_artifacts(proj, workdir, params=None):
         "interaction_types": sorted(interaction_types),
         "residues": residue_labels,
         "ligand_atoms": ligand_atom_labels,
+        "ligand_atom_metadata": {
+            label: ligand_atom_metadata.get(label, {"matrix_label": label})
+            for label in ligand_atom_labels
+        },
         "entries": ordered_entries,
         "matrix": matrix,
         "ligand_atom_matrix": ligand_atom_matrix,

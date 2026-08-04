@@ -57,9 +57,11 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     desktop = _read("installer/hip2linteractomics.desktop")
 
     assert "pip install -r requirements.txt" in windows
+    assert "import PyQt6, jinja2, matplotlib, numpy, reportlab" in windows
     assert "PyInstaller" in windows
     assert "HIP2LInterActomics.exe" in windows
     assert "pip install -r" in linux
+    assert "import PyQt6, jinja2, matplotlib, numpy, reportlab" in linux
     assert "PyInstaller" in linux
     assert "linux-" in linux and ".tar.gz" in linux
     assert "appimagetool" in linux
@@ -151,4 +153,6 @@ def test_packaged_launcher_dispatches_both_cli_commands_before_loading_qt() -> N
     gui_import = launcher.index("from luna_gui.main import main")
     assert launcher.index('command == "--terminal"') < gui_import
     assert launcher.index('command == "--multiple-run"') < gui_import
+    assert launcher.index('command == "--render-pdf-job"') < gui_import
+    assert "report_worker" in launcher
     assert "AttachConsole" in launcher

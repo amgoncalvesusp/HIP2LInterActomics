@@ -556,5 +556,7 @@
   "Último átomo da proteína:": "Last protein atom:",
   "− Remover linha": "- Remove row",
   "■ Cancelar": "■ Cancel",
-  "▶ Executar LUNA": "▶ Run LUNA"
+  "▶ Executar LUNA": "▶ Run LUNA",
+  "Importar arquivo comprimido...": "Import compressed archive...",
+  "Gerar gráficos": "Generate plots"
 }

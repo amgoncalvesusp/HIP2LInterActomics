@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core import env_manager as em
+from ..i18n import t
 from .info import InfoButton
 
 
@@ -132,6 +133,7 @@ class SetupTab(QWidget):
         self._probe_thread: _EnvironmentProbeThread | None = None
         self._cmd_queue: list[list[str]] = []
         self._last_ready: tuple[str, str] | None = None
+        self._last_probe_logs: list[str] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -224,8 +226,8 @@ class SetupTab(QWidget):
         thread.start()
 
     def _apply_probe_result(self, result: dict[str, object]) -> None:
-        for line in result.get("logs", []):
-            self.log.appendPlainText(str(line))
+        self._last_probe_logs = [str(line) for line in result.get("logs", [])]
+        self._render_probe_logs()
         self.status_label.setText(str(result.get("status", "Verificação concluída.")))
         self.btn_install_luna.setEnabled(bool(result.get("install_enabled", False)))
         conda = result.get("conda")
@@ -237,6 +239,14 @@ class SetupTab(QWidget):
             self.luna_ready.emit(*self._last_ready)
         else:
             self._last_ready = None
+
+    def _render_probe_logs(self) -> None:
+        self.log.clear()
+        for line in self._last_probe_logs:
+            self.log.appendPlainText(t(line))
+
+    def retranslate_dynamic(self) -> None:
+        self._render_probe_logs()
 
     def ready_runtime(self) -> tuple[str, str] | None:
         """Return the most recent verified runtime, if one is available."""
@@ -267,16 +277,16 @@ class SetupTab(QWidget):
             return
         self._cmd_queue = em.install_commands(conda)
         self.btn_install_luna.setEnabled(False)
-        self.log.appendPlainText("\n=== Iniciando instalação do LUNA ===")
-        self.log.appendPlainText("Isso pode levar vários minutos.\n")
-        self.log.appendPlainText(f"Prefixo alvo do ambiente: {prefix}")
+        self.log.appendPlainText("\n" + t("=== Iniciando instalação do LUNA ==="))
+        self.log.appendPlainText(t("Isso pode levar vários minutos.") + "\n")
+        self.log.appendPlainText(t(f"Prefixo alvo do ambiente: {prefix}"))
         if removed:
-            self.log.appendPlainText(f"Ambiente parcial removido: {removed}")
+            self.log.appendPlainText(t(f"Ambiente parcial removido: {removed}"))
         self._run_next()
 
     def _run_next(self) -> None:
         if not self._cmd_queue:
-            self.log.appendPlainText("\n=== Instalação concluída ===")
+            self.log.appendPlainText("\n" + t("=== Instalação concluída ==="))
             self.btn_install_luna.setEnabled(True)
             self.detect()
             return
