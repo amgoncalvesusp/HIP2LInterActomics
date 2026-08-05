@@ -18,6 +18,11 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - name: Install Qt runtime libraries for headless tests
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4
+          libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0
       - name: Test source distribution contract
         env:
           MPLBACKEND: Agg
@@ -92,11 +97,16 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME"
-          --repo "$GITHUB_REPOSITORY"
-          release-assets/HIP2LInterActomics-Setup.exe
-          release-assets/HIP2LInterActomics-*.AppImage
-          --verify-tag
-          --generate-notes
-          --title "HIP2LInterActomics $GITHUB_REF_NAME"
+        shell: bash
+        run: |
+          assets=(
+            release-assets/HIP2LInterActomics-Setup.exe
+            release-assets/HIP2LInterActomics-*.AppImage
+          )
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
+              --title "HIP2LInterActomics $GITHUB_REF_NAME"
+          fi
