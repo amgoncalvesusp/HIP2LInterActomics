@@ -75,6 +75,10 @@ TERMINAL_KEYS = {
     "terminal_interactive_max_entries",
     "terminal_matrix_max_entries",
     "terminal_results",
+    "prepare_complexes",
+    "complex_folder",
+    "prepare_output",
+    "last_protein_atom",
     "fp_session",
 }
 
@@ -112,6 +116,10 @@ EXAMPLE_CONFIG = """{
   "allow_hydrogen_warnings": false,
 
   "terminal_results": true,
+  "prepare_complexes": false,
+  "complex_folder": "",
+  "prepare_output": "",
+  "last_protein_atom": null,
   "terminal_cluster_method": "average",
   "terminal_cluster_count": 4,
   "terminal_matrix_max_entries": 5000,
@@ -354,6 +362,43 @@ def _prepare_complexes(
     return 0
 
 
+def _prepare_configured_complexes(
+    cfg: ProjectConfig,
+    terminal_data: dict[str, Any],
+    chemistry_python: Path,
+) -> None:
+    """Turn a configured complex folder into paired protein/ligand inputs."""
+    source = str(terminal_data.get("complex_folder") or "").strip()
+    enabled = _as_bool(terminal_data.get("prepare_complexes", bool(source)))
+    if not enabled:
+        return
+    if not source:
+        raise ValueError("prepare_complexes=true requer complex_folder.")
+    src = Path(source).expanduser().resolve()
+    if not src.is_dir():
+        raise NotADirectoryError(f"Pasta de complexos nao encontrada: {src}")
+    output_text = str(terminal_data.get("prepare_output") or "").strip()
+    output = Path(output_text).expanduser().resolve() if output_text else Path(cfg.workdir) / "prepared_complexes"
+    raw_last_atom = terminal_data.get("last_protein_atom")
+    last_atom = int(raw_last_atom) if raw_last_atom not in (None, "") else None
+    result = mol2_prep.split_complex_folder(
+        src,
+        last_pa=last_atom,
+        out_folder=output,
+        chemistry_python=chemistry_python,
+    )
+    if not result.ligands_written or not result.proteins_written:
+        details = "; ".join(result.errors) or "nenhum par proteina/ligante foi produzido"
+        raise RuntimeError(f"Pre-processamento de complexos falhou: {details}")
+    cfg.protein_file = result.protein_dir
+    cfg.ligand_file = result.ligand_dir
+    cfg.selected_ligands = []
+    print(
+        f"[terminal] Complexos preparados em: {output} "
+        f"({result.proteins_written} proteinas, {result.ligands_written} ligantes)."
+    )
+
+
 def _write_entries_and_project(cfg: ProjectConfig) -> Path:
     workdir = Path(cfg.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -437,7 +482,6 @@ def run_from_config(
         terminal_data["dry_run"] = True
 
     cfg = ProjectConfig(**project_data)
-    _resolve_selected_ligands(cfg, terminal_data)
     cfg.force_python_api = True
     allocation = detect_cpu_allocation()
     selected_nproc = effective_nproc(cfg.nproc)
@@ -456,6 +500,9 @@ def run_from_config(
     py_exe = _resolve_luna_python(terminal_data)
     if not em.luna_installed(py_exe):
         raise RuntimeError(f"LUNA nao esta instalado no Python informado: {py_exe}")
+
+    _prepare_configured_complexes(cfg, terminal_data, py_exe)
+    _resolve_selected_ligands(cfg, terminal_data)
 
     run_py = em.luna_run_py_path(py_exe)
     if run_py:

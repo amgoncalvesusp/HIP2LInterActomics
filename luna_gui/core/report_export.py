@@ -22,7 +22,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from .plot_manifest import load_manifest, resolve_plot_path
 from .project import ProjectConfig
-from ..i18n import set_language, t
+from ..i18n import language as active_language, set_language, t
 
 
 _A4_LANDSCAPE = (11.69, 8.27)
@@ -31,6 +31,181 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 _REPORT_TEMP_PREFIXES = ("_report_", "_report_pdf_")
 _IFP_ORDER = {"EIFP": 0, "FIFP": 1, "HIFP": 2}
 _MODEL_ORDER = {"extra_trees": 0, "gradient_boosting": 1}
+_REPORT_CATEGORY_ORDER = {
+    "distribution": 10,
+    "interaction_heatmap": 20,
+    "complete_heatmap": 30,
+    "similarity": 40,
+    "clusters": 50,
+    "fingerprint": 100,
+    "appendix": 10000,
+}
+
+_REPORT_LANGUAGES = {"en", "pt", "es"}
+_REPORT_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "report_title": "HIP2LInterActomics report",
+        "generated": "Generated on",
+        "summary": "Summary",
+        "protein": "Protein",
+        "ligands": "Ligands",
+        "selected_total": "Total selected",
+        "workdir": "Workdir",
+        "processed_entries": "Processed entries",
+        "configuration": "Configuration",
+        "parameter": "Parameter",
+        "value": "Value",
+        "interaction_count": "Interaction count by type",
+        "type": "Type",
+        "total": "Total",
+        "top_residues": "Top 30 residues with most interactions",
+        "residue": "Chain/residue/number",
+        "count": "Count",
+        "source": "Source",
+        "cluster_assignment": "Cluster assignment",
+        "cluster": "Cluster",
+        "ligand": "Ligand",
+        "fp_interpret": "How to interpret fingerprint analyses",
+        "fp_columns": "FP Analyses column guide",
+        "fp_summary": "Fingerprint analyses summary",
+        "column": "Column",
+        "interpretation": "Interpretation",
+        "top_features": "Top 50 features",
+        "rank": "Rank",
+        "feature": "Feature",
+        "assigned_level": "Assigned level",
+        "assigned_class": "Assigned class",
+        "coverage": "Coverage (%)",
+        "importance": "Importance",
+        "appendix": "Appendix",
+        "yes": "Yes",
+        "no": "No",
+        "not_reported": "not reported",
+        "default_luna": "LUNA default",
+        "no_interactions": "No counted interactions.",
+        "no_residues": "No counted residues.",
+        "analysis_interpretation": "How to interpret the analyses",
+        "analysis_intro": "This report brings together the project parameters, numerical summary, and all plots available for the active report language. Visual patterns are hypotheses for structural and experimental validation.",
+        "frequent_interactions": "Most frequent interactions",
+        "frequent_residues": "Most frequent residues",
+        "fp_guide_intro": "Use this guide when interpreting fingerprint tables, rankings, and heatmaps.",
+        "fp_summary_intro": "Each row summarizes a fingerprint dataset, its feature count, and the selection threshold.",
+        "top_features_intro": "Independent feature ranking for comparison between the two ensemble methods.",
+        "cluster_table_intro": "Table of ligands and their hierarchical groups.",
+        "image_unavailable": "Unavailable plot",
+        "image_missing": "Image not found",
+        "image_skipped": "The file could not be read and was skipped.",
+        "fp_features": "features",
+        "fp_important": "important",
+        "fp_model": "model",
+        "fp_threshold": "threshold",
+        "cfg_selected_ligands": "Selected ligands",
+        "cfg_include_waters": "Include waters",
+        "cfg_add_h": "Add H",
+        "cfg_count_fingerprint": "Count fingerprint",
+        "cfg_similarity": "Similarity matrix",
+        "cfg_pymol": "PyMOL sessions",
+        "cfg_binding_modes": "Binding modes filter",
+        "cfg_interactions": "Interaction config",
+        "cfg_max_distance": "Global maximum distance",
+        "cfg_fp_labels": "FP labels",
+        "cfg_fp_task": "FP task",
+        "cfg_otsu": "Otsu fallback",
+        "cfg_cores": "Cores",
+        "cfg_levels": "levels",
+        "cfg_radius": "radius",
+        "cfg_length": "length",
+        "image_similarity_title": "Similarity matrix",
+        "image_similarity_caption": "Each cell compares two ligands by their interaction fingerprints. Higher values indicate more similar profiles; contiguous blocks suggest families sharing molecular recognition modes.",
+        "image_cluster_title": "Ligand clustering",
+        "image_cluster_caption": "The dendrogram and reordered matrix group ligands by proximity between interaction profiles. Compact groups help select representatives and identify series with convergent binding-site behavior.",
+        "image_heatmap_title": "Interaction heatmap",
+        "image_heatmap_caption": "The heatmap summarizes interaction frequency or intensity between ligands, residues, and contact types. Stronger regions reveal recurring patterns and potential key residues for recognition.",
+        "image_distribution_title": "Interaction distribution",
+        "image_distribution_caption": "The distribution shows the relative abundance of contact types in the analyzed set. Dominant bars or regions indicate recurring chemical forces and help compare contact density and diversity.",
+        "image_network_title": "Interaction network",
+        "image_network_caption": "The network represents molecular entities as nodes and interactions as edges. Connectivity, communities, and central nodes help identify residues or ligands that organize the global contact pattern.",
+        "image_fingerprint_title": "Fingerprint analysis",
+        "image_fingerprint_caption": "The plot summarizes interaction-fingerprint features, their frequency, class, or importance. Recurrent features describe shared structural signatures; discriminant features help distinguish groups.",
+        "image_model_title": "Model performance",
+        "image_model_caption": "This visualization summarizes model behavior or selected variables. Interpret separation, error, coverage, and stability together before prioritizing a molecular hypothesis.",
+        "image_ligand_title": "Ligand representation",
+        "image_ligand_caption": "The representation relates ligand atom numbering to the descriptors and contacts used in the analyses, locating observed patterns on the molecular scaffold.",
+        "image_generic_title": "Result plot",
+        "image_generic_caption": "This visualization complements the project results. Interpret scales, labels, and legend together with the tables and structural inspection.",
+    },
+    "pt": {
+        "report_title": "Relat\u00f3rio HIP2LInterActomics", "generated": "Gerado em", "summary": "Resumo", "protein": "Prote\u00edna", "ligands": "Ligantes", "selected_total": "Total selecionado", "workdir": "Diret\u00f3rio de trabalho", "processed_entries": "Entradas processadas", "configuration": "Configura\u00e7\u00e3o", "parameter": "Par\u00e2metro", "value": "Valor", "interaction_count": "Contagem por tipo de intera\u00e7\u00e3o", "type": "Tipo", "total": "Total", "top_residues": "Top 30 res\u00edduos com mais intera\u00e7\u00f5es", "residue": "Cadeia/res\u00edduo/n\u00famero", "count": "Contagem", "source": "Fonte", "cluster_assignment": "Atribui\u00e7\u00e3o de clusters", "cluster": "Cluster", "ligand": "Ligante", "fp_interpret": "Como interpretar as an\u00e1lises de fingerprints", "fp_columns": "Guia das colunas de An\u00e1lises FP", "fp_summary": "Resumo das an\u00e1lises de fingerprints", "column": "Coluna", "interpretation": "Interpreta\u00e7\u00e3o", "top_features": "Top 50 features", "rank": "Posi\u00e7\u00e3o", "feature": "Feature", "assigned_level": "N\u00edvel atribu\u00eddo", "assigned_class": "Classe atribu\u00edda", "coverage": "Cobertura (%)", "importance": "Import\u00e2ncia", "appendix": "Ap\u00eandice", "yes": "Sim", "no": "N\u00e3o", "not_reported": "n\u00e3o informado", "default_luna": "Padr\u00e3o LUNA", "no_interactions": "Sem intera\u00e7\u00f5es contabilizadas.", "no_residues": "Sem res\u00edduos contabilizados.", "analysis_interpretation": "Como interpretar as an\u00e1lises", "analysis_intro": "Este relat\u00f3rio re\u00fane os par\u00e2metros do projeto, o resumo num\u00e9rico e todos os gr\u00e1ficos dispon\u00edveis para o idioma ativo do relat\u00f3rio. Padr\u00f5es visuais s\u00e3o hip\u00f3teses para valida\u00e7\u00e3o estrutural e experimental.", "frequent_interactions": "Intera\u00e7\u00f5es mais frequentes", "frequent_residues": "Res\u00edduos mais frequentes", "fp_guide_intro": "Use este guia ao interpretar tabelas, rankings e mapas de calor de fingerprints.", "fp_summary_intro": "Cada linha resume uma base de fingerprints, a quantidade de features e o limiar de sele\u00e7\u00e3o.", "top_features_intro": "Ranking independente das features para compara\u00e7\u00e3o entre os dois m\u00e9todos de ensemble.", "cluster_table_intro": "Tabela dos ligantes e seus grupos hier\u00e1rquicos.", "image_unavailable": "Gr\u00e1fico indispon\u00edvel", "image_missing": "Imagem n\u00e3o encontrada", "image_skipped": "O arquivo n\u00e3o p\u00f4de ser lido e foi ignorado.", "fp_features": "features", "fp_important": "importantes", "fp_model": "modelo", "fp_threshold": "limiar", "cfg_selected_ligands": "Ligantes selecionados", "cfg_include_waters": "Incluir \u00e1guas", "cfg_add_h": "Adicionar H", "cfg_count_fingerprint": "Fingerprint de contagem", "cfg_similarity": "Matriz de similaridade", "cfg_pymol": "Sess\u00f5es PyMOL", "cfg_binding_modes": "Filtro de modos de liga\u00e7\u00e3o", "cfg_interactions": "Configura\u00e7\u00e3o de intera\u00e7\u00f5es", "cfg_max_distance": "Dist\u00e2ncia m\u00e1xima global", "cfg_fp_labels": "R\u00f3tulos FP", "cfg_fp_task": "Tarefa FP", "cfg_otsu": "Fallback Otsu", "cfg_cores": "N\u00facleos", "cfg_levels": "n\u00edveis", "cfg_radius": "raio", "cfg_length": "tamanho",
+        "image_similarity_title": "Matriz de similaridade", "image_similarity_caption": "Cada c\u00e9lula compara dois ligantes por seus fingerprints de intera\u00e7\u00e3o. Valores mais altos indicam perfis mais semelhantes; blocos cont\u00edguos sugerem fam\u00edlias que compartilham modos de reconhecimento molecular.", "image_cluster_title": "Agrupamento de ligantes", "image_cluster_caption": "O dendrograma e a matriz reordenada agrupam ligantes pela proximidade entre perfis de intera\u00e7\u00e3o. Grupos compactos ajudam a selecionar representantes e identificar s\u00e9ries com comportamento convergente no s\u00edtio.", "image_heatmap_title": "Mapa de calor de intera\u00e7\u00f5es", "image_heatmap_caption": "O mapa de calor resume a frequ\u00eancia ou intensidade das intera\u00e7\u00f5es entre ligantes, res\u00edduos e tipos de contato. Regi\u00f5es mais intensas revelam padr\u00f5es recorrentes e poss\u00edveis res\u00edduos-chave para o reconhecimento.", "image_distribution_title": "Distribui\u00e7\u00e3o de intera\u00e7\u00f5es", "image_distribution_caption": "A distribui\u00e7\u00e3o mostra a abund\u00e2ncia relativa dos tipos de contato no conjunto analisado. Barras ou regi\u00f5es dominantes indicam as for\u00e7as qu\u00edmicas mais recorrentes e ajudam a comparar densidade e diversidade de contatos.", "image_network_title": "Rede de intera\u00e7\u00f5es", "image_network_caption": "A rede representa entidades moleculares como n\u00f3s e suas intera\u00e7\u00f5es como arestas. Conectividade, comunidades e n\u00f3s centrais ajudam a reconhecer res\u00edduos ou ligantes que organizam o padr\u00e3o global de contatos.", "image_fingerprint_title": "An\u00e1lise de fingerprints", "image_fingerprint_caption": "O gr\u00e1fico resume features dos fingerprints de intera\u00e7\u00e3o, sua frequ\u00eancia, classe ou import\u00e2ncia. Features recorrentes descrevem assinaturas estruturais compartilhadas; features discriminantes ajudam a separar grupos.", "image_model_title": "Desempenho do modelo", "image_model_caption": "Esta visualiza\u00e7\u00e3o resume o comportamento do modelo ou das vari\u00e1veis selecionadas. A interpreta\u00e7\u00e3o deve considerar separa\u00e7\u00e3o, erro, cobertura e estabilidade antes de priorizar uma hip\u00f3tese molecular.", "image_ligand_title": "Representa\u00e7\u00e3o do ligante", "image_ligand_caption": "A representa\u00e7\u00e3o relaciona a numera\u00e7\u00e3o at\u00f4mica do ligante aos descritores e contatos usados nas an\u00e1lises, localizando os padr\u00f5es observados no esqueleto molecular.", "image_generic_title": "Gr\u00e1fico de resultados", "image_generic_caption": "Esta visualiza\u00e7\u00e3o complementa os resultados do projeto. Interprete escalas, r\u00f3tulos e legenda em conjunto com as tabelas e a inspe\u00e7\u00e3o estrutural.",
+    },
+    "es": {
+        "report_title": "Reporte HIP2LInterActomics", "generated": "Generado el", "summary": "Resumen", "protein": "Prote\u00edna", "ligands": "Ligandos", "selected_total": "Total seleccionado", "workdir": "Directorio de trabajo", "processed_entries": "Entradas procesadas", "configuration": "Configuraci\u00f3n", "parameter": "Par\u00e1metro", "value": "Valor", "interaction_count": "Conteo por tipo de interacci\u00f3n", "type": "Tipo", "total": "Total", "top_residues": "Top 30 residuos con m\u00e1s interacciones", "residue": "Cadena/residuo/n\u00famero", "count": "Conteo", "source": "Fuente", "cluster_assignment": "Asignaci\u00f3n de clusters", "cluster": "Cluster", "ligand": "Ligando", "fp_interpret": "C\u00f3mo interpretar los an\u00e1lisis de fingerprints", "fp_columns": "Gu\u00eda de columnas de An\u00e1lisis FP", "fp_summary": "Resumen de an\u00e1lisis de fingerprints", "column": "Columna", "interpretation": "Interpretaci\u00f3n", "top_features": "Top 50 features", "rank": "Posici\u00f3n", "feature": "Feature", "assigned_level": "Nivel asignado", "assigned_class": "Clase asignada", "coverage": "Cobertura (%)", "importance": "Importancia", "appendix": "Ap\u00e9ndice", "yes": "S\u00ed", "no": "No", "not_reported": "no informado", "default_luna": "Predeterminado de LUNA", "no_interactions": "No hay interacciones contabilizadas.", "no_residues": "No hay residuos contabilizadas.", "analysis_interpretation": "C\u00f3mo interpretar los an\u00e1lisis", "analysis_intro": "Este reporte re\u00fane los par\u00e1metros del proyecto, el resumen num\u00e9rico y todos los gr\u00e1ficos disponibles para el idioma activo del reporte. Los patrones visuales son hip\u00f3tesis para validaci\u00f3n estructural y experimental.", "frequent_interactions": "Interacciones m\u00e1s frecuentes", "frequent_residues": "Residuos m\u00e1s frecuentes", "fp_guide_intro": "Use esta gu\u00eda al interpretar tablas, rankings y mapas de calor de fingerprints.", "fp_summary_intro": "Cada fila resume una base de fingerprints, la cantidad de features y el umbral de selecci\u00f3n.", "top_features_intro": "Ranking independiente de features para comparar los dos m\u00e9todos de ensemble.", "cluster_table_intro": "Tabla de ligandos y sus grupos jer\u00e1rquicos.", "image_unavailable": "Gr\u00e1fico no disponible", "image_missing": "Imagen no encontrada", "image_skipped": "El archivo no se pudo leer y fue omitido.", "fp_features": "features", "fp_important": "importantes", "fp_model": "modelo", "fp_threshold": "umbral", "cfg_selected_ligands": "Ligandos seleccionados", "cfg_include_waters": "Incluir aguas", "cfg_add_h": "Agregar H", "cfg_count_fingerprint": "Fingerprint de conteo", "cfg_similarity": "Matriz de similitud", "cfg_pymol": "Sesiones PyMOL", "cfg_binding_modes": "Filtro de modos de uni\u00f3n", "cfg_interactions": "Configuraci\u00f3n de interacciones", "cfg_max_distance": "Distancia m\u00e1xima global", "cfg_fp_labels": "Etiquetas FP", "cfg_fp_task": "Tarea FP", "cfg_otsu": "Fallback Otsu", "cfg_cores": "N\u00facleos", "cfg_levels": "niveles", "cfg_radius": "radio", "cfg_length": "longitud",
+        "image_similarity_title": "Matriz de similitud", "image_similarity_caption": "Cada celda compara dos ligandos por sus fingerprints de interacci\u00f3n. Valores m\u00e1s altos indican perfiles m\u00e1s similares; bloques contiguos sugieren familias que comparten modos de reconocimiento molecular.", "image_cluster_title": "Agrupamiento de ligandos", "image_cluster_caption": "El dendrograma y la matriz reordenada agrupan ligandos por proximidad entre perfiles de interacci\u00f3n. Los grupos compactos ayudan a seleccionar representantes e identificar series con comportamiento convergente en el sitio.", "image_heatmap_title": "Mapa de calor de interacciones", "image_heatmap_caption": "El mapa de calor resume la frecuencia o intensidad de las interacciones entre ligandos, residuos y tipos de contacto. Las regiones m\u00e1s intensas revelan patrones recurrentes y posibles residuos clave para el reconocimiento.", "image_distribution_title": "Distribuci\u00f3n de interacciones", "image_distribution_caption": "La distribuci\u00f3n muestra la abundancia relativa de los tipos de contacto en el conjunto analizado. Barras o regiones dominantes indican las fuerzas qu\u00edmicas m\u00e1s recurrentes y ayudan a comparar densidad y diversidad de contactos.", "image_network_title": "Red de interacciones", "image_network_caption": "La red representa entidades moleculares como nodos y sus interacciones como aristas. La conectividad, las comunidades y los nodos centrales ayudan a reconocer residuos o ligandos que organizan el patr\u00f3n global de contactos.", "image_fingerprint_title": "An\u00e1lisis de fingerprints", "image_fingerprint_caption": "El gr\u00e1fico resume features de los fingerprints de interacci\u00f3n, su frecuencia, clase o importancia. Las features recurrentes describen firmas estructurales compartidas; las discriminantes ayudan a separar grupos.", "image_model_title": "Desempe\u00f1o del modelo", "image_model_caption": "Esta visualizaci\u00f3n resume el comportamiento del modelo o de las variables seleccionadas. La interpretaci\u00f3n debe considerar separaci\u00f3n, error, cobertura y estabilidad antes de priorizar una hip\u00f3tesis molecular.", "image_ligand_title": "Representaci\u00f3n del ligando", "image_ligand_caption": "La representaci\u00f3n relaciona la numeraci\u00f3n at\u00f3mica del ligando con los descriptores y contactos usados en los an\u00e1lisis, localizando los patrones observados en el esqueleto molecular.", "image_generic_title": "Gr\u00e1fico de resultados", "image_generic_caption": "Esta visualizaci\u00f3n complementa los resultados del proyecto. Interprete escalas, etiquetas y leyenda junto con las tablas y la inspecci\u00f3n estructural.",
+    },
+}
+_REPORT_COPY["es"]["no_residues"] = "No hay residuos contabilizados."
+
+
+def _report_language(value: str | None = None) -> str:
+    code = str(value or active_language() or "en").lower()
+    return code if code in _REPORT_LANGUAGES else "en"
+
+
+def _rt(key: str, language: str | None = None) -> str:
+    code = _report_language(language)
+    return _REPORT_COPY[code].get(key, _REPORT_COPY["en"].get(key, key))
+
+
+def _translate_report_data(value: object, language: str) -> str:
+    """Translate known data labels while leaving IDs, paths, and values intact."""
+    return t(value, lang=_report_language(language))
+
+
+def _report_display_text(value: object, language: str | None = None) -> str:
+    """Translate legacy report literals that may have been stored with bad encoding."""
+    text = "" if value is None else str(value)
+    code = _report_language(language)
+    prefix_map = (
+        ("Relat", "report_title"),
+        ("Config", "configuration"),
+        ("Contagem", "interaction_count"),
+        ("Top 30", "top_residues"),
+        ("Atribui", "cluster_assignment"),
+        ("Ap", "appendix"),
+        ("Par", "parameter"),
+        ("Valor", "value"),
+        ("Gerado", "generated"),
+    )
+    for prefix, key in prefix_map:
+        if text.startswith(prefix):
+            return _rt(key, code)
+    if "Como interpretar" in text and "fingerprints" in text:
+        prefix = text.split(":", 1)[0].strip()
+        return f"{prefix}: {_rt('fp_interpret', code)}" if prefix else _rt("fp_interpret", code)
+    if "Guia das colunas" in text and "FP" in text:
+        prefix = text.split(":", 1)[0].strip()
+        return f"{prefix}: {_rt('fp_columns', code)}" if prefix else _rt("fp_columns", code)
+    if "Resumo das" in text and "fingerprints" in text:
+        prefix = text.split(":", 1)[0].strip()
+        return f"{prefix}: {_rt('fp_summary', code)}" if prefix else _rt("fp_summary", code)
+    return _translate_report_data(text, code)
+
+
+_CATEGORY_IMAGE_KIND = {
+    "distribution": "distribution",
+    "interaction_heatmap": "heatmap",
+    "complete_heatmap": "heatmap",
+    "similarity": "similarity",
+    "clusters": "cluster",
+    "fingerprint": "fingerprint",
+}
+
+
+def _localized_report_caption(category: str, caption: object, language: str) -> str:
+    image_kind = _CATEGORY_IMAGE_KIND.get(str(category or ""))
+    if image_kind:
+        return _rt(f"image_{image_kind}_caption", language)
+    return _translate_report_data(caption, language)
 
 _FP_COLUMN_GUIDE = [
     ("Feature", "Identificador do bit/atributo do fingerprint usado para localizar a mesma feature em tabelas, gráficos e sessões estruturais."),
@@ -140,10 +315,12 @@ def _image_kind(path: Path) -> str:
     return "generic"
 
 
-def describe_report_image(path: str | Path) -> tuple[str, str]:
+def describe_report_image(path: str | Path, language: str | None = None) -> tuple[str, str]:
     """Return a scientific title and fixed interpretation paragraph for a plot."""
     image_path = Path(path)
-    base_title, explanation = _EXPLANATIONS[_image_kind(image_path)]
+    image_kind = _image_kind(image_path)
+    base_title = _rt(f"image_{image_kind}_title", language)
+    explanation = _rt(f"image_{image_kind}_caption", language)
     label = image_path.stem.replace("_", " ").replace("-", " ").strip()
     label = " ".join(label.split())
     title = f"{base_title}: {label}" if label and label.casefold() not in base_title.casefold() else base_title
@@ -153,6 +330,7 @@ def describe_report_image(path: str | Path) -> tuple[str, str]:
 def collect_result_images(
     workdir: str | Path,
     excluded_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
+    language: str | None = None,
 ) -> list[tuple[str, Path, str]]:
     """Collect every supported chart below the project's ``results`` directory."""
     wd = Path(workdir)
@@ -188,7 +366,7 @@ def collect_result_images(
         except OSError:
             continue
         seen.add(resolved)
-        title, caption = describe_report_image(path)
+        title, caption = describe_report_image(path, language)
         pages.append((title, path, caption))
     return pages
 
@@ -210,6 +388,49 @@ def _selected_images(
     return [(title, path, caption) for title, path, caption in pages if path.exists()]
 
 
+def _selected_images_localized(
+    heatmap_png: str | Path | None,
+    interactions_png: str | Path | None,
+    cluster_png: str | Path | None,
+    extra_images: list[tuple[str, str | Path, str]] | None,
+    language: str,
+) -> list[tuple[str, Path, str]]:
+    pages: list[tuple[str, Path, str]] = []
+    if interactions_png:
+        pages.append(
+            (
+                _rt("image_distribution_title", language),
+                Path(interactions_png),
+                _rt("image_distribution_caption", language),
+            )
+        )
+    if heatmap_png:
+        pages.append(
+            (
+                _rt("image_similarity_title", language),
+                Path(heatmap_png),
+                _rt("image_similarity_caption", language),
+            )
+        )
+    if cluster_png:
+        pages.append(
+            (
+                _rt("image_cluster_title", language),
+                Path(cluster_png),
+                _rt("image_cluster_caption", language),
+            )
+        )
+    pages.extend(
+        (
+            _translate_report_data(title, language),
+            Path(image_path),
+            _translate_report_data(caption, language),
+        )
+        for title, image_path, caption in (extra_images or [])
+    )
+    return [(title, path, caption) for title, path, caption in pages if path.exists()]
+
+
 def _all_report_images(
     cfg: ProjectConfig,
     heatmap_png: str | Path | None,
@@ -228,11 +449,18 @@ def _all_report_images(
 
 
 def _fallback_sequence(path: Path) -> tuple[int, str]:
+    # Imported/legacy results do not have a manifest. Recognize the stable
+    # English and Portuguese filenames before relying on broad image keywords.
+    stem = path.stem.casefold()
+    if "complete" in stem or "completo" in stem:
+        return 30, "complete_heatmap"
+    if "distribution" in stem or "distribui" in stem or "interaction_summary" in stem:
+        return 10, "distribution"
     kind = _image_kind(path)
     if kind == "distribution":
         return 10, "distribution"
     if kind == "heatmap":
-        is_complete = "complete" in path.stem.casefold() or "completo" in path.stem.casefold()
+        is_complete = "complete" in stem or "completo" in stem
         return (30 if is_complete else 20), ("complete_heatmap" if is_complete else "interaction_heatmap")
     if kind == "similarity":
         return 40, "similarity"
@@ -261,7 +489,7 @@ def _semantic_report_images(
     cluster_png: str | Path | None,
     extra_images: list[tuple[str, str | Path, str]] | None,
 ) -> list[dict]:
-    language = str(getattr(cfg, "language", "en") or "en")
+    language = _report_language(getattr(cfg, "language", "en"))
     manifest = load_manifest(cfg.workdir) if str(cfg.workdir).strip() else None
     manifest_records = manifest.select(language=language, profile="report") if manifest else []
     rows: list[dict] = []
@@ -274,9 +502,9 @@ def _semantic_report_images(
             excluded.append(path)
             rows.append({
                 "plot_id": record.plot_id,
-                "title": record.title,
+                "title": _translate_report_data(record.title, language),
                 "path": path,
-                "caption": record.caption,
+                "caption": _localized_report_caption(record.category, record.caption, language),
                 "sequence": int(record.sequence),
                 "category": record.category,
                 "ifp_type": record.ifp_type,
@@ -284,7 +512,13 @@ def _semantic_report_images(
                 "appendix": record.category == "appendix",
             })
     else:
-        selected = _selected_images(heatmap_png, interactions_png, cluster_png, extra_images)
+        selected = _selected_images_localized(
+            heatmap_png,
+            interactions_png,
+            cluster_png,
+            extra_images,
+            language,
+        )
         excluded.extend(item[1] for item in selected)
         for title, path, caption in selected:
             sequence, category = _fallback_sequence(path)
@@ -301,7 +535,7 @@ def _semantic_report_images(
                 "appendix": category == "appendix",
             })
 
-    discovered = collect_result_images(cfg.workdir, excluded) if str(cfg.workdir).strip() else []
+    discovered = collect_result_images(cfg.workdir, excluded, language) if str(cfg.workdir).strip() else []
     for title, path, caption in discovered:
         sequence, category = _fallback_sequence(path)
         if manifest_records:
@@ -326,6 +560,7 @@ def _semantic_report_images(
         unique.values(),
         key=lambda row: (
             bool(row["appendix"]),
+            _REPORT_CATEGORY_ORDER.get(row.get("category", ""), int(row["sequence"])),
             int(row["sequence"]),
             _IFP_ORDER.get(row["ifp_type"], 99),
             _MODEL_ORDER.get(row["model"], 99),
@@ -543,7 +778,20 @@ def _sorted_count_rows(values: dict, limit: int | None = None) -> list[tuple[str
     return rows if limit is None else rows[: max(0, int(limit))]
 
 
-def _fp_report_sections(fp_dashboards: dict | None, images: list[dict]) -> list[dict]:
+def _localized_count_summary(
+    rows: list[tuple[str, int | float]],
+    empty_key: str,
+    language: str,
+) -> str:
+    if not rows:
+        return _rt(empty_key, language)
+    return ", ".join(
+        f"{_translate_report_data(key, language)}: {value}"
+        for key, value in rows
+    )
+
+
+def _fp_report_sections(fp_dashboards: dict | None, images: list[dict], language: str) -> list[dict]:
     dashboards_by_type: dict[str, dict] = {}
     for dashboard in (fp_dashboards or {}).values():
         if not isinstance(dashboard, dict):
@@ -581,7 +829,7 @@ def _fp_report_sections(fp_dashboards: dict | None, images: list[dict]) -> list[
             "ifp_type": ifp_type,
             "education": [t(paragraph) for paragraph in _FP_EDUCATION],
             "column_guide": [(t(column), t(description)) for column, description in _FP_COLUMN_GUIDE],
-            "summary_rows": _fp_rows({ifp_type: dashboard}),
+            "summary_rows": _localized_fp_rows({ifp_type: dashboard}, language),
             "models": models,
         })
     return sections
@@ -597,7 +845,7 @@ def build_report(
     fp_dashboards: dict | None = None,
     extra_images: list[tuple[str, str | Path, str]] | None = None,
 ) -> str:
-    language = str(getattr(cfg, "language", "en") or "en")
+    language = _report_language(getattr(cfg, "language", "en"))
     set_language(language)
     payload = _pdf_payload(
         cfg,
@@ -624,7 +872,7 @@ def build_report(
             and (not row.get("ifp_type") or not row.get("model"))
         )
     ]
-    fp_sections = _fp_report_sections(fp_dashboards, images)
+    fp_sections = _fp_report_sections(fp_dashboards, images, language)
     environment = Environment(
         loader=PackageLoader("luna_gui", "templates"),
         autoescape=select_autoescape(("html", "xml")),
@@ -667,13 +915,53 @@ def build_report(
         "cfg": cfg,
         "analysis": analysis,
         "cfg_rows": [(t(key), t(value)) for key, value in payload["cfg_rows"]],
-        "interaction_rows": _sorted_count_rows(analysis.get("interaction_counts", {}) or {}),
+        "interaction_rows": [
+            (_translate_report_data(key, language), value)
+            for key, value in _sorted_count_rows(analysis.get("interaction_counts", {}) or {})
+        ],
         "top_residue_rows": _sorted_count_rows(analysis.get("residue_counts", {}) or {}, 30),
         "general_images": general_images,
         "clusters": payload["clusters"],
         "fp_sections": fp_sections,
         "appendix_images": appendix_images,
     }
+    context.update({
+        "report_title": _rt("report_title", language),
+        "generated_label": _rt("generated", language),
+        "summary_title": _rt("summary", language),
+        "protein_label": _rt("protein", language),
+        "ligands_label": _rt("ligands", language),
+        "selected_label": _rt("selected_total", language),
+        "workdir_label": _rt("workdir", language),
+        "processed_label": _rt("processed_entries", language),
+        "configuration_title": _rt("configuration", language),
+        "parameter_label": _rt("parameter", language),
+        "value_label": _rt("value", language),
+        "interaction_count_title": _rt("interaction_count", language),
+        "type_label": _rt("type", language),
+        "total_label": _rt("total", language),
+        "top_residue_title": _rt("top_residues", language),
+        "residue_label": _rt("residue", language),
+        "count_label": _rt("count", language),
+        "source_label": _rt("source", language),
+        "cluster_assignment_title": _rt("cluster_assignment", language),
+        "cluster_label": _rt("cluster", language),
+        "ligand_label": _rt("ligand", language),
+        "fp_interpret_title": _rt("fp_interpret", language),
+        "fp_columns_title": _rt("fp_columns", language),
+        "fp_summary_title": _rt("fp_summary", language),
+        "column_label": _rt("column", language),
+        "interpretation_label": _rt("interpretation", language),
+        "top_features_title": _rt("top_features", language),
+        "rank_label": _rt("rank", language),
+        "feature_label": _rt("feature", language),
+        "assigned_level_label": _rt("assigned_level", language),
+        "assigned_class_label": _rt("assigned_class", language),
+        "coverage_label": _rt("coverage", language),
+        "importance_label": _rt("importance", language),
+        "appendix_title": _rt("appendix", language),
+        "cfg_rows": payload["cfg_rows"],
+    })
     return template.render(**context)
 
 
@@ -705,6 +993,37 @@ def _cfg_rows_for_pdf(cfg: ProjectConfig) -> list[tuple[str, str]]:
         ("Tarefa FP", cfg.fp_label_task),
         ("Otsu fallback", "Sim" if getattr(cfg, "fp_use_otsu_threshold", False) else "Nao"),
         ("Núcleos", str(cfg.nproc)),
+    ]
+
+
+def _localized_cfg_rows(cfg: ProjectConfig, language: str) -> list[tuple[str, str]]:
+    yes = _rt("yes", language)
+    no = _rt("no", language)
+    return [
+        (_rt("protein", language), cfg.protein_file or "-"),
+        (_rt("ligands", language), cfg.ligand_file or "-"),
+        (_rt("workdir", language), cfg.workdir or "-"),
+        (_rt("cfg_selected_ligands", language), str(len(cfg.selected_ligands))),
+        (_rt("cfg_include_waters", language), yes if cfg.include_waters else no),
+        (_rt("cfg_add_h", language), f"{yes}, pH {cfg.ph:g}" if cfg.add_h else no),
+        (
+            "IFP",
+            (
+                f"{cfg.ifp_type}; {_rt('cfg_levels', language)}={cfg.ifp_levels}; "
+                f"{_rt('cfg_radius', language)}={cfg.ifp_radius:g}; "
+                f"{_rt('cfg_length', language)}={cfg.ifp_length}"
+            ),
+        ),
+        (_rt("cfg_count_fingerprint", language), no if cfg.ifp_bit else yes),
+        (_rt("cfg_similarity", language), yes if cfg.sim_matrix else no),
+        (_rt("cfg_pymol", language), yes if cfg.out_pse else no),
+        (_rt("cfg_binding_modes", language), cfg.binding_modes_cfg or "-"),
+        (_rt("cfg_interactions", language), cfg.interaction_config_file or _rt("default_luna", language)),
+        (_rt("cfg_max_distance", language), f"{cfg.inter_max_distance_cap:g} A" if cfg.inter_max_distance_cap else "-"),
+        (_rt("cfg_fp_labels", language), cfg.fp_labels_csv or "-"),
+        (_rt("cfg_fp_task", language), _translate_report_data(cfg.fp_label_task, language)),
+        (_rt("cfg_otsu", language), yes if getattr(cfg, "fp_use_otsu_threshold", False) else no),
+        (_rt("cfg_cores", language), str(cfg.nproc)),
     ]
 
 
@@ -821,14 +1140,14 @@ def _add_image_page(
     from matplotlib.patches import Rectangle
 
     if not image_path.exists():
-        return f"Imagem não encontrada: {image_path}"
+        return f"{_rt('image_missing')}: {image_path}"
     try:
         image = _load_report_image(image_path)
     except Exception as exc:
         _add_text_page(
             pdf,
-            f"Gráfico indisponível: {title}",
-            [f"O arquivo {image_path} não pode ser lido e foi ignorado.", f"{type(exc).__name__}: {exc}"],
+            f"{_rt('image_unavailable')}: {_report_display_text(title)}",
+            [f"{_rt('image_skipped')} {image_path}", f"{type(exc).__name__}: {exc}"],
             None,
             page_state,
         )
@@ -871,6 +1190,27 @@ def _fp_rows(fp_dashboards: dict | None) -> list[tuple[str, str]]:
     return rows[:30]
 
 
+def _localized_fp_rows(fp_dashboards: dict | None, language: str) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for key, dashboard in (fp_dashboards or {}).items():
+        if not isinstance(dashboard, dict):
+            continue
+        rows.append(
+            (
+                str(key),
+                "; ".join(
+                    (
+                        f"{_rt('fp_features', language)}={len(dashboard.get('features', []) or [])}",
+                        f"{_rt('fp_important', language)}={len(dashboard.get('important_features', []) or [])}",
+                        f"{_rt('fp_model', language)}={dashboard.get('model_name', '-')}",
+                        f"{_rt('fp_threshold', language)}={float(dashboard.get('threshold_pct', 0.0) or 0.0):.2f}%",
+                    )
+                ),
+            )
+        )
+    return rows[:30]
+
+
 def _pdf_payload(
     cfg: ProjectConfig,
     analysis: dict,
@@ -881,6 +1221,11 @@ def _pdf_payload(
     fp_dashboards: dict | None,
     extra_images: list[tuple[str, str | Path, str]] | None,
 ) -> dict:
+    language = _report_language(getattr(cfg, "language", "en"))
+    # PDF jobs can be spawned outside Qt, so establish the project locale before
+    # building translated FP prose, table labels, and fallback plot descriptions.
+    set_language(language)
+    analysis = dict(analysis or {})
     inter_counts = analysis.get("interaction_counts", {}) or {}
     residue_counts = analysis.get("residue_counts", {}) or {}
     top_inter = _sorted_count_rows(inter_counts, 12)
@@ -892,10 +1237,18 @@ def _pdf_payload(
         cluster_png,
         extra_images,
     )
-    return {
-        "language": str(getattr(cfg, "language", "en") or "en"),
+    payload = {
+        "language": language,
+        "analysis": analysis,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "entries": analysis.get("entries", "não informado"),
+        "summary_rows": [
+            ("Proteína", cfg.protein_file or "-"),
+            ("Ligantes", cfg.ligand_file or "-"),
+            ("Total selecionado", str(len(cfg.selected_ligands))),
+            ("Workdir", cfg.workdir or "-"),
+            ("Entradas processadas", str(analysis.get("entries", "-"))),
+        ],
         "cfg_rows": _cfg_rows_for_pdf(cfg),
         "top_inter": ", ".join(f"{key}: {value}" for key, value in top_inter) or "Sem interações contabilizadas.",
         "top_res": ", ".join(f"{key}: {value}" for key, value in top_res) or "Sem resíduos contabilizados.",
@@ -904,18 +1257,39 @@ def _pdf_payload(
             for row in semantic_images
         ],
         "semantic_images": semantic_images,
-        "fp_sections": _fp_report_sections(fp_dashboards, semantic_images),
+        "fp_sections": _fp_report_sections(fp_dashboards, semantic_images, language),
         "top_res_rows": top_res,
         "fp_rows": _fp_rows(fp_dashboards),
         "fp_model_tables": _fp_model_tables(fp_dashboards),
         "clusters": [(str(label), str(cluster_id)) for label, cluster_id in (clusters or [])],
     }
+    payload.update({
+        "entries": analysis.get("entries", _rt("not_reported", language)),
+        "summary_rows": [
+            (_rt("protein", language), cfg.protein_file or "-"),
+            (_rt("ligands", language), cfg.ligand_file or "-"),
+            (_rt("selected_total", language), str(len(cfg.selected_ligands))),
+            (_rt("workdir", language), cfg.workdir or "-"),
+            (_rt("processed_entries", language), str(analysis.get("entries", "-"))),
+        ],
+        "cfg_rows": _localized_cfg_rows(cfg, language),
+        "interaction_rows": [
+            (_translate_report_data(key, language), str(value))
+            for key, value in _sorted_count_rows(inter_counts)
+        ],
+        "top_inter": _localized_count_summary(top_inter, "no_interactions", language),
+        "top_res": _localized_count_summary(top_res, "no_residues", language),
+        "fp_rows": _localized_fp_rows(fp_dashboards, language),
+    })
+    return payload
 
 
 def _reportlab_write_text_page(canvas, title: str, paragraphs: list[str], rows: list[tuple[str, str]] | None, page_state: list[int]) -> None:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.pdfbase.pdfmetrics import stringWidth
 
+    language = _report_language()
+    t = lambda value: _report_display_text(value, language)
     page_width, page_height = landscape(A4)
     margin = 36.0
     line_height = 13.0
@@ -992,6 +1366,7 @@ def _reportlab_write_image_page(canvas, image: dict, page_state: list[int]) -> s
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from PIL import Image
 
+    language = _report_language()
     path = Path(image["path"])
     if not path.exists():
         return f"Imagem não encontrada: {path}"
@@ -1006,7 +1381,7 @@ def _reportlab_write_image_page(canvas, image: dict, page_state: list[int]) -> s
     page_state[0] += 1
     canvas.setFillColorRGB(0.08, 0.36, 0.35)
     canvas.setFont("Helvetica-Bold", 14)
-    canvas.drawString(margin, page_height - 38, t(str(image["title"])))
+    canvas.drawString(margin, page_height - 38, _report_display_text(image["title"], language))
     available_width = page_width - 2 * margin
     available_height = page_height - 150
     scale = min(available_width / max(image_width, 1), available_height / max(image_height, 1))
@@ -1017,7 +1392,7 @@ def _reportlab_write_image_page(canvas, image: dict, page_state: list[int]) -> s
     reader = ImageReader(str(path))
     canvas.drawImage(reader, x, y, width=draw_width, height=draw_height, preserveAspectRatio=True, anchor="c", mask="auto")
 
-    caption = t(str(image.get("caption") or ""))
+    caption = _report_display_text(image.get("caption") or "", language)
     words = caption.split()
     lines: list[str] = []
     current = ""
@@ -1044,7 +1419,7 @@ def _reportlab_write_image_page(canvas, image: dict, page_state: list[int]) -> s
     return None
 
 
-def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+def _write_pdf_payload_reportlab_legacy(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.pdfgen.canvas import Canvas
 
@@ -1061,16 +1436,34 @@ def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path,
             canvas,
             "Relatório HIP²LInterActomics",
             [
-                f"Gerado em {payload['generated_at']}.",
-                f"Entradas processadas: {payload['entries']}.",
+                f"{t('Gerado em')} {payload['generated_at']}.",
             ],
+            payload["summary_rows"],
+            page_state,
+        )
+        _reportlab_write_text_page(
+            canvas,
+            "Configuração",
+            [],
             payload["cfg_rows"],
             page_state,
         )
         _reportlab_write_text_page(
             canvas,
+            "Contagem por tipo de interação",
+            [],
+            [
+                (str(key), str(value))
+                for key, value in _sorted_count_rows(
+                    (payload.get("analysis") or {}).get("interaction_counts", {})
+                )
+            ],
+            page_state,
+        )
+        _reportlab_write_text_page(
+            canvas,
             "Top 30 resíduos com mais interações",
-            [payload["top_inter"]],
+            [],
             [(str(key), str(value)) for key, value in payload["top_res_rows"]],
             page_state,
         )
@@ -1131,7 +1524,14 @@ def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path,
                     warning = _reportlab_write_image_page(canvas, image, page_state)
                     if warning:
                         warnings.append(warning)
-        appendix = [image for image in payload["semantic_images"] if image.get("appendix")]
+        appendix = [
+            image
+            for image in payload["semantic_images"]
+            if image.get("appendix") or (
+                image.get("category") == "fingerprint"
+                and (not image.get("ifp_type") or not image.get("model"))
+            )
+        ]
         if appendix:
             _reportlab_write_text_page(canvas, "Apêndice de exceções", [], None, page_state)
             for image in appendix:
@@ -1150,7 +1550,141 @@ def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path,
     return output, warnings
 
 
-def _write_pdf_payload_matplotlib(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+    """Render the PDF from the same localized payload used by the HTML template."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen.canvas import Canvas
+
+    language = _report_language(payload.get("language"))
+    set_language(language)
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.part")
+    temporary.unlink(missing_ok=True)
+    warnings: list[str] = []
+    page_state = [0]
+    canvas = Canvas(str(temporary), pagesize=landscape(A4), pageCompression=1)
+    try:
+        _reportlab_write_text_page(
+            canvas,
+            _rt("report_title", language),
+            [f"{_rt('generated', language)} {payload['generated_at']}."],
+            payload["summary_rows"],
+            page_state,
+        )
+        _reportlab_write_text_page(
+            canvas,
+            _rt("configuration", language),
+            [],
+            payload["cfg_rows"],
+            page_state,
+        )
+        _reportlab_write_text_page(
+            canvas,
+            _rt("interaction_count", language),
+            [],
+            payload["interaction_rows"],
+            page_state,
+        )
+        _reportlab_write_text_page(
+            canvas,
+            _rt("top_residues", language),
+            [],
+            [(str(key), str(value)) for key, value in payload["top_res_rows"]],
+            page_state,
+        )
+        general_images = [
+            image for image in payload["semantic_images"]
+            if not image.get("appendix") and image.get("category") != "fingerprint"
+        ]
+        for image in general_images:
+            warning = _reportlab_write_image_page(canvas, image, page_state)
+            if warning:
+                warnings.append(warning)
+        if payload["clusters"]:
+            _reportlab_write_text_page(
+                canvas,
+                _rt("cluster_assignment", language),
+                [_rt("cluster_table_intro", language)],
+                payload["clusters"],
+                page_state,
+            )
+        for section in payload["fp_sections"]:
+            ifp_type = str(section["ifp_type"])
+            _reportlab_write_text_page(
+                canvas,
+                f"{ifp_type}: {_rt('fp_interpret', language)}",
+                section["education"],
+                None,
+                page_state,
+            )
+            _reportlab_write_text_page(
+                canvas,
+                f"{ifp_type}: {_rt('fp_columns', language)}",
+                [],
+                section["column_guide"],
+                page_state,
+            )
+            _reportlab_write_text_page(
+                canvas,
+                f"{ifp_type}: {_rt('fp_summary', language)}",
+                [],
+                section["summary_rows"],
+                page_state,
+            )
+            for model in section["models"]:
+                model_rows = [
+                    (
+                        f"{row.get('rank', '-')}. {_rt('feature', language)} {row.get('feature_id', '-')}",
+                        "; ".join(
+                            (
+                                f"{_rt('assigned_level', language)}={row.get('assigned_level') or '-'}",
+                                f"{_rt('assigned_class', language)}={_translate_report_data(row.get('assigned_class') or '-', language)}",
+                                f"{_rt('coverage', language)}={float(row.get('coverage_pct', 0.0) or 0.0):.2f}%",
+                                f"{_rt('importance', language)}={float(row.get('importance_score', 0.0) or 0.0):.8f}",
+                            )
+                        ),
+                    )
+                    for row in model["rows"]
+                ]
+                _reportlab_write_text_page(
+                    canvas,
+                    f"{_rt('top_features', language)}: {ifp_type} / {model['title']}",
+                    [_rt("top_features_intro", language)],
+                    model_rows,
+                    page_state,
+                )
+                for image in model["images"]:
+                    warning = _reportlab_write_image_page(canvas, image, page_state)
+                    if warning:
+                        warnings.append(warning)
+        appendix = [
+            image
+            for image in payload["semantic_images"]
+            if image.get("appendix") or (
+                image.get("category") == "fingerprint"
+                and (not image.get("ifp_type") or not image.get("model"))
+            )
+        ]
+        if appendix:
+            _reportlab_write_text_page(canvas, _rt("appendix", language), [], None, page_state)
+            for image in appendix:
+                warning = _reportlab_write_image_page(canvas, image, page_state)
+                if warning:
+                    warnings.append(warning)
+        canvas.save()
+        temporary.replace(output)
+    except BaseException:
+        try:
+            canvas.save()
+        except Exception:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
+    return output, warnings
+
+
+def _write_pdf_payload_matplotlib_legacy(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
     from matplotlib.backends.backend_pdf import PdfPages
 
     set_language(str(payload.get("language") or "en"))
@@ -1230,6 +1764,124 @@ def _write_pdf_payload_matplotlib(path: str | Path, payload: dict) -> tuple[Path
                 )
             if payload["clusters"]:
                 _add_text_page(pdf, "Atribuição de clusters", ["Tabela dos ligantes e seus grupos hierárquicos."], payload["clusters"], page_state)
+        temporary.replace(output)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return output, warnings
+
+
+def _write_pdf_payload_matplotlib(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
+    """Fallback renderer consuming the same localized report payload."""
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    language = _report_language(payload.get("language"))
+    set_language(language)
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.part")
+    temporary.unlink(missing_ok=True)
+    page_state = [0]
+    warnings: list[str] = []
+    try:
+        with PdfPages(temporary) as pdf:
+            _add_text_page(
+                pdf,
+                _rt("report_title", language),
+                [
+                    f"{_rt('generated', language)} {payload['generated_at']}.",
+                    _rt("analysis_intro", language),
+                    f"{_rt('processed_entries', language)}: {payload['entries']}.",
+                ],
+                payload["cfg_rows"],
+                page_state,
+            )
+            _add_text_page(
+                pdf,
+                _rt("analysis_interpretation", language),
+                [
+                    _rt("image_distribution_caption", language),
+                    _rt("image_heatmap_caption", language),
+                    _rt("image_similarity_caption", language),
+                    _rt("image_cluster_caption", language),
+                    _rt("image_fingerprint_caption", language),
+                    _rt("image_network_caption", language),
+                ],
+                [
+                    (_rt("frequent_interactions", language), payload["top_inter"]),
+                    (_rt("frequent_residues", language), payload["top_res"]),
+                ],
+                page_state,
+            )
+            general_images = [
+                image for image in payload["semantic_images"]
+                if not image.get("appendix") and image.get("category") != "fingerprint"
+            ]
+            for image in general_images:
+                warning = _add_image_page(
+                    pdf,
+                    _report_display_text(image["title"], language),
+                    Path(image["path"]),
+                    _report_display_text(image["caption"], language),
+                    page_state,
+                )
+                if warning:
+                    warnings.append(warning)
+            if payload["clusters"]:
+                _add_text_page(
+                    pdf,
+                    _rt("cluster_assignment", language),
+                    [_rt("cluster_table_intro", language)],
+                    payload["clusters"],
+                    page_state,
+                )
+            for section in payload["fp_sections"]:
+                ifp_type = str(section["ifp_type"])
+                _add_text_page(pdf, f"{ifp_type}: {_rt('fp_interpret', language)}", section["education"], None, page_state)
+                _add_text_page(pdf, f"{ifp_type}: {_rt('fp_columns', language)}", [_rt("fp_guide_intro", language)], section["column_guide"], page_state)
+                if section["summary_rows"]:
+                    _add_text_page(pdf, f"{ifp_type}: {_rt('fp_summary', language)}", [_rt("fp_summary_intro", language)], section["summary_rows"], page_state)
+                for model in section["models"]:
+                    rows = [
+                        (
+                            f"{row.get('rank', '-')}. {_rt('feature', language)} {row.get('feature_id', '-')} ({_rt('assigned_level', language)} {row.get('assigned_level') or '-'})",
+                            "; ".join(
+                                (
+                                    f"{_rt('assigned_class', language)}={_translate_report_data(row.get('assigned_class') or '-', language)}",
+                                    f"{_rt('coverage', language)}={float(row.get('coverage_pct', 0.0) or 0.0):.2f}%",
+                                    f"{_rt('importance', language)}={float(row.get('importance_score', 0.0) or 0.0):.8f}",
+                                )
+                            ),
+                        )
+                        for row in model["rows"]
+                    ]
+                    _add_text_page(
+                        pdf,
+                        f"{_rt('top_features', language)}: {ifp_type} / {model['title']}",
+                        [_rt("top_features_intro", language)],
+                        rows,
+                        page_state,
+                    )
+            appendix_images = [
+                image
+                for image in payload["semantic_images"]
+                if image.get("appendix") or (
+                    image.get("category") == "fingerprint"
+                    and (not image.get("ifp_type") or not image.get("model"))
+                )
+            ]
+            if appendix_images:
+                _add_text_page(pdf, _rt("appendix", language), [], None, page_state)
+                for image in appendix_images:
+                    warning = _add_image_page(
+                        pdf,
+                        _report_display_text(image["title"], language),
+                        Path(image["path"]),
+                        _report_display_text(image["caption"], language),
+                        page_state,
+                    )
+                    if warning:
+                        warnings.append(warning)
         temporary.replace(output)
     except BaseException:
         temporary.unlink(missing_ok=True)

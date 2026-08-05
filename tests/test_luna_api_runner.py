@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import ast
+import inspect
+import re
 import tempfile
 import unittest
 import json
 from pathlib import Path
 
-from luna_gui.core.analysis_runtime import _FP_DETAIL_SCRIPT, _FP_SESSION_SCRIPT, _clean_helper_text
+from luna_gui.core.analysis_runtime import (
+    _FP_DETAIL_SCRIPT,
+    _FP_SESSION_SCRIPT,
+    _PSE_FILTER_SCRIPT,
+    _clean_helper_text,
+)
 from luna_gui.core.luna_api_runner import (
     API_RUNNER_SCRIPT,
     build_entry_specs,
@@ -103,6 +110,14 @@ class LunaApiRunnerTests(unittest.TestCase):
 
     def test_api_runner_suppresses_rdkit_deprecation_warnings(self) -> None:
         self.assertIn('RDLogger.DisableLog("rdApp.warning")', API_RUNNER_SCRIPT)
+
+    def test_each_exported_pse_resets_the_pymol_object_store(self) -> None:
+        self.assertIn("def _reset_pymol_session", API_RUNNER_SCRIPT)
+        self.assertIn("cmd.reinitialize()", API_RUNNER_SCRIPT)
+        self.assertIn("_reset_pymol_session()\n                viewer = InteractionViewer", API_RUNNER_SCRIPT)
+        self.assertIn("finally:\n                _reset_pymol_session()", API_RUNNER_SCRIPT)
+        self.assertIn("def _reset_pymol_session", _PSE_FILTER_SCRIPT)
+        self.assertIn("viewer = InteractionViewer(show_hydrop_surface=False)", _PSE_FILTER_SCRIPT)
 
     def test_prepared_protein_flags_keep_add_h_without_staging_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -577,6 +592,38 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertIn("Shell {shell_index} | L{level}", _FP_SESSION_SCRIPT)
         self.assertIn('"shell_labels"', _FP_SESSION_SCRIPT)
         self.assertIn("cmd.pseudoatom", _FP_SESSION_SCRIPT)
+
+    def test_generated_pse_sessions_use_the_canonical_interaction_palette(self) -> None:
+        self.assertIn(
+            '"pse_interaction_colors": dict(INTERACTION_COLORS)',
+            inspect.getsource(write_params),
+        )
+        self.assertIn("def _apply_pse_interaction_colors", API_RUNNER_SCRIPT)
+        self.assertIn('cmd.set("dash_color", color_name, object_name)', API_RUNNER_SCRIPT)
+        self.assertIn("pse_interaction_colors", _FP_SESSION_SCRIPT)
+        self.assertIn("def _apply_pse_interaction_colors", _FP_SESSION_SCRIPT)
+        self.assertIn("HIP2L_PSE_INTERACTION_COLORS", _PSE_FILTER_SCRIPT)
+        self.assertIn('cmd.set("label_color", color_name, object_name)', _PSE_FILTER_SCRIPT)
+
+    def test_pse_palette_matches_exact_luna_interaction_object_segments(self) -> None:
+        tree = ast.parse(API_RUNNER_SCRIPT)
+        helper_names = {
+            "_pymol_interaction_tokens",
+            "_pymol_interaction_markers",
+            "_matches_pymol_interaction_object",
+        }
+        helpers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in helper_names
+        ]
+        namespace = {"re": re}
+        exec(compile(ast.Module(body=helpers, type_ignores=[]), "<pse-palette>", "exec"), namespace)
+        matches = namespace["_matches_pymol_interaction_object"]
+
+        self.assertTrue(matches("entry.all_inters.inter.hbond.i0.line", "entryallintersinterhb...", "Hydrogen bond"))
+        self.assertTrue(matches("entry.all_inters.inter.xbond.i0.line", "entryallintersinterxbondi0line", "Halogen bond"))
+        self.assertTrue(matches("entry.all_inters.inter.disp_face-to-face_stack.i0.line", "entryallintersinterdispfacetofacestacki0line", "Displaced face-to-face pi-stacking"))
+        self.assertFalse(matches("entry.all_inters.inter.face-to-face_stack.i0.line", "entryallintersinterfacetofacestacki0line", "Displaced face-to-face pi-stacking"))
 
 
 if __name__ == "__main__":

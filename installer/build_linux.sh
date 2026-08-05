@@ -19,7 +19,7 @@ WORK_DIR="${OUTPUT_ROOT}/pyinstaller-work"
 BUNDLE_ROOT="${OUTPUT_ROOT}/bundle"
 ARCHIVE_ROOT="${OUTPUT_ROOT}/installer"
 APPDIR="${OUTPUT_ROOT}/appimage/HIP2LInterActomics.AppDir"
-APP_VERSION="${APP_VERSION:-1.5.0}"
+APP_VERSION="${APP_VERSION:-1.6.0}"
 
 mkdir -p "${OUTPUT_ROOT}" "${WORK_DIR}" "${BUNDLE_ROOT}" "${ARCHIVE_ROOT}"
 if "${PYTHON_BIN}" -c "import ensurepip" >/dev/null 2>&1 \
@@ -130,6 +130,11 @@ APPIMAGE="${ARCHIVE_ROOT}/HIP2LInterActomics-${APPIMAGE_ARCH}.AppImage"
 ARCH="${APPIMAGE_ARCH}" APPIMAGE_EXTRACT_AND_RUN=1 \
     "${APPIMAGETOOL_BIN}" "${APPDIR}" "${APPIMAGE}"
 chmod +x "${APPIMAGE}"
+
+# Exercise the same command dispatcher used by the installed Linux launchers.
+for cli_flag in --terminal --multiple-run; do
+    APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGE}" "${cli_flag}" --help >/dev/null
+done
 
 echo "Binario: ${EXECUTABLE}"
 echo "Ambiente terminal-only: ${ENVIRONMENT_FILE}"

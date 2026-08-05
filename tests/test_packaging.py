@@ -77,6 +77,8 @@ def test_native_build_scripts_cover_windows_and_linux() -> None:
     assert 'hipplinteractomics-multiple-run' in shortcut_installer
     assert '--terminal' in shortcut_installer
     assert '--multiple-run' in shortcut_installer
+    assert '& $Exe $CliFlag "--help"' in windows
+    assert 'APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGE}" "${cli_flag}" --help' in linux
     assert "Type=Application" in desktop
     assert "Icon=hip2linteractomics" in desktop
     assert "runs-on: windows-latest" in workflow

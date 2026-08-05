@@ -13,6 +13,7 @@ import multiprocessing
 import os
 import pickle
 import time
+import traceback
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -178,11 +179,105 @@ def _save_plot(
             dpi = 180 if profile is not None and profile.name == "screen" else _PLOT_DPI
             fig.savefig(output, dpi=dpi, bbox_inches="tight", pad_inches=0.18)
         return output
+    except ZeroDivisionError:
+        # Some Linux Matplotlib/Pillow combinations fail in constrained
+        # layout for dense heatmaps. Retry without the layout solver.
+        output.unlink(missing_ok=True)
+        try:
+            if hasattr(fig, "set_layout_engine"):
+                fig.set_layout_engine(None)
+            else:
+                fig.set_constrained_layout(False)
+        except (AttributeError, RuntimeError, ValueError):
+            pass
+        dpi = profile.dpi if profile is not None else _PLOT_DPI
+        fig.savefig(output, dpi=dpi, facecolor=fig.get_facecolor())
+        return output
     finally:
         fig.clear()
         plt.close(fig)
         plt.close("all")
         gc.collect()
+
+
+_BAR_LABEL_MIN_PERCENT = 5.0
+
+
+def _bar_label_color(color: object) -> str:
+    """Choose a readable label color for a solid bar segment."""
+    text = str(color or "").strip()
+    if not text.startswith("#"):
+        return "#111111"
+    value = text[1:]
+    if len(value) == 3:
+        value = "".join(character * 2 for character in value)
+    if len(value) < 6:
+        return "#111111"
+    try:
+        red = int(value[0:2], 16) / 255.0
+        green = int(value[2:4], 16) / 255.0
+        blue = int(value[4:6], 16) / 255.0
+    except ValueError:
+        return "#111111"
+    luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+    return "#ffffff" if luminance < 0.46 else "#111111"
+
+
+def _bar_label(value: float, *, percentage: bool) -> str:
+    if percentage:
+        return f"{value:.1f}%" if value < 10.0 else f"{int(round(value))}%"
+    return str(int(round(value))) if float(value).is_integer() else f"{value:.2f}"
+
+
+def _annotate_bar_segments(
+    axis,
+    bars,
+    values,
+    *,
+    bases=None,
+    references=None,
+    percentage: bool,
+    horizontal: bool = False,
+    color: object = "#2f7f83",
+    fontsize: float = 7.0,
+) -> None:
+    """Write quantitative labels inside segments representing at least 5 percent."""
+    numeric_values = np.asarray(values, dtype=float)
+    numeric_bases = np.zeros(len(numeric_values), dtype=float) if bases is None else np.asarray(bases, dtype=float)
+    numeric_references = (
+        np.full(len(numeric_values), 100.0, dtype=float)
+        if references is None
+        else np.asarray(references, dtype=float)
+    )
+    text_color = _bar_label_color(color)
+    for bar, value, base, reference in zip(bars, numeric_values, numeric_bases, numeric_references):
+        if value <= 0.0:
+            continue
+        represented_percent = value if percentage else (100.0 * value / reference if reference > 0.0 else 0.0)
+        if represented_percent < _BAR_LABEL_MIN_PERCENT:
+            continue
+        if horizontal:
+            axis.text(
+                base + (value / 2.0),
+                bar.get_y() + (bar.get_height() / 2.0),
+                _bar_label(value, percentage=percentage),
+                ha="center",
+                va="center",
+                fontsize=fontsize,
+                fontweight="bold",
+                color=text_color,
+            )
+        else:
+            axis.text(
+                bar.get_x() + (bar.get_width() / 2.0),
+                base + (value / 2.0),
+                _bar_label(value, percentage=percentage),
+                ha="center",
+                va="center",
+                fontsize=fontsize,
+                fontweight="bold",
+                color=text_color,
+            )
 
 
 def _save_interaction_summary(
@@ -209,13 +304,230 @@ def _save_interaction_summary(
         return None
     height = max(4.0, 0.28 * len(rows) + 1.8)
     fig, axis = plt.subplots(figsize=(9.0, height))
-    axis.barh([name for name, _ in rows], [value for _, value in rows], color="#2f7f83")
+    values = np.asarray([value for _, value in rows], dtype=float)
+    bars = axis.barh([name for name, _ in rows], values, color="#2f7f83")
+    _annotate_bar_segments(
+        axis,
+        bars,
+        values,
+        references=np.full(len(values), max(float(values.sum()), 1.0)),
+        percentage=False,
+        horizontal=True,
+        color="#2f7f83",
+        fontsize=8,
+    )
     axis.set_xlabel(t("Contagem de interações", lang=language))
     axis.set_title(t("Resumo de interações", lang=language))
     axis.grid(axis="x", alpha=0.2)
     fig.tight_layout()
     output = output_dir / "interaction_summary.png"
     return _save_plot(fig, output, plt, profile=profile)
+
+
+def _residue_distribution_data(
+    residue_artifact: dict,
+    *,
+    trajectory_analysis: bool,
+) -> tuple[list[str], list[str], np.ndarray]:
+    """Return residue x interaction values for the Statistics distribution view."""
+    if trajectory_analysis:
+        return results_analysis.build_trajectory_frame_percentages(residue_artifact)
+
+    entries = list(residue_artifact.get("entries", []) or [])
+    residues = list(residue_artifact.get("residues", []) or [])
+    matrices = residue_artifact.get("matrix") or {}
+    if not entries or not residues or not isinstance(matrices, dict):
+        return [], [], np.zeros((0, 0), dtype=float)
+    interaction_types = [str(name) for name, values in matrices.items() if values]
+    columns: list[np.ndarray] = []
+    kept_types: list[str] = []
+    for interaction_type in interaction_types:
+        values = np.asarray(matrices.get(interaction_type), dtype=float)
+        if values.ndim != 2 or values.shape != (len(entries), len(residues)):
+            continue
+        counts = values.sum(axis=0)
+        if not np.any(counts > 0.0):
+            continue
+        columns.append(counts)
+        kept_types.append(interaction_type)
+    if not columns:
+        return [], [], np.zeros((0, 0), dtype=float)
+    matrix = np.column_stack(columns)
+    keep_residue = np.sum(matrix, axis=1) > 0.0
+    filtered_residues = [residue for residue, keep in zip(residues, keep_residue) if bool(keep)]
+    return filtered_residues, kept_types, matrix[keep_residue, :]
+
+
+def _save_stacked_interaction_distribution(
+    labels: list[str],
+    interaction_types: list[str],
+    values: np.ndarray,
+    output: Path,
+    *,
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    language: str,
+    profile: PlotProfile | None,
+    percentage: bool,
+    ligand_atom_map_path: Path | None = None,
+) -> Path | None:
+    matrix = np.asarray(values, dtype=float)
+    if not labels or not interaction_types or matrix.shape != (len(labels), len(interaction_types)):
+        return None
+    plt = _get_pyplot()
+    if plt is None:
+        return None
+    from matplotlib.patches import Patch
+
+    atom_map_image = None
+    if ligand_atom_map_path is not None and ligand_atom_map_path.exists():
+        try:
+            import matplotlib.image as mpimg
+
+            atom_map_image = mpimg.imread(ligand_atom_map_path)
+        except Exception:
+            atom_map_image = None
+    legend_columns = max(1, min(4, len(interaction_types)))
+    legend_rows = max(1, (len(interaction_types) + legend_columns - 1) // legend_columns)
+    plot_height = max(4.8, 3.8 + 0.04 * len(labels))
+    x_label_zone = 0.92
+    legend_gap = 0.5 / 2.54
+    legend_height = 0.35 + (0.34 * legend_rows)
+    width = max(10.0, 4.0 + 0.32 * len(labels))
+    if atom_map_image is not None:
+        width = max(12.0, width)
+    fig = plt.figure(figsize=(width, plot_height + x_label_zone + legend_gap + legend_height))
+    grid = fig.add_gridspec(
+        4,
+        1,
+        height_ratios=[plot_height, x_label_zone, legend_gap, legend_height],
+        hspace=0.0,
+    )
+    if atom_map_image is not None:
+        plot_grid = grid[0].subgridspec(1, 2, width_ratios=[3.2, 1.25], wspace=0.18)
+        axis = fig.add_subplot(plot_grid[0])
+        atom_axis = fig.add_subplot(plot_grid[1])
+        atom_axis.imshow(atom_map_image)
+        atom_axis.set_title(t("Estrutura 2D\nIDs dos átomos", lang=language))
+        atom_axis.set_axis_off()
+    else:
+        axis = fig.add_subplot(grid[0])
+    legend_axis = fig.add_subplot(grid[3])
+    legend_axis.set_axis_off()
+    positions = np.arange(len(labels))
+    bottoms = np.zeros(len(labels), dtype=float)
+    references = np.maximum(matrix.sum(axis=1), 1.0)
+    for column, interaction_type in enumerate(interaction_types):
+        if column >= matrix.shape[1]:
+            continue
+        values_column = matrix[:, column]
+        if not np.any(values_column > 0):
+            continue
+        bars = axis.bar(
+            positions,
+            values_column,
+            bottom=bottoms,
+            width=0.82,
+            label=t(interaction_type, lang=language),
+            color=results_analysis.get_interaction_color(interaction_type),
+            edgecolor="#17324d",
+            linewidth=0.55,
+        )
+        _annotate_bar_segments(
+            axis,
+            bars,
+            values_column,
+            bases=bottoms,
+            references=references,
+            percentage=percentage,
+            color=results_analysis.get_interaction_color(interaction_type),
+            fontsize=6.8 if len(labels) > 30 else 7.5,
+        )
+        bottoms += values_column
+    axis.set_title(t(title, lang=language))
+    axis.set_xlabel(t(xlabel, lang=language))
+    axis.set_ylabel(t(ylabel, lang=language))
+    axis.set_xticks(positions)
+    axis.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    axis.set_ylim(0, max(1.0, float(bottoms.max()) * 1.12))
+    legend_axis.legend(
+        handles=[
+            Patch(
+                facecolor=results_analysis.get_interaction_color(interaction_type),
+                edgecolor="#17324d",
+                label=t(interaction_type, lang=language),
+            )
+            for interaction_type in interaction_types
+        ],
+        loc="center",
+        ncol=legend_columns,
+        fontsize=8,
+        frameon=False,
+    )
+    fig.subplots_adjust(bottom=0.04, left=0.08, right=0.98, top=0.94)
+    return _save_plot(fig, output, plt, profile=profile)
+
+
+def _save_statistics_detail_plots(
+    residue_artifact: dict,
+    output_dir: Path,
+    *,
+    language: str,
+    profile: PlotProfile | None,
+    trajectory_analysis: bool,
+    ligand_atom_map_path: Path | None = None,
+) -> list[tuple[str, Path, str, int]]:
+    """Persist the detailed Statistics-tab distributions used by GUI reports."""
+    outputs: list[tuple[str, Path, str, int]] = []
+    residues, interaction_types, matrix = _residue_distribution_data(
+        residue_artifact,
+        trajectory_analysis=trajectory_analysis,
+    )
+    residue_output = _save_stacked_interaction_distribution(
+        residues,
+        interaction_types,
+        matrix,
+        output_dir / "interactions_by_amino_acid.png",
+        title="Interactions by amino acid across all ligands",
+        xlabel="Amino acids",
+        ylabel="% of frames (entries)" if trajectory_analysis else "Interaction count",
+        language=language,
+        profile=profile,
+        percentage=trajectory_analysis,
+    )
+    if residue_output:
+        outputs.append((
+            "interactions_by_amino_acid",
+            residue_output,
+            "Interaction distribution by amino acid across the complete analyzed set.",
+            11,
+        ))
+
+    if not trajectory_analysis:
+        return outputs
+    atoms, atom_types, atom_matrix = results_analysis.build_ligand_atom_frame_percentages(residue_artifact)
+    atom_output = _save_stacked_interaction_distribution(
+        atoms,
+        atom_types,
+        atom_matrix,
+        output_dir / "interactions_by_ligand_atom.png",
+        title="Interactions by ligand atoms",
+        xlabel="Ligand atoms",
+        ylabel="% of frames (entries)",
+        language=language,
+        profile=profile,
+        percentage=True,
+        ligand_atom_map_path=ligand_atom_map_path,
+    )
+    if atom_output:
+        outputs.append((
+            "interactions_by_ligand_atom",
+            atom_output,
+            "Interaction distribution assigned to the participating ligand atoms across trajectory frames.",
+            12,
+        ))
+    return outputs
 
 
 def _save_residue_heatmaps(
@@ -293,29 +605,76 @@ def _save_complete_residue_heatmap(
     profile: PlotProfile | None = None,
     trajectory_analysis: bool = False,
 ) -> Path | None:
-    entries, residues, matrix, _interaction_types = results_analysis.build_complete_heatmap(residue_artifact)
-    values = np.asarray(matrix, dtype=float)
-    if not entries or not residues or values.size == 0:
+    entries, residues, layered_cells, interaction_types = results_analysis.build_complete_heatmap_layers(residue_artifact)
+    if not entries or not residues or not layered_cells:
         return None
     plt = _get_pyplot()
     if plt is None:
         return None
-    fig, axis = plt.subplots(
+    from matplotlib.patches import Patch, Rectangle
+
+    residue_labels = [results_analysis.format_residue_label(residue) for residue in residues]
+    legend_types = sorted(interaction_types, key=results_analysis.interaction_priority_key)
+    legend_columns = max(1, min(3, len(legend_types) or 1))
+    legend_rows = max(1, (len(legend_types) + legend_columns - 1) // legend_columns)
+    # Keep the interaction-type legend 0.125 cm below the X-label area.
+    plot_height = max(4.0, 2.7 + 0.04 * _rendered_entry_count(len(entries)))
+    x_label_zone = 0.92
+    legend_gap = 0.125 / 2.54
+    legend_height = 0.35 + (0.34 * legend_rows)
+    fig = plt.figure(
         figsize=(
-            max(9.0, 4.0 + 0.12 * min(len(residues), 90)),
-            max(6.0, 3.2 + 0.04 * _rendered_entry_count(len(entries))),
+            max(9.0, 4.0 + 0.12 * min(len(residue_labels), 90)),
+            plot_height + x_label_zone + legend_gap + legend_height,
         )
     )
-    image = axis.imshow(values, cmap="viridis", aspect="auto")
-    fig.patch.set_facecolor("#0b1220")
-    axis.set_facecolor("#0b1220")
-    axis.set_title(t("Mapa de calor completo ligantes x resíduos", lang=language))
-    axis.set_xlabel(t("Resíduos", lang=language))
+    grid = fig.add_gridspec(
+        4,
+        1,
+        height_ratios=[plot_height, x_label_zone, legend_gap, legend_height],
+        hspace=0.0,
+    )
+    axis = fig.add_subplot(grid[0])
+    legend_axis = fig.add_subplot(grid[3])
+    legend_axis.set_axis_off()
+    fig.patch.set_facecolor("#ffffff")
+    axis.set_facecolor("#ffffff")
+    for row_index, row in enumerate(layered_cells):
+        for column_index, cell_types in enumerate(row):
+            if not cell_types:
+                axis.add_patch(
+                    Rectangle(
+                        (column_index, row_index),
+                        1.0,
+                        1.0,
+                        facecolor="#ffffff",
+                        edgecolor="#94a3b8",
+                        linewidth=0.35,
+                    )
+                )
+                continue
+            ordered_types = sorted(cell_types, key=results_analysis.interaction_priority_key)
+            stripe_width = 1.0 / len(ordered_types)
+            for stripe_index, interaction_name in enumerate(ordered_types):
+                axis.add_patch(
+                    Rectangle(
+                        (column_index + (stripe_index * stripe_width), row_index),
+                        stripe_width,
+                        1.0,
+                        facecolor=results_analysis.get_interaction_color(interaction_name),
+                        edgecolor="#94a3b8",
+                        linewidth=0.2,
+                    )
+                )
+    axis.set_xlim(0, len(residue_labels))
+    axis.set_ylim(len(entries), 0)
+    axis.set_title(t("Tipos de interação por par ligante x resíduo", lang=language), pad=14.17)
+    axis.set_xlabel(t("Resíduos", lang=language), labelpad=14.17)
     axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
-    axis.set_xticks(range(len(residues)))
-    axis.set_xticklabels(residues, rotation=45, ha="right", fontsize=7)
+    axis.set_xticks([index + 0.5 for index in range(len(residue_labels))])
+    axis.set_xticklabels(residue_labels, rotation=45, ha="right", fontsize=7)
     y_indices = reference_tick_indices(len(entries), trajectory_analysis)
-    axis.set_yticks(y_indices)
+    axis.set_yticks([index + 0.5 for index in y_indices])
     axis.set_yticklabels(
         [
             (
@@ -327,19 +686,35 @@ def _save_complete_residue_heatmap(
         ],
         fontsize=7,
     )
-    axis.tick_params(colors="#e5e7eb")
-    axis.xaxis.label.set_color("#e5e7eb")
-    axis.yaxis.label.set_color("#e5e7eb")
-    axis.title.set_color("#f8fafc")
-    colorbar = fig.colorbar(image, ax=axis, fraction=0.035, pad=0.03)
-    colorbar.ax.tick_params(colors="#e5e7eb")
+    axis.tick_params(colors="#111827")
+    axis.xaxis.label.set_color("#111827")
+    axis.yaxis.label.set_color("#111827")
+    axis.title.set_color("#111827")
+    if legend_types:
+        legend = legend_axis.legend(
+            handles=[
+                Patch(
+                    facecolor=results_analysis.get_interaction_color(name),
+                    edgecolor="none",
+                    label=t(name, lang=language),
+                )
+                for name in legend_types
+            ],
+            loc="center",
+            ncol=legend_columns,
+            fontsize=8,
+            frameon=False,
+        )
+        for label in legend.get_texts():
+            label.set_color("#111827")
+    fig.subplots_adjust(left=0.12, right=0.985, top=0.96, bottom=0.04)
     return _save_plot(
         fig,
         output_dir / "complete_ligands_residues_heatmap.png",
         plt,
         profile=profile,
         heatmap_axes=axis,
-        x_count=len(residues),
+        x_count=len(residue_labels),
         y_count=len(entries),
     )
 
@@ -413,7 +788,10 @@ def _save_fp_dashboard_figures(
     if class_labels:
         fig, axis = plt.subplots(figsize=(max(9.0, 1.0 * len(class_labels) + 3.5), 6.0))
         values = [float(class_share[label]) for label in class_labels]
-        axis.bar(range(len(class_labels)), values, color=[colors.get(label, "#2f7f83") for label in class_labels])
+        bar_colors = [colors.get(label, "#2f7f83") for label in class_labels]
+        bars = axis.bar(range(len(class_labels)), values, color=bar_colors)
+        for bar, value, color in zip(bars, values, bar_colors):
+            _annotate_bar_segments(axis, [bar], [value], percentage=True, color=color, fontsize=8)
         axis.set_xticks(range(len(class_labels)))
         axis.set_xticklabels([t(label, lang=language) for label in class_labels], rotation=30, ha="right")
         axis.set_ylabel(t("% de features importantes", lang=language))
@@ -432,7 +810,9 @@ def _save_fp_dashboard_figures(
             )
             if not np.any(values > 0):
                 continue
-            axis.barh(y, values, left=left, label=t(class_name, lang=language), color=colors.get(class_name, "#6f9ec7"))
+            color = colors.get(class_name, "#6f9ec7")
+            bars = axis.barh(y, values, left=left, label=t(class_name, lang=language), color=color)
+            _annotate_bar_segments(axis, bars, values, bases=left, percentage=True, horizontal=True, color=color)
             left += values
         axis.set_yticks(y)
         axis.set_yticklabels(labels)
@@ -448,7 +828,10 @@ def _save_fp_dashboard_figures(
         fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
         coverage = [float(feature.get("coverage_pct", 0.0) or 0.0) for feature in features]
         importance = [float(feature.get("importance_pct", 0.0) or 0.0) for feature in features]
-        axis.barh(y, coverage, color=[colors.get(str(feature.get("assigned_class", "")), "#2f7f83") for feature in features])
+        coverage_colors = [colors.get(str(feature.get("assigned_class", "")), "#2f7f83") for feature in features]
+        bars = axis.barh(y, coverage, color=coverage_colors)
+        for bar, value, color in zip(bars, coverage, coverage_colors):
+            _annotate_bar_segments(axis, [bar], [value], percentage=True, horizontal=True, color=color)
         axis.scatter(importance, y, marker="*", color="#b42318", s=45, label=t("Importância relativa", lang=language))
         axis.set_yticks(y)
         axis.set_yticklabels(labels)
@@ -507,7 +890,9 @@ def _save_fp_dashboard_figures(
                 values_array = np.asarray(values, dtype=float)
                 if not np.any(values_array > 0):
                     continue
-                axis.barh(y, values_array, left=left, label=t(interaction_name, lang=language), color=results_analysis.get_interaction_color(interaction_name))
+                color = results_analysis.get_interaction_color(interaction_name)
+                bars = axis.barh(y, values_array, left=left, label=t(interaction_name, lang=language), color=color)
+                _annotate_bar_segments(axis, bars, values_array, bases=left, percentage=True, horizontal=True, color=color)
                 left += values_array
             axis.set_yticks(y)
             axis.set_yticklabels(labels)
@@ -525,11 +910,22 @@ def _save_fp_dashboard_figures(
             prevalent_labels = [str(feature.get("feature_id", "-")) for feature in prevalent]
             heights = [len(feature.get("prevalent_pair_entries", []) or []) for feature in prevalent]
             fig, axis = plt.subplots(figsize=(max(10.0, 0.48 * len(prevalent) + 4.0), 6.2))
-            axis.bar(
+            bar_colors = [results_analysis.get_interaction_color(str(feature.get("prevalent_interaction", ""))) for feature in prevalent]
+            bars = axis.bar(
                 range(len(prevalent)),
                 heights,
-                color=[results_analysis.get_interaction_color(str(feature.get("prevalent_interaction", ""))) for feature in prevalent],
+                color=bar_colors,
             )
+            for bar, value, color in zip(bars, heights, bar_colors):
+                _annotate_bar_segments(
+                    axis,
+                    [bar],
+                    [value],
+                    references=[max(max(heights), 1)],
+                    percentage=False,
+                    color=color,
+                    fontsize=8,
+                )
             axis.set_xticks(range(len(prevalent)))
             axis.set_xticklabels(prevalent_labels, rotation=45, ha="right")
             axis.set_xlabel(t("ID da feature", lang=language))
@@ -572,7 +968,17 @@ def _save_fp_dashboard_figures(
         labels = [f"{row.get('feature_id', '-')} (L{row.get('assigned_level') or '-'})" for row in rows]
         values = [float(row.get("importance_score", 0.0) or 0.0) for row in rows]
         fig, axis = plt.subplots(figsize=(11.5, max(7.0, 0.28 * len(rows) + 2.7)))
-        axis.barh(range(len(rows)), values, color="#2f7f83" if model_key == "extra_trees" else "#b45f3b")
+        bar_color = "#2f7f83" if model_key == "extra_trees" else "#b45f3b"
+        bars = axis.barh(range(len(rows)), values, color=bar_color)
+        _annotate_bar_segments(
+            axis,
+            bars,
+            values,
+            references=np.full(len(values), max(max(values), 1.0)),
+            percentage=False,
+            horizontal=True,
+            color=bar_color,
+        )
         axis.set_yticks(range(len(rows)))
         axis.set_yticklabels(labels, fontsize=7.5)
         axis.set_xlabel(t("Importância da feature", lang=language))
@@ -662,7 +1068,7 @@ def _save_cluster_figure(
     ifp_type: str,
     language: str = "en",
     profile: PlotProfile | None = None,
-) -> Path | None:
+) -> tuple[Path, Path] | None:
     plt = _get_pyplot()
     if plt is None:
         return None
@@ -673,10 +1079,9 @@ def _save_cluster_figure(
 
     rendered_entries = _rendered_entry_count(len(result.labels))
     width = max(9.0, 4.5 + 0.035 * rendered_entries)
-    height = max(8.0, 4.2 + 0.035 * rendered_entries)
-    fig = plt.figure(figsize=(width, height))
-    grid = fig.add_gridspec(2, 1, height_ratios=[1.2, 2.3], hspace=0.35)
-    tree_axis = fig.add_subplot(grid[0])
+    height = max(6.0, 4.2 + 0.035 * rendered_entries)
+    tree_fig = plt.figure(figsize=(width, height))
+    tree_axis = tree_fig.add_subplot(111)
     labels = result.labels if len(result.labels) <= 40 else None
     dendrogram(result.linkage_matrix, labels=labels, leaf_rotation=90, leaf_font_size=7, ax=tree_axis)
     if labels is None:
@@ -687,9 +1092,10 @@ def _save_cluster_figure(
     )
     tree_axis.set_ylabel(t("Distância", lang=language))
 
-    matrix_axis = fig.add_subplot(grid[1])
+    matrix_fig = plt.figure(figsize=(width, height))
+    matrix_axis = matrix_fig.add_subplot(111)
     image = matrix_axis.imshow(result.ordered_matrix, cmap="magma", aspect="auto", vmin=0.0, vmax=1.0)
-    matrix_axis.set_title(t("Matriz reordenada por cluster", lang=language))
+    matrix_axis.set_title(t("Matriz reordenada por cluster", lang=language), pad=14.17)
     matrix_axis.set_xlabel(f"{t('Ligantes', lang=language)} ({len(result.labels)} {t('total', lang=language)})")
     matrix_axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(result.labels)} {t('total', lang=language)})")
     if len(result.ordered_labels) <= 40:
@@ -697,10 +1103,17 @@ def _save_cluster_figure(
         matrix_axis.set_xticklabels(result.ordered_labels, rotation=90, fontsize=7)
         matrix_axis.set_yticks(range(len(result.ordered_labels)))
         matrix_axis.set_yticklabels(result.ordered_labels, fontsize=7)
-    fig.colorbar(image, ax=matrix_axis, fraction=0.046, pad=0.04)
-    fig.subplots_adjust(left=0.09, right=0.90, top=0.93, bottom=0.08, hspace=0.38)
-    output = output_dir / f"clusters_{IFP_SUFFIXES.get(ifp_type, ifp_type)}.png"
-    return _save_plot(fig, output, plt, profile=profile)
+    matrix_fig.colorbar(image, ax=matrix_axis, fraction=0.046, pad=0.04)
+    tree_fig.subplots_adjust(left=0.09, right=0.96, top=0.92, bottom=0.12)
+    matrix_fig.subplots_adjust(left=0.09, right=0.90, top=0.92, bottom=0.12)
+    suffix = IFP_SUFFIXES.get(ifp_type, ifp_type)
+    tree_output = output_dir / f"hierarchical_clustering_{suffix}.png"
+    matrix_output = output_dir / f"reordered_matrix_cluster_{suffix}.png"
+    tree_saved = _save_plot(tree_fig, tree_output, plt, profile=profile)
+    matrix_saved = _save_plot(matrix_fig, matrix_output, plt, profile=profile)
+    if tree_saved and matrix_saved:
+        return tree_saved, matrix_saved
+    return None
 
 
 def _write_cluster_explorer(
@@ -936,6 +1349,18 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
     ifp_order = {"EIFP": 0, "FIFP": 1, "HIFP": 2}
     model_order = {"extra_trees": 0, "gradient_boosting": 1}
     trajectory_analysis = bool(payload.get("trajectory_analysis", False))
+    ligand_atom_map_path = next(
+        (
+            candidate
+            for candidate in (
+                workdir / "results" / "ligand_atom_map.png",
+                workdir / "results" / "ligand_atom_map.jpg",
+                workdir / "results" / "ligand_atom_map.jpeg",
+            )
+            if candidate.exists()
+        ),
+        None,
+    )
 
     for profile_name, profile in PLOT_PROFILES.items():
         profile_root = workdir / "results" / "plots" / language / profile_name
@@ -960,6 +1385,29 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
             ))
 
         residue = payload.get("residue") or {}
+        for plot_id, path, caption, sequence in _save_statistics_detail_plots(
+            residue,
+            profile_root / "distribution",
+            language=language,
+            profile=profile,
+            trajectory_analysis=trajectory_analysis,
+            ligand_atom_map_path=ligand_atom_map_path,
+        ):
+            records.append(_plot_record(
+                workdir,
+                path,
+                plot_id=plot_id,
+                language=language,
+                profile=profile_name,
+                title=(
+                    "Interactions by ligand atoms"
+                    if plot_id == "interactions_by_ligand_atom"
+                    else "Interactions by amino acid across all ligands"
+                ),
+                caption=caption,
+                sequence=sequence,
+                category="distribution",
+            ))
         heatmaps = _save_residue_heatmaps(
             residue,
             profile_root / "heatmaps",
@@ -1037,15 +1485,28 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
                 profile,
             )
             if chart:
+                tree_chart, matrix_chart = chart
                 records.append(_plot_record(
                     workdir,
-                    chart,
-                    plot_id="clusters",
+                    tree_chart,
+                    plot_id="hierarchical_clustering",
                     language=language,
                     profile=profile_name,
-                    title="Clusters",
+                    title="Clustering hierarchical",
                     caption="O agrupamento aproxima ligantes com perfis de interação convergentes.",
                     sequence=50 + ifp_order.get(ifp_type, 9),
+                    ifp_type=ifp_type,
+                    category="clusters",
+                ))
+                records.append(_plot_record(
+                    workdir,
+                    matrix_chart,
+                    plot_id="reordered_matrix_cluster",
+                    language=language,
+                    profile=profile_name,
+                    title="Matrix reordered by cluster",
+                    caption="The reordered matrix highlights ligands with similar interaction profiles.",
+                    sequence=60 + ifp_order.get(ifp_type, 9),
                     ifp_type=ifp_type,
                     category="clusters",
                 ))
@@ -1108,7 +1569,11 @@ def _render_language_process(
         records = _render_language_payload(payload_path, workdir, language)
         status = {"ok": True, "records": [vars(record) for record in records]}
     except BaseException as exc:
-        status = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        status = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(limit=8),
+        }
     Path(status_path).write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
 
 

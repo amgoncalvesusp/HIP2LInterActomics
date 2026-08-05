@@ -59,6 +59,12 @@ try {
             throw "$CliFile nao foi incluido no bundle: $CliPath"
         }
     }
+    foreach ($CliFlag in @("--terminal", "--multiple-run")) {
+        & $Exe $CliFlag "--help"
+        if ($LASTEXITCODE -ne 0) {
+            throw "O despachante empacotado falhou para $CliFlag."
+        }
+    }
 
     $IsccCandidates = @(
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",

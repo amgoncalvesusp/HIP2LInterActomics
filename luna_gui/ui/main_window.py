@@ -172,6 +172,9 @@ class MainWindow(QMainWindow):
         self.tabs.blockSignals(False)
         old_scroll.deleteLater()
         self.tab_results = results
+        # The Results tab is created lazily, so apply the active language now.
+        if hasattr(results, "retranslate_dynamic"):
+            results.retranslate_dynamic()
         if was_current:
             self.tabs.setCurrentIndex(index)
         return results

@@ -30,7 +30,7 @@ from ..core.report_export import (
     read_pdf_render_status,
     save_report,
 )
-from ..i18n import t, translate_figure
+from ..i18n import language, retranslate_ui, t, translate_figure
 from ..core.results_analysis import (
     count_tanimoto_similarity,
     load_analysis_summary,
@@ -321,6 +321,9 @@ class ResultsTab(QWidget):
             self.cluster_fig = Figure(figsize=(8, 6.2))
             self.cluster_canvas = FigureCanvas(self.cluster_fig)
             cluster_layout.addWidget(self.cluster_canvas, 1)
+            self.cluster_matrix_fig = Figure(figsize=(8, 6.2))
+            self.cluster_matrix_canvas = FigureCanvas(self.cluster_matrix_fig)
+            cluster_layout.addWidget(self.cluster_matrix_canvas, 1)
         else:
             msg = "Instale scipy para habilitar clustering." if HAS_MPL else "matplotlib não está instalado."
             cluster_layout.addWidget(QLabel(msg))
@@ -355,6 +358,17 @@ class ResultsTab(QWidget):
         self.pse_list.itemDoubleClicked.connect(lambda _: self._open_pse())
         pse_layout.addWidget(self.pse_list, 1)
         self.inner.addTab(self.pse_tab, "Sessões PyMOL")
+
+    def retranslate_dynamic(self) -> None:
+        """Refresh static controls and labels created after results are loaded."""
+        retranslate_ui(self)
+        for figure in (
+            getattr(self, "fig", None), getattr(self, "st_fig", None),
+            getattr(self, "hm_fig", None), getattr(self, "cluster_fig", None),
+            getattr(self, "cluster_matrix_fig", None),
+        ):
+            if HAS_MPL and figure is not None:
+                translate_figure(figure)
 
     def _start_pdf_report(
         self,
@@ -417,6 +431,22 @@ class ResultsTab(QWidget):
         self._pdf_timeout.start(max(int(timeout_seconds), 1) * 1000)
         process.start()
         return True
+
+    def _confirm_report_overwrite(self, output: str | Path) -> bool:
+        """Ask for overwrite using application translations, not native dialog text."""
+        path = Path(output)
+        if not path.exists():
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(t("Confirmar substituição"))
+        box.setText(t("O arquivo já existe."))
+        box.setInformativeText(t("Deseja substituí-lo?"))
+        yes = box.addButton(t("Sim"), QMessageBox.ButtonRole.AcceptRole)
+        no = box.addButton(t("Não"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(no)
+        box.exec()
+        return box.clickedButton() is yes
 
     def _on_pdf_timeout(self) -> None:
         process = self._pdf_process
@@ -901,7 +931,10 @@ class ResultsTab(QWidget):
             height_in = max(7.0, 3.0 + ((0.5 / 2.54) * rendered_count))
             self.fig.set_dpi(120)
             self.fig.set_size_inches(width_in, height_in, forward=True)
-            self.canvas.setMinimumSize(int(width_in * self.fig.dpi), int(height_in * self.fig.dpi))
+            self.canvas.setMinimumSize(
+                max(1320, int(width_in * self.fig.dpi)),
+                max(780, int(height_in * self.fig.dpi)),
+            )
             self.fig.clear()
             ax = self.fig.add_subplot(111)
             im = ax.imshow(self._sim_matrix, cmap="viridis", aspect="auto", vmin=0, vmax=1)
@@ -984,7 +1017,23 @@ class ResultsTab(QWidget):
         items = sorted(counts.items(), key=lambda x: -x[1])
         labels = [k for k, _ in items]
         values = [v for _, v in items]
-        ax.barh(labels, values, color="#c8693a")
+        bars = ax.barh(labels, values, color="#c8693a")
+        total = max(sum(float(value) for value in values), 1.0)
+        for bar, value in zip(bars, values):
+            numeric_value = float(value)
+            if (100.0 * numeric_value / total) < 5.0:
+                continue
+            text = str(int(numeric_value)) if numeric_value.is_integer() else f"{numeric_value:.2f}"
+            ax.text(
+                bar.get_width() / 2.0,
+                bar.get_y() + (bar.get_height() / 2.0),
+                text,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color="#111111",
+            )
         ax.invert_yaxis()
         ax.set_xlabel("Total (todas as entradas)")
         ax.set_title("Contagem por tipo de interação")
@@ -1081,11 +1130,18 @@ class ResultsTab(QWidget):
         height_in = max(8.0, 4.2 + ((0.5 / 2.54) * rendered_count))
         self.cluster_fig.set_dpi(120)
         self.cluster_fig.set_size_inches(width_in, height_in, forward=True)
-        self.cluster_canvas.setMinimumSize(int(width_in * self.cluster_fig.dpi), int(height_in * self.cluster_fig.dpi))
+        self.cluster_matrix_fig.set_dpi(120)
+        self.cluster_matrix_fig.set_size_inches(width_in, height_in, forward=True)
+        self.cluster_canvas.setMinimumSize(
+            max(1320, int(width_in * self.cluster_fig.dpi)),
+            max(780, int(height_in * self.cluster_fig.dpi)),
+        )
+        self.cluster_matrix_canvas.setMinimumSize(
+            max(1320, int(width_in * self.cluster_matrix_fig.dpi)),
+            max(780, int(height_in * self.cluster_matrix_fig.dpi)),
+        )
         self.cluster_fig.clear()
-        grid = self.cluster_fig.add_gridspec(2, 1, height_ratios=[1.3, 2.4], hspace=0.35)
-
-        ax_tree = self.cluster_fig.add_subplot(grid[0])
+        ax_tree = self.cluster_fig.add_subplot(111)
         labels = result.labels if len(result.labels) <= 40 else None
         dendrogram(
             result.linkage_matrix,
@@ -1095,17 +1151,18 @@ class ResultsTab(QWidget):
             leaf_font_size=7,
             color_threshold=None,
         )
-        ax_tree.set_title("Clustering hierárquico")
+        ax_tree.set_title("Clustering hierárquico", pad=14.17)
         ax_tree.set_ylabel("Distância")
         if labels is None:
             ax_tree.set_xticks([])
             ax_tree.set_xlabel(f"{len(result.labels)} ligantes em ordem hierárquica")
 
-        ax_heat = self.cluster_fig.add_subplot(grid[1])
+        self.cluster_matrix_fig.clear()
+        ax_heat = self.cluster_matrix_fig.add_subplot(111)
         im = ax_heat.imshow(result.ordered_matrix, cmap="magma", aspect="auto", vmin=0, vmax=1)
-        ax_heat.set_title("Matriz reordenada por cluster")
+        ax_heat.set_title("Matriz reordenada por cluster", pad=14.17)
         _apply_tick_labels(ax_heat, result.ordered_labels, axis="both", ligand_axis=True)
-        self.cluster_fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
+        self.cluster_matrix_fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -1113,7 +1170,9 @@ class ResultsTab(QWidget):
                 category=UserWarning,
             )
             self.cluster_fig.tight_layout()
+            self.cluster_matrix_fig.tight_layout()
         self.cluster_canvas.draw()
+        self.cluster_matrix_canvas.draw()
 
     def _populate_cluster_table(self, result) -> None:
         rows = cluster_rows(result)
@@ -1132,7 +1191,11 @@ class ResultsTab(QWidget):
         self.cluster_table.setRowCount(0)
         if HAS_MPL and HAS_CLUSTERING:
             self.cluster_fig.clear()
+            if hasattr(self, "cluster_matrix_fig"):
+                self.cluster_matrix_fig.clear()
             self.cluster_canvas.draw()
+            if hasattr(self, "cluster_matrix_canvas"):
+                self.cluster_matrix_canvas.draw()
 
     def export_current_chart(self) -> None:
         figure, default_name = self._current_figure()
@@ -1192,13 +1255,17 @@ class ResultsTab(QWidget):
         wd = self._current_wd()
         if not wd:
             return
+        self.cfg.language = language()
         out, _ = QFileDialog.getSaveFileName(
             self,
-            "Salvar relatório",
+            t("Salvar relatório"),
             str(wd / "luna_report.html"),
             "HTML (*.html)",
+            options=QFileDialog.Option.DontConfirmOverwrite,
         )
         if not out:
+            return
+        if not self._confirm_report_overwrite(out):
             return
 
         if not self._last_analysis:
@@ -1209,11 +1276,15 @@ class ResultsTab(QWidget):
         heatmap_png = wd / "_report_heatmap.png"
         inter_png = wd / "_report_interactions.png"
         cluster_png = wd / "_report_clusters.png"
+        extra_images: list[tuple[str, Path, str]] = []
         report_assets = load_manifest(wd).select(
             language=str(getattr(self.cfg, "language", "en") or "en"),
             profile="report",
         )
         if not report_assets:
+            legacy_collector = getattr(self, "_legacy_heatmap_report_images", None)
+            if callable(legacy_collector):
+                extra_images = legacy_collector(wd)
             try:
                 if HAS_MPL and self.fig.axes:
                     translate_figure(self.fig)
@@ -1244,6 +1315,7 @@ class ResultsTab(QWidget):
                 cluster_png=cluster_png if not report_assets and cluster_png.exists() else None,
                 clusters=cluster_items,
                 fp_dashboards=getattr(self, "_fp_dashboards", {}),
+                extra_images=extra_images,
             )
         except Exception as exc:
             QMessageBox.critical(self, "Erro", str(exc))
@@ -1254,13 +1326,17 @@ class ResultsTab(QWidget):
         wd = self._current_wd()
         if not wd:
             return
+        self.cfg.language = language()
         out, _ = QFileDialog.getSaveFileName(
             self,
-            "Salvar relatório PDF",
+            t("Salvar relatório PDF"),
             str(wd / "luna_report.pdf"),
             "PDF (*.pdf)",
+            options=QFileDialog.Option.DontConfirmOverwrite,
         )
         if not out:
+            return
+        if not self._confirm_report_overwrite(out):
             return
 
         if not self._last_analysis:

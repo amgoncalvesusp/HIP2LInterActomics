@@ -15,6 +15,7 @@ from pathlib import Path
 from . import analysis_helper
 from .env_manager import python_prefix, python_process_env
 from .pymol_launcher import iter_pymol_candidates
+from .results_analysis import INTERACTION_COLORS
 
 IFP_SUFFIX_TO_TYPE = {"E": "EIFP", "H": "HIFP", "F": "FIFP"}
 ANALYSIS_SUMMARY_SCHEMA_VERSION = 2
@@ -200,6 +201,116 @@ from luna.mol.entry import Entry, MolFileEntry
 
 def _safe_name(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "entry"
+
+
+def _pymol_color_name(interaction_name):
+    return "hip2l_" + re.sub(r"[^a-z0-9]+", "_", str(interaction_name).lower()).strip("_")
+
+
+def _pymol_interaction_tokens(interaction_name):
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    return (normalized,)
+
+
+def _pymol_interaction_markers(interaction_name):
+    # Exact LUNA object-name segments for a displayed interaction.
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    short_names = {
+        "hydrogenbond": ("hbond",),
+        "weakhydrogenbond": ("weak_hbond",),
+        "waterbridgedhydrogenbond": ("water_hbond",),
+        "halogenbond": ("xbond",),
+        "halogenpi": ("x-pi",),
+        "chalcogenbond": ("ybond",),
+        "chalcogenpi": ("y-pi",),
+        "ionic": ("ionic",),
+        "saltbridge": ("salt_bridge",),
+        "cationpi": ("cation-pi",),
+        "cationnucleophile": ("cat_nucleop",),
+        "anionelectrophile": ("ani_electrop",),
+        "pistacking": ("pi-stack",),
+        "aromaticstacking": ("pi-stack", "aromatic-bond"),
+        "edgetoface": ("edge-to-face_stack",),
+        "facetoface": ("face-to-face_stack",),
+        "facetoedgepistacking": ("face-to-edge_stack",),
+        "facetofacepistacking": ("face-to-face_stack",),
+        "facetoslopepistacking": ("face-to-slope_stack",),
+        "displacedfacetoedgepistacking": ("disp_face-to-edge_stack",),
+        "displacedfacetofacepistacking": ("disp_face-to-face_stack",),
+        "displacedfacetoslopepistacking": ("disp_face-to-slope_stack",),
+        "parallel": ("par_multipol",),
+        "parallelmultipolar": ("par_multipol",),
+        "antiparallelmultipolar": ("antipar_multipol",),
+        "orthogonalmultipolar": ("ort_multipol",),
+        "tiltedmultipolar": ("tilted_multipol",),
+        "hydrophobic": ("hphobe",),
+        "amidearomaticstacking": ("amide_stack",),
+        "metalcoordination": ("metal-coord",),
+        "vanderwaals": ("vdw",),
+        "proximal": ("prox",),
+        "multipolarinteraction": ("multipol",),
+        "repulsive": ("repuls",),
+        "unfavorableanionnucleophile": ("unf_ani_nucleop",),
+        "unfavorablecationelectrophile": ("unf_cat_electrop",),
+        "unfavorableelectrophileelectrophile": ("unf_electrop_electrop",),
+        "unfavorablenucleophilenucleophile": ("unf_nucleop_nucleop",),
+    }
+    return tuple(f".{name}." for name in short_names.get(normalized, ()))
+
+
+def _matches_pymol_interaction_object(object_name, normalized_name, interaction_name):
+    markers = _pymol_interaction_markers(interaction_name)
+    if markers:
+        object_name = str(object_name).lower()
+        return any(marker in object_name for marker in markers)
+    return any(token and token in normalized_name for token in _pymol_interaction_tokens(interaction_name))
+
+
+def _apply_pse_interaction_colors(pse_path, palette):
+    if not isinstance(palette, dict) or not palette:
+        return 0
+    try:
+        from pymol import cmd
+        object_names = list(cmd.get_names("objects") or [])
+        if not object_names and Path(pse_path).exists():
+            cmd.load(str(pse_path))
+            object_names = list(cmd.get_names("objects") or [])
+    except Exception as exc:
+        print(f"[fp-session-helper] paleta PSE ignorada ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
+        return 0
+    normalized_names = {name: re.sub(r"[^a-z0-9]+", "", str(name).lower()) for name in object_names}
+    colored = 0
+    for interaction_name, hex_color in palette.items():
+        color = str(hex_color or "").lstrip("#")
+        if len(color) != 6:
+            continue
+        try:
+            rgb = [int(color[index:index + 2], 16) / 255.0 for index in (0, 2, 4)]
+            color_name = _pymol_color_name(interaction_name)
+            cmd.set_color(color_name, rgb)
+        except Exception:
+            continue
+        for object_name, normalized_name in normalized_names.items():
+            if not _matches_pymol_interaction_object(
+                object_name,
+                normalized_name,
+                interaction_name,
+            ):
+                continue
+            try:
+                cmd.color(color_name, object_name)
+                cmd.set("dash_color", color_name, object_name)
+                cmd.set("label_color", color_name, object_name)
+                colored += 1
+            except Exception:
+                continue
+    if colored:
+        try:
+            cmd.save(str(pse_path))
+        except Exception as exc:
+            print(f"[fp-session-helper] paleta aplicada, mas PSE nao salvo ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
+            return 0
+    return colored
 
 
 def _shell_level_key(shell):
@@ -577,6 +688,10 @@ except Exception as exc:
 if not output_path.exists():
     print(json.dumps({"error": f"LUNA ShellViewer terminou sem criar a sessao PSE: {output_path}"}))
     sys.exit(0)
+colored_interaction_objects = _apply_pse_interaction_colors(
+    output_path,
+    runtime_args.get("pse_interaction_colors") or {},
+)
 shell_label_count = _add_shell_number_labels(shells, feature_id, output_path)
 print(json.dumps({
     "ok": True,
@@ -584,6 +699,7 @@ print(json.dumps({
     "shells": len(shells),
     "shell_levels": _sorted_level_keys(_shell_level_key(shell) for shell in shells),
     "shell_labels": shell_label_count,
+    "colored_interaction_objects": colored_interaction_objects,
     "source": source,
 }))
 """
@@ -812,12 +928,136 @@ print(json.dumps(dashboard, ensure_ascii=False))
 """
 
 _PSE_FILTER_SCRIPT = r"""
-import ast, configparser, fnmatch, gzip, json, pickle, re, shutil, sys
+import ast, configparser, fnmatch, gzip, json, os, pickle, re, shutil, sys
 from pathlib import Path
+
+
+try:
+    PSE_INTERACTION_COLORS = json.loads(os.environ.get("HIP2L_PSE_INTERACTION_COLORS", "{}"))
+except Exception:
+    PSE_INTERACTION_COLORS = {}
 
 
 def _safe_name(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "filtered"
+
+
+def _pymol_color_name(interaction_name):
+    return "hip2l_" + re.sub(r"[^a-z0-9]+", "_", str(interaction_name).lower()).strip("_")
+
+
+def _pymol_interaction_tokens(interaction_name):
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    return (normalized,)
+
+
+def _pymol_interaction_markers(interaction_name):
+    # Exact LUNA object-name segments for a displayed interaction.
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    short_names = {
+        "hydrogenbond": ("hbond",),
+        "weakhydrogenbond": ("weak_hbond",),
+        "waterbridgedhydrogenbond": ("water_hbond",),
+        "halogenbond": ("xbond",),
+        "halogenpi": ("x-pi",),
+        "chalcogenbond": ("ybond",),
+        "chalcogenpi": ("y-pi",),
+        "ionic": ("ionic",),
+        "saltbridge": ("salt_bridge",),
+        "cationpi": ("cation-pi",),
+        "cationnucleophile": ("cat_nucleop",),
+        "anionelectrophile": ("ani_electrop",),
+        "pistacking": ("pi-stack",),
+        "aromaticstacking": ("pi-stack", "aromatic-bond"),
+        "edgetoface": ("edge-to-face_stack",),
+        "facetoface": ("face-to-face_stack",),
+        "facetoedgepistacking": ("face-to-edge_stack",),
+        "facetofacepistacking": ("face-to-face_stack",),
+        "facetoslopepistacking": ("face-to-slope_stack",),
+        "displacedfacetoedgepistacking": ("disp_face-to-edge_stack",),
+        "displacedfacetofacepistacking": ("disp_face-to-face_stack",),
+        "displacedfacetoslopepistacking": ("disp_face-to-slope_stack",),
+        "parallel": ("par_multipol",),
+        "parallelmultipolar": ("par_multipol",),
+        "antiparallelmultipolar": ("antipar_multipol",),
+        "orthogonalmultipolar": ("ort_multipol",),
+        "tiltedmultipolar": ("tilted_multipol",),
+        "hydrophobic": ("hphobe",),
+        "amidearomaticstacking": ("amide_stack",),
+        "metalcoordination": ("metal-coord",),
+        "vanderwaals": ("vdw",),
+        "proximal": ("prox",),
+        "multipolarinteraction": ("multipol",),
+        "repulsive": ("repuls",),
+        "unfavorableanionnucleophile": ("unf_ani_nucleop",),
+        "unfavorablecationelectrophile": ("unf_cat_electrop",),
+        "unfavorableelectrophileelectrophile": ("unf_electrop_electrop",),
+        "unfavorablenucleophilenucleophile": ("unf_nucleop_nucleop",),
+    }
+    return tuple(f".{name}." for name in short_names.get(normalized, ()))
+
+
+def _matches_pymol_interaction_object(object_name, normalized_name, interaction_name):
+    markers = _pymol_interaction_markers(interaction_name)
+    if markers:
+        object_name = str(object_name).lower()
+        return any(marker in object_name for marker in markers)
+    return any(token and token in normalized_name for token in _pymol_interaction_tokens(interaction_name))
+
+
+def _apply_pse_interaction_colors(pse_path):
+    if not isinstance(PSE_INTERACTION_COLORS, dict) or not PSE_INTERACTION_COLORS:
+        return 0
+    try:
+        from pymol import cmd
+        object_names = list(cmd.get_names("objects") or [])
+        if not object_names and Path(pse_path).exists():
+            cmd.load(str(pse_path))
+            object_names = list(cmd.get_names("objects") or [])
+    except Exception:
+        return 0
+    normalized_names = {name: re.sub(r"[^a-z0-9]+", "", str(name).lower()) for name in object_names}
+    colored = 0
+    for interaction_name, hex_color in PSE_INTERACTION_COLORS.items():
+        color = str(hex_color or "").lstrip("#")
+        if len(color) != 6:
+            continue
+        try:
+            rgb = [int(color[index:index + 2], 16) / 255.0 for index in (0, 2, 4)]
+            color_name = _pymol_color_name(interaction_name)
+            cmd.set_color(color_name, rgb)
+        except Exception:
+            continue
+        for object_name, normalized_name in normalized_names.items():
+            if not _matches_pymol_interaction_object(
+                object_name,
+                normalized_name,
+                interaction_name,
+            ):
+                continue
+            try:
+                cmd.color(color_name, object_name)
+                cmd.set("dash_color", color_name, object_name)
+                cmd.set("label_color", color_name, object_name)
+                colored += 1
+            except Exception:
+                continue
+    if colored:
+        try:
+            cmd.save(str(pse_path))
+        except Exception:
+            return 0
+    return colored
+
+
+def _reset_pymol_session():
+    # Clear PyMOL's process-global object store between exported entries.
+    try:
+        from pymol import cmd
+        cmd.reinitialize()
+        return True
+    except Exception:
+        return False
 
 
 def _load_project(workdir):
@@ -1086,9 +1326,9 @@ if error:
 output_dir.mkdir(parents=True, exist_ok=True)
 created = 0
 matched_interactions = 0
+colored_interaction_objects = 0
 warnings = []
 wildcard = rules.get("*")
-viewer = InteractionViewer(show_hydrop_surface=False)
 
 for entry in list(getattr(project, "entries", []) or []):
     try:
@@ -1108,8 +1348,16 @@ for entry in list(getattr(project, "entries", []) or []):
         if not pdb_file:
             pdb_id = getattr(entry, "pdb_id", "")
             pdb_file = workdir / "pdbs" / f"{pdb_id}.pdb"
-        viewer.new_session([(entry, selected, str(pdb_file))], str(pse_path))
-        created += 1
+        # The LUNA viewer shares one PyMOL object store. A clean viewer state is
+        # required for every entry, otherwise subsequent PSE files accumulate data.
+        _reset_pymol_session()
+        try:
+            viewer = InteractionViewer(show_hydrop_surface=False)
+            viewer.new_session([(entry, selected, str(pdb_file))], str(pse_path))
+            colored_interaction_objects += _apply_pse_interaction_colors(pse_path)
+            created += 1
+        finally:
+            _reset_pymol_session()
     except Exception as exc:
         warnings.append(f"{entry}: {type(exc).__name__}: {exc}")
 
@@ -1118,6 +1366,7 @@ print(json.dumps({
     "output_dir": str(output_dir),
     "created": created,
     "matched_interactions": matched_interactions,
+    "colored_interaction_objects": colored_interaction_objects,
     "warnings": warnings[:20],
 }, ensure_ascii=False))
 """
@@ -1351,6 +1600,7 @@ def generate_fp_session(
             "entry_name": str(entry_name),
             "feature_id": int(feature_id),
             "output_path": str(output_path),
+            "pse_interaction_colors": dict(INTERACTION_COLORS),
         },
         ensure_ascii=False,
     )
@@ -1453,6 +1703,7 @@ def run_fp_dashboard_analysis(
         return {"error": f"Workdir não existe: {workdir}"}
 
     package_root = Path(__file__).resolve().parents[2]
+    env = python_process_env(py_exe)
     try:
         result = subprocess.run(
             [
@@ -1473,7 +1724,7 @@ def run_fp_dashboard_analysis(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=python_process_env(py_exe),
+            env=env,
         )
     except subprocess.TimeoutExpired:
         return {"error": "A geração do dashboard de fingerprints excedeu o tempo limite."}
@@ -1503,6 +1754,8 @@ def generate_filtered_pse_sessions(
     if not Path(binding_modes_cfg).exists():
         return {"error": f"Arquivo .cfg não existe: {binding_modes_cfg}"}
 
+    env = python_process_env(py_exe)
+    env["HIP2L_PSE_INTERACTION_COLORS"] = json.dumps(INTERACTION_COLORS)
     try:
         result = subprocess.run(
             [
@@ -1516,7 +1769,7 @@ def generate_filtered_pse_sessions(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=python_process_env(py_exe),
+            env=env,
         )
     except subprocess.TimeoutExpired:
         return {"error": "A filtragem de sessões PyMOL excedeu o tempo limite."}

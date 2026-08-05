@@ -44,7 +44,7 @@ from ..core.pymol_launcher import launch_pse_session
 from ..core.plot_manifest import load_manifest, resolve_plot_path
 from ..core.plot_profiles import reference_tick_indices
 from ..core.project import PROJECT_FILENAME, ProjectConfig
-from ..i18n import t, translate_figure
+from ..i18n import language, retranslate_ui, t, translate_figure
 from ..core.results_analysis import (
     CLASS_UNRELIABLE,
     FP_CLASS_ORDER,
@@ -91,6 +91,7 @@ class ResultsTab(EnhancedResultsTab):
     _REPORT_FIGURE_WIDTH_IN = 12.0
     _REPORT_FIGURE_HEIGHT_IN = 6.6
     _REPORT_FIGURE_DPI = 300
+    _BAR_LABEL_MIN_PERCENT = 5.0
 
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
@@ -123,6 +124,7 @@ class ResultsTab(EnhancedResultsTab):
         self._install_fp_analysis_tab()
         self._install_fp_session_tab()
         self._reorder_tabs()
+        self.retranslate_dynamic()
 
     def _install_fullscreen_button(self) -> None:
         root_layout = self.layout()
@@ -162,10 +164,15 @@ class ResultsTab(EnhancedResultsTab):
         layout = QVBoxLayout(dlg)
         toolbar = QHBoxLayout()
         btn_zoom_out = QPushButton("Afastar")
+        btn_zoom_out.setToolTip("Reduz o zoom do gráfico atual.")
         btn_zoom_in = QPushButton("Aproximar")
+        btn_zoom_in.setToolTip("Aumenta o zoom do gráfico atual.")
         btn_zoom_100 = QPushButton("100%")
+        btn_zoom_100.setToolTip("Restaura o zoom original de 100%.")
         btn_fit = QPushButton("Ajustar a tela")
+        btn_fit.setToolTip("Ajusta o gráfico ao espaço disponível.")
         btn_close = QPushButton("Fechar")
+        btn_close.setToolTip("Fecha a visualização ampliada.")
         zoom_label = QLabel("100%")
         zoom_label.setMinimumWidth(58)
         toolbar.addWidget(btn_zoom_out)
@@ -308,12 +315,24 @@ class ResultsTab(EnhancedResultsTab):
         layout.removeWidget(self.cluster_canvas)
         self.cluster_scroll = self._build_canvas_scroll_area(self.cluster_canvas)
         layout.insertWidget(2, self.cluster_scroll, 1)
+        if hasattr(self, "cluster_matrix_canvas"):
+            layout.removeWidget(self.cluster_matrix_canvas)
+            self.cluster_matrix_scroll = self._build_canvas_scroll_area(self.cluster_matrix_canvas)
+            layout.addWidget(self.cluster_matrix_scroll, 1)
 
     def _build_canvas_scroll_area(self, canvas) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidget(canvas)
-        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        scroll.setWidgetResizable(True)
+        # Keep scientific plots at a readable size and let the user inspect
+        # wide/tall regions with scrollbars instead of shrinking labels.
+        canvas.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        canvas.setMinimumSize(
+            max(canvas.minimumWidth(), 1320),
+            max(canvas.minimumHeight(), 780),
+        )
+        scroll.setWidgetResizable(False)
+        scroll.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        scroll.setMinimumHeight(620)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         return scroll
@@ -413,8 +432,10 @@ class ResultsTab(EnhancedResultsTab):
         self.pse_filter_cfg_edit.setPlaceholderText("(binding_modes.cfg)")
         cfg_row.addWidget(self.pse_filter_cfg_edit, 1)
         btn_pick = QPushButton("...")
+        btn_pick.setToolTip("Seleciona um arquivo de regras .cfg.")
         btn_pick.clicked.connect(self._pick_pse_filter_cfg)
         btn_editor = QPushButton("Editor visual")
+        btn_editor.setToolTip("Abre o editor visual das regras de filtragem.")
         btn_editor.clicked.connect(self._open_pse_filter_editor)
         cfg_row.addWidget(btn_pick)
         cfg_row.addWidget(btn_editor)
@@ -426,8 +447,10 @@ class ResultsTab(EnhancedResultsTab):
         self.pse_filter_name_edit.setPlaceholderText("ex.: hbonds_ligante_ativo")
         name_row.addWidget(self.pse_filter_name_edit, 1)
         btn_generate = QPushButton("Gerar filtragem")
+        btn_generate.setToolTip("Gera sessões PyMOL usando o filtro informado.")
         btn_generate.clicked.connect(self._generate_pse_filter)
         btn_delete = QPushButton("Apagar filtragem selecionada")
+        btn_delete.setToolTip("Apaga a filtragem selecionada e suas sessões geradas.")
         btn_delete.clicked.connect(self._delete_selected_pse_filter)
         name_row.addWidget(btn_generate)
         name_row.addWidget(btn_delete)
@@ -604,6 +627,8 @@ class ResultsTab(EnhancedResultsTab):
 
     def _resize_canvas(self, fig, canvas, width_in: float, height_in: float) -> None:
         fig.set_dpi(120)
+        width_in = max(float(width_in), 11.0)
+        height_in = max(float(height_in), 6.5)
         fig.set_size_inches(width_in, height_in, forward=True)
         canvas.setMinimumSize(int(width_in * fig.dpi), int(height_in * fig.dpi))
 
@@ -1026,10 +1051,13 @@ class ResultsTab(EnhancedResultsTab):
         super()._render_cluster_chart(result)
         if not (HAS_MPL and result and hasattr(self, "cluster_fig")):
             return
-        for ax in self.cluster_fig.axes:
+        matrix_figure = getattr(self, "cluster_matrix_fig", None)
+        for ax in getattr(matrix_figure, "axes", []) if matrix_figure is not None else []:
             if ax.get_title() == "Matriz reordenada por cluster":
                 self._color_ticklabels_by_entry_group(ax, list(result.ordered_labels), axis="both")
         self.cluster_canvas.draw()
+        if hasattr(self, "cluster_matrix_canvas"):
+            self.cluster_matrix_canvas.draw()
 
     def _install_complete_heatmap_tab(self) -> None:
         self.complete_heatmap_tab = QWidget()
@@ -1044,6 +1072,7 @@ class ResultsTab(EnhancedResultsTab):
 
         ctrl = QHBoxLayout()
         btn = QPushButton("Atualizar mapas de calor")
+        btn.setToolTip("Atualiza todos os mapas de calor com os dados carregados.")
         btn.clicked.connect(self.compute_residue_matrix)
         ctrl.addWidget(btn)
         self.btn_complete_toggle_all = QPushButton("Ligar/desligar todas")
@@ -1106,6 +1135,7 @@ class ResultsTab(EnhancedResultsTab):
 
         ctrl = QHBoxLayout()
         btn = QPushButton("Carregar análises de FP")
+        btn.setToolTip("Carrega as análises de fingerprints disponíveis no workdir.")
         btn.clicked.connect(self.compute_fp_analyses)
         ctrl.addWidget(btn)
         ctrl.addWidget(QLabel("Tipo:"))
@@ -1142,12 +1172,15 @@ class ResultsTab(EnhancedResultsTab):
         )
         manual_row.addWidget(self.fp_manual_features_edit, 1)
         btn_manual_apply = QPushButton("Aplicar seleção")
+        btn_manual_apply.setToolTip("Aplica os fingerprints informados manualmente.")
         btn_manual_apply.setToolTip("Usa os IDs informados como fingerprints relevantes para os gráficos abaixo.")
         btn_manual_apply.clicked.connect(self._apply_manual_fp_selection)
         btn_manual_from_table = QPushButton("Usar linhas selecionadas")
+        btn_manual_from_table.setToolTip("Usa as linhas selecionadas na tabela como fingerprints relevantes.")
         btn_manual_from_table.setToolTip("Copia os IDs das linhas selecionadas da tabela para a seleção manual.")
         btn_manual_from_table.clicked.connect(self._use_selected_fp_rows_as_manual_selection)
         btn_manual_reset = QPushButton("Restabelecer calculado")
+        btn_manual_reset.setToolTip("Restaura a seleção automática calculada pelo programa.")
         btn_manual_reset.setToolTip("Volta ao critério automático de importância calculado pelo programa.")
         btn_manual_reset.clicked.connect(self._reset_manual_fp_selection)
         manual_row.addWidget(btn_manual_apply)
@@ -1295,8 +1328,10 @@ class ResultsTab(EnhancedResultsTab):
 
         btn_row = QHBoxLayout()
         btn_generate = QPushButton("Gerar sessão")
+        btn_generate.setToolTip("Gera uma sessão PyMOL para o fingerprint e molécula selecionados.")
         btn_generate.clicked.connect(self._generate_fp_session)
         btn_open = QPushButton("Abrir sessão")
+        btn_open.setToolTip("Abre a sessão PyMOL selecionada.")
         btn_open.clicked.connect(self._open_selected_fp_session)
         btn_row.addWidget(btn_generate)
         btn_row.addWidget(btn_open)
@@ -1352,6 +1387,18 @@ class ResultsTab(EnhancedResultsTab):
         for record in selected:
             paths.setdefault(record.plot_id, []).append(resolve_plot_path(record, wd))
         self._language_plot_paths = paths
+
+    def retranslate_dynamic(self) -> None:
+        """Retranslate every Results sub-tab and loaded chart labels."""
+        super().retranslate_dynamic()
+        retranslate_ui(self)
+        for figure in (
+            getattr(self, "fig", None), getattr(self, "st_fig", None),
+            getattr(self, "hm_fig", None), getattr(self, "hm_all_fig", None),
+            getattr(self, "cluster_fig", None), getattr(self, "cluster_matrix_fig", None),
+        ):
+            if HAS_MPL and figure is not None:
+                translate_figure(figure)
 
     def compute_stats(self) -> None:
         wd = self._current_wd()
@@ -1883,6 +1930,8 @@ class ResultsTab(EnhancedResultsTab):
         longest_x_label = max((len(str(label)) for label in display_residues + display_atoms), default=1)
         width_in = min(28.0, max(12.0, 4.0 + (0.30 * max_x_count), 7.0 + (0.05 * longest_x_label)))
         chart_height_in = min(width_in * 2.0, max(6.2, 4.8 + (0.025 * max_x_count)))
+        # Trajectory panels stack two independent charts and legends vertically.
+        # Keep a clear 2 cm separation so neither legend competes with the next chart.
         legend_gap_in = 2.0 / 2.54
 
         def _legend_geometry(labels: list[str]) -> tuple[int, float]:
@@ -1917,6 +1966,16 @@ class ResultsTab(EnhancedResultsTab):
                 return
             x = np.arange(len(xlabels))
             bottoms = np.zeros(len(xlabels), dtype=float)
+            visible_columns = [
+                index
+                for index, interaction_type in enumerate(type_labels)
+                if interaction_type not in self._stats_hidden_interactions
+            ]
+            references = (
+                np.maximum(np.sum(values_matrix[:, visible_columns], axis=1), 1.0)
+                if visible_columns
+                else np.ones(len(xlabels), dtype=float)
+            )
             for col_idx, interaction_type in enumerate(type_labels):
                 if interaction_type in self._stats_hidden_interactions:
                     continue
@@ -1938,16 +1997,16 @@ class ResultsTab(EnhancedResultsTab):
                 )
                 label_color = self._stats_bar_label_color(bar_color)
                 label_fontsize = 7.0 if len(xlabels) > 32 else 7.8
-                for bar, value, base in zip(bars, values, bottoms):
+                for value_index, (bar, value, base) in enumerate(zip(bars, values, bottoms)):
                     if value <= 0.0:
                         continue
                     if percent_values:
                         text = f"{value:.1f}%" if value < 10.0 else f"{int(round(value))}%"
-                        min_visible = 0.5
+                        represented_percent = value
                     else:
                         text = str(int(round(value)))
-                        min_visible = 1.0
-                    if value >= min_visible:
+                        represented_percent = 100.0 * value / references[value_index]
+                    if represented_percent >= self._BAR_LABEL_MIN_PERCENT:
                         ax.text(
                             bar.get_x() + bar.get_width() / 2.0,
                             base + (value / 2.0),
@@ -2096,13 +2155,38 @@ class ResultsTab(EnhancedResultsTab):
             1.8 + (legend_cols * legend_col_width),
             6.5 + (0.04 * float(longest_residue_label)),
         )
-        height_in = max(15.0, 9.2 + (0.18 * len(display_residues)) + (0.78 * legend_rows))
+        plot_height_in = max(9.2, 7.0 + (0.18 * len(display_residues)))
+        x_label_zone_in = 0.92
+        legend_gap_in = 0.5 / 2.54
+        legend_height_in = 0.35 + (0.38 * legend_rows)
+        height_in = max(
+            15.0,
+            plot_height_in + x_label_zone_in + legend_gap_in + legend_height_in,
+        )
         self._resize_canvas(self.st_fig, self.st_canvas, width_in=width_in, height_in=height_in)
         self.st_fig.clear()
-        ax = self.st_fig.add_subplot(111)
+        grid = self.st_fig.add_gridspec(
+            4,
+            1,
+            height_ratios=[plot_height_in, x_label_zone_in, legend_gap_in, legend_height_in],
+            hspace=0.0,
+        )
+        ax = self.st_fig.add_subplot(grid[0])
+        legend_axis = self.st_fig.add_subplot(grid[3])
+        legend_axis.set_axis_off()
 
         x = np.arange(len(display_residues))
         bottoms = np.zeros(len(display_residues), dtype=float)
+        visible_columns = [
+            index
+            for index, interaction_type in enumerate(interaction_types)
+            if interaction_type not in self._stats_hidden_interactions
+        ]
+        references = (
+            np.maximum(np.sum(matrix[:, visible_columns], axis=1), 1.0)
+            if visible_columns
+            else np.ones(len(display_residues), dtype=float)
+        )
         rendered_labels: list[str] = []
         for col_idx, interaction_type in enumerate(interaction_types):
             if interaction_type in self._stats_hidden_interactions:
@@ -2124,16 +2208,16 @@ class ResultsTab(EnhancedResultsTab):
             )
             label_color = self._stats_bar_label_color(bar_color)
             label_fontsize = 6.0 if len(display_residues) > 32 else 6.5
-            for bar, value, base in zip(bars, values, bottoms):
+            for value_index, (bar, value, base) in enumerate(zip(bars, values, bottoms)):
                 if value <= 0.0:
                     continue
                 if percent_values:
                     text = f"{int(round(value))}%"
-                    min_visible = 6.0
+                    represented_percent = value
                 else:
                     text = str(int(round(value)))
-                    min_visible = 1.2
-                if value >= min_visible:
+                    represented_percent = 100.0 * value / references[value_index]
+                if represented_percent >= self._BAR_LABEL_MIN_PERCENT:
                     ax.text(
                         bar.get_x() + bar.get_width() / 2.0,
                         base + (value / 2.0),
@@ -2166,10 +2250,9 @@ class ResultsTab(EnhancedResultsTab):
             )
             for label in interaction_types
         ]
-        legend = ax.legend(
+        legend = legend_axis.legend(
             handles=legend_handles,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.32),
+            loc="center",
             ncol=legend_cols,
             fontsize=8,
             frameon=False,
@@ -2182,8 +2265,8 @@ class ResultsTab(EnhancedResultsTab):
         self.st_fig.subplots_adjust(
             left=max(0.08, min(0.18, 0.065 + (0.004 * len(str(ylabel))))),
             right=0.985,
-            top=0.90,
-            bottom=min(0.72, 0.28 + (0.055 * legend_rows)),
+            top=0.96,
+            bottom=0.04,
         )
         self.st_canvas.draw()
 
@@ -2302,7 +2385,15 @@ class ResultsTab(EnhancedResultsTab):
         width_in = max(5.0 / 2.54, 2.2 + (0.5 / 2.54) * max(1, len(residue_labels)))
         legend_cols = max(1, min(3, len(interaction_types) or 1))
         legend_rows = max(1, math.ceil(max(1, len(interaction_types)) / legend_cols))
-        height_in = max(5.8, 2.5 + (0.16 * self._render_entry_count(len(entries))) + (0.36 * legend_rows))
+        plot_height_in = max(4.0, 2.5 + (0.16 * self._render_entry_count(len(entries))))
+        x_label_zone_in = 0.92
+        # Keep interaction-type labels 0.125 cm below the X-label area.
+        legend_gap_in = 0.125 / 2.54
+        legend_height_in = 0.35 + (0.34 * legend_rows)
+        height_in = max(
+            5.8,
+            plot_height_in + x_label_zone_in + legend_gap_in + legend_height_in,
+        )
         self._resize_canvas(
             self.hm_all_fig,
             self.hm_all_canvas,
@@ -2310,7 +2401,15 @@ class ResultsTab(EnhancedResultsTab):
             height_in=height_in,
         )
         self.hm_all_fig.clear()
-        ax = self.hm_all_fig.add_subplot(111)
+        grid = self.hm_all_fig.add_gridspec(
+            4,
+            1,
+            height_ratios=[plot_height_in, x_label_zone_in, legend_gap_in, legend_height_in],
+            hspace=0.0,
+        )
+        ax = self.hm_all_fig.add_subplot(grid[0])
+        legend_axis = self.hm_all_fig.add_subplot(grid[3])
+        legend_axis.set_axis_off()
 
         if not layered_cells or not residue_labels:
             ax.text(0.5, 0.5, "Sem dados de interação para o mapa de calor completo", ha="center", va="center")
@@ -2318,8 +2417,9 @@ class ResultsTab(EnhancedResultsTab):
             self.hm_all_canvas.draw()
             return
 
-        self.hm_all_fig.patch.set_facecolor("#0b1220")
-        ax.set_facecolor("#0b1220")
+        self.hm_all_fig.patch.set_facecolor("#ffffff")
+        ax.set_facecolor("#ffffff")
+        legend_axis.set_facecolor("#ffffff")
         for row_idx, row in enumerate(layered_cells):
             for col_idx, cell_types in enumerate(row):
                 if not cell_types:
@@ -2328,8 +2428,8 @@ class ResultsTab(EnhancedResultsTab):
                             (col_idx, row_idx),
                             1.0,
                             1.0,
-                            facecolor="#0b1220",
-                            edgecolor="#334155",
+                            facecolor="#ffffff",
+                            edgecolor="#94a3b8",
                             linewidth=0.35,
                         )
                     )
@@ -2343,7 +2443,7 @@ class ResultsTab(EnhancedResultsTab):
                             stripe_width,
                             1.0,
                             facecolor=get_interaction_color(interaction_name),
-                            edgecolor="#334155",
+                            edgecolor="#94a3b8",
                             linewidth=0.2,
                         )
                     )
@@ -2354,12 +2454,12 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_xticklabels(residue_labels, rotation=45, ha="right", fontsize=7)
         self._apply_heatmap_reference_ticks(ax, entries, offset=0.5)
         self._color_ticklabels_by_entry_group(ax, entries, axis="y", offset=0.5)
-        ax.set_xlabel("Resíduos")
-        ax.set_title("Tipos de interação por par ligante x resíduo")
-        ax.tick_params(colors="#e5e7eb")
-        ax.xaxis.label.set_color("#e5e7eb")
-        ax.yaxis.label.set_color("#e5e7eb")
-        ax.title.set_color("#f8fafc")
+        ax.set_xlabel("Resíduos", labelpad=14.17)
+        ax.set_title("Tipos de interação por par ligante x resíduo", pad=14.17)
+        ax.tick_params(colors="#111827")
+        ax.xaxis.label.set_color("#111827")
+        ax.yaxis.label.set_color("#111827")
+        ax.title.set_color("#111827")
 
         legend_types = sorted(interaction_types, key=interaction_priority_key)
         if legend_types:
@@ -2367,22 +2467,23 @@ class ResultsTab(EnhancedResultsTab):
                 Patch(facecolor=get_interaction_color(name), edgecolor="none", label=name)
                 for name in legend_types
             ]
-            legend = ax.legend(
+            legend = legend_axis.legend(
                 handles=handles,
-                loc="upper center",
-                bbox_to_anchor=(0.5, -0.09),
+                loc="center",
                 ncol=legend_cols,
                 fontsize=8,
                 frameon=False,
             )
             for label in legend.get_texts():
-                label.set_color("#e5e7eb")
+                label.set_color("#111827")
         displayed_entries = [self._display_ligand_name(entry) for entry in entries]
         longest_entry = max((len(label) for label in displayed_entries), default=1)
         left_margin = min(0.38, max(0.12, 0.06 + (0.006 * longest_entry)))
         self.hm_all_fig.subplots_adjust(
             left=left_margin,
-            bottom=min(0.48, 0.12 + (0.045 * legend_rows)),
+            right=0.985,
+            top=0.96,
+            bottom=0.04,
         )
         self.hm_all_canvas.draw()
 
@@ -2929,9 +3030,19 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_xticklabels(labels, rotation=35, ha="right")
         ax.set_ylim(0, max(values) * 1.25 if values else 1.0)
         ax.set_title("Distribuição das classes entre as features mais importantes")
-        for bar, label in zip(bars, labels):
+        for bar, label, value, color in zip(bars, labels, values, colors):
             count = int(class_counts.get(label, 0))
-            ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height() + 0.8, str(count), ha="center", va="bottom")
+            if value >= self._BAR_LABEL_MIN_PERCENT:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    bar.get_height() / 2.0,
+                    f"{count}\n{value:.1f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    fontweight="bold",
+                    color=self._contrast_text_color(color),
+                )
         self.fp_class_fig.tight_layout()
         self.fp_class_canvas.draw()
 
@@ -2969,7 +3080,7 @@ class ResultsTab(EnhancedResultsTab):
                 label=class_name,
             )
             for row_idx, (left, width) in enumerate(zip(left_values, widths)):
-                if width >= 4.0:
+                if width >= self._BAR_LABEL_MIN_PERCENT:
                     ax.text(
                         left + (width / 2.0),
                         row_idx,
@@ -3073,10 +3184,20 @@ class ResultsTab(EnhancedResultsTab):
         ]
         ax.scatter(star_positions, y_pos, marker="*", color="red", s=44, zorder=5)
 
-        for idx, (bar, feature, star_x) in enumerate(zip(bars, features, star_positions)):
+        for idx, (bar, feature, star_x, color) in enumerate(zip(bars, features, star_positions, bar_colors)):
             coverage_value = float(feature.get("coverage_pct", 0.0))
             importance_value = float(feature.get("importance_score", 0.0))
-            ax.text(max(1.0, coverage_value * 0.03), idx, f"{coverage_value:.1f}", va="center", ha="left", fontsize=8)
+            if coverage_value >= self._BAR_LABEL_MIN_PERCENT:
+                ax.text(
+                    coverage_value / 2.0,
+                    idx,
+                    f"{coverage_value:.1f}%",
+                    va="center",
+                    ha="center",
+                    fontsize=8,
+                    fontweight="bold",
+                    color=self._contrast_text_color(color),
+                )
             if importance_value > 0:
                 ax.text(min(108.0, star_x + 1.5), idx, f"{importance_value:.4f}", va="center", ha="left", fontsize=8, color="red")
         self.fp_cover_fig.tight_layout()
@@ -3191,7 +3312,7 @@ class ResultsTab(EnhancedResultsTab):
                 label=interaction_name,
             )
             for row_idx, (left, width) in enumerate(zip(left_values, widths)):
-                if width >= 4.0:
+                if width >= self._BAR_LABEL_MIN_PERCENT:
                     ax.text(
                         left + (width / 2.0),
                         row_idx,
@@ -3313,16 +3434,27 @@ class ResultsTab(EnhancedResultsTab):
         ax.set_title("Interação e resíduo prevalentes nas features importantes")
         ax.set_ylim(0, max(heights) * 1.18 if heights else 1.0)
 
-        for bar, feature in zip(bars, features):
+        for bar, feature, color in zip(bars, features, colors):
             residue = str(feature.get("prevalent_residue", "")).strip()
             if residue and residue != CLASS_UNRELIABLE:
                 residue = format_residue_label(residue)
             pair_pct = float(feature.get("prevalent_pair_pct", 0.0) or 0.0)
             label = residue or str(feature.get("prevalent_interaction", ""))
+            if pair_pct >= self._BAR_LABEL_MIN_PERCENT:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    bar.get_height() / 2.0,
+                    f"{int(round(bar.get_height()))}\n{pair_pct:.1f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    fontweight="bold",
+                    color=self._contrast_text_color(color),
+                )
             ax.text(
                 bar.get_x() + bar.get_width() / 2.0,
                 bar.get_height() + 0.2,
-                f"{label}\n{pair_pct:.2f}%",
+                label,
                 ha="center",
                 va="bottom",
                 fontsize=8,
@@ -3723,7 +3855,21 @@ class ResultsTab(EnhancedResultsTab):
                 for row in rows
             ]
             values = [float(row.get("importance_score", 0.0) or 0.0) for row in rows]
-            axis.barh(range(len(rows)), values, color=color)
+            bars = axis.barh(range(len(rows)), values, color=color)
+            maximum = max(values, default=0.0)
+            for bar, value in zip(bars, values):
+                if maximum <= 0.0 or (100.0 * value / maximum) < self._BAR_LABEL_MIN_PERCENT:
+                    continue
+                axis.text(
+                    value / 2.0,
+                    bar.get_y() + bar.get_height() / 2.0,
+                    f"{value:.4f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    fontweight="bold",
+                    color=self._contrast_text_color(color),
+                )
             axis.set_yticks(range(len(rows)))
             axis.set_yticklabels(labels, fontsize=7.5)
             axis.set_xlabel(t("Importância da feature"))
@@ -3735,6 +3881,20 @@ class ResultsTab(EnhancedResultsTab):
                 f"fingerprints/{self._safe_plot_token(ifp_type)}",
                 f"fp_top50_{model_key}.png",
             )
+
+    def _legacy_heatmap_report_images(self, workdir: Path) -> list[tuple[str, Path, str]]:
+        """Collect every per-type heatmap for workdirs without a plot manifest."""
+        self._export_all_residue_heatmaps()
+        heatmap_dir = workdir / "results" / "plots" / "heatmaps"
+        caption = (
+            "Cada imagem representa um tipo de interação. Linhas representam ligantes, "
+            "colunas representam resíduos e a intensidade indica a ocorrência do contato."
+        )
+        return [
+            (f"Heatmap por tipo: {path.stem}", path, caption)
+            for path in sorted(heatmap_dir.glob("*.png"), key=lambda item: item.name.casefold())
+            if path.exists() and path.stat().st_size > 0
+        ]
 
     def _export_all_fp_dashboard_pngs(self) -> None:
         if self._automatic_export_running or not HAS_MPL or not self._fp_artifacts:
@@ -3836,13 +3996,17 @@ class ResultsTab(EnhancedResultsTab):
         wd = self._current_wd()
         if not wd:
             return
+        self.cfg.language = language()
         out, _ = QFileDialog.getSaveFileName(
             self,
-            "Salvar relatório PDF",
+            t("Salvar relatório PDF"),
             str(wd / "luna_report.pdf"),
             "PDF (*.pdf)",
+            options=QFileDialog.Option.DontConfirmOverwrite,
         )
         if not out:
+            return
+        if not self._confirm_report_overwrite(out):
             return
 
         if not self._last_analysis:
@@ -3870,6 +4034,7 @@ class ResultsTab(EnhancedResultsTab):
             ("fp_interaction_heatmap_fig", "FP - mapa de calor de interações", "Cruza features importantes com interações prevalentes dos shells reais do LUNA. Ele revela se diferentes features importantes apontam para a mesma família de contatos."),
         ]
         if not report_assets:
+            extra_images.extend(self._legacy_heatmap_report_images(wd))
             similarity_png = self._save_report_figure(
                 getattr(self, "fig", None),
                 wd / "_report_pdf_similarity.png",

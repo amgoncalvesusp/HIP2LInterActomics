@@ -27,7 +27,7 @@ th{background:#efe7db;text-align:left}.number{text-align:right}.meta,small{color
   <li><b>{{ protein_label }}:</b> {{ cfg.protein_file or "-" }}</li>
   <li><b>{{ ligands_label }}:</b> {{ cfg.ligand_file or "-" }}</li>
   <li><b>{{ selected_label }}:</b> {{ cfg.selected_ligands|length }}</li>
-  <li><b>Workdir:</b> {{ cfg.workdir or "-" }}</li>
+  <li><b>{{ workdir_label }}:</b> {{ cfg.workdir or "-" }}</li>
   <li><b>{{ processed_label }}:</b> {{ analysis.entries|default("-", true) }}</li>
 </ul>
 <h2>{{ configuration_title }}</h2>
@@ -49,7 +49,7 @@ th{background:#efe7db;text-align:left}.number{text-align:right}.meta,small{color
 
 {% if clusters %}
 <section class="data-section page-break"><h2>{{ cluster_assignment_title }}</h2>
-<table><thead><tr><th>{{ ligand_label }}</th><th>Cluster</th></tr></thead><tbody>
+<table><thead><tr><th>{{ ligand_label }}</th><th>{{ cluster_label }}</th></tr></thead><tbody>
 {% for label, cluster_id in clusters %}<tr><td>{{ label }}</td><td class="number">{{ cluster_id }}</td></tr>{% endfor %}
 </tbody></table></section>
 {% endif %}
@@ -66,7 +66,7 @@ th{background:#efe7db;text-align:left}.number{text-align:right}.meta,small{color
 </section>
 {% for model in fp.models %}
 <section class="data-section page-break"><h2>{{ top_features_title }}: {{ fp.ifp_type }} / {{ model.title }}</h2>
-<table><thead><tr><th>{{ rank_label }}</th><th>Feature</th><th>{{ assigned_level_label }}</th><th>{{ assigned_class_label }}</th><th>{{ coverage_label }}</th><th>{{ importance_label }}</th></tr></thead><tbody>
+<table><thead><tr><th>{{ rank_label }}</th><th>{{ feature_label }}</th><th>{{ assigned_level_label }}</th><th>{{ assigned_class_label }}</th><th>{{ coverage_label }}</th><th>{{ importance_label }}</th></tr></thead><tbody>
 {% for row in model.rows %}<tr><td class="number">{{ row.rank }}</td><td>{{ row.feature_id }}</td><td>{{ row.assigned_level or "-" }}</td><td>{{ row.assigned_class or "-" }}</td><td class="number">{{ "%.2f"|format(row.coverage_pct) }}</td><td class="number">{{ "%.8f"|format(row.importance_score) }}</td></tr>{% endfor %}
 </tbody></table></section>
 {% for image in model.images %}<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>{% endfor %}

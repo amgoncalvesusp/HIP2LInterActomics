@@ -200,7 +200,23 @@ class ResultsTab(EnhancedResultsTab):
         items = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         labels = [label for label, _value in items]
         values = [value for _label, value in items]
-        ax.barh(labels, values, color="#c8693a")
+        bars = ax.barh(labels, values, color="#c8693a")
+        total = max(sum(float(value) for value in values), 1.0)
+        for bar, value in zip(bars, values):
+            numeric_value = float(value)
+            if (100.0 * numeric_value / total) < 5.0:
+                continue
+            text = str(int(numeric_value)) if numeric_value.is_integer() else f"{numeric_value:.2f}"
+            ax.text(
+                bar.get_width() / 2.0,
+                bar.get_y() + (bar.get_height() / 2.0),
+                text,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color="#111111",
+            )
         ax.invert_yaxis()
         ax.set_xlabel(xlabel)
         ax.set_title(title)

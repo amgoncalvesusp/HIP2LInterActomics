@@ -338,7 +338,23 @@ class ResultsTab(QWidget):
         items = sorted(counts.items(), key=lambda x: -x[1])
         labels = [k for k, _ in items]
         values = [v for _, v in items]
-        ax.barh(labels, values, color="#2c5aa0")
+        bars = ax.barh(labels, values, color="#2c5aa0")
+        total = max(sum(float(value) for value in values), 1.0)
+        for bar, value in zip(bars, values):
+            numeric_value = float(value)
+            if (100.0 * numeric_value / total) < 5.0:
+                continue
+            text = str(int(numeric_value)) if numeric_value.is_integer() else f"{numeric_value:.2f}"
+            ax.text(
+                bar.get_width() / 2.0,
+                bar.get_y() + (bar.get_height() / 2.0),
+                text,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color="#ffffff",
+            )
         ax.invert_yaxis()
         ax.set_xlabel("Total (todas as entradas)")
         ax.set_title("Contagem por tipo de interação")

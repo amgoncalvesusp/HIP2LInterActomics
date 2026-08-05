@@ -216,6 +216,18 @@ def _atom_sort_key(label):
 
 
 def _interaction_ligand_atom_labels(interaction):
+    # Prefer the atom references attached to the interaction itself.  Group
+    # atoms may contain an entire aromatic/cationic system (for example in a
+    # cation-pi contact), while the interaction object can identify the exact
+    # participating atom(s).
+    explicit = _explicit_interaction_atoms(interaction)
+    if explicit:
+        return {
+            label
+            for atom in explicit
+            for label in [_atom_label(atom)]
+            if label
+        }
     labels = set()
     for group in (getattr(interaction, "src_grp", None), getattr(interaction, "trgt_grp", None)):
         if _group_role(group) != "ligand":
@@ -225,6 +237,22 @@ def _interaction_ligand_atom_labels(interaction):
             if label:
                 labels.add(label)
     return labels
+
+
+def _explicit_interaction_atoms(interaction):
+    atoms = []
+    for attr in (
+        "src_atom", "trgt_atom", "src_atm", "trgt_atm", "atom",
+        "src_atoms", "trgt_atoms", "atoms", "atom_pairs", "pairs",
+    ):
+        value = getattr(interaction, attr, None)
+        if value is None:
+            continue
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        for item in values:
+            pair = item if isinstance(item, (list, tuple, set)) else [item]
+            atoms.extend(atom for atom in pair if hasattr(atom, "name") or hasattr(atom, "get_name"))
+    return atoms
 
 patterns = [
     os.path.join(workdir, "results", "**", "*.pkl.gz"),

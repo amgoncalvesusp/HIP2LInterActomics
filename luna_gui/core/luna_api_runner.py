@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .luna_runner import safe_nproc
 from .project import ProjectConfig, resolve_ifp_output_paths, resolve_sim_matrix_output_paths
+from .results_analysis import INTERACTION_COLORS
 
 
 _LIGAND_SUFFIXES = ("_ligand", "-ligand", "_lig", "-lig")
@@ -50,6 +51,138 @@ def _entry_key(entry):
         return entry.to_string()
     except Exception:
         return str(entry)
+
+
+def _pymol_color_name(interaction_name):
+    return "hip2l_" + re.sub(r"[^a-z0-9]+", "_", str(interaction_name).lower()).strip("_")
+
+
+def _pymol_interaction_tokens(interaction_name):
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    return (normalized,)
+
+
+def _pymol_interaction_markers(interaction_name):
+    # Exact LUNA object-name segments for a displayed interaction.
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    short_names = {
+        "hydrogenbond": ("hbond",),
+        "weakhydrogenbond": ("weak_hbond",),
+        "waterbridgedhydrogenbond": ("water_hbond",),
+        "halogenbond": ("xbond",),
+        "halogenpi": ("x-pi",),
+        "chalcogenbond": ("ybond",),
+        "chalcogenpi": ("y-pi",),
+        "ionic": ("ionic",),
+        "saltbridge": ("salt_bridge",),
+        "cationpi": ("cation-pi",),
+        "cationnucleophile": ("cat_nucleop",),
+        "anionelectrophile": ("ani_electrop",),
+        "pistacking": ("pi-stack",),
+        "aromaticstacking": ("pi-stack", "aromatic-bond"),
+        "edgetoface": ("edge-to-face_stack",),
+        "facetoface": ("face-to-face_stack",),
+        "facetoedgepistacking": ("face-to-edge_stack",),
+        "facetofacepistacking": ("face-to-face_stack",),
+        "facetoslopepistacking": ("face-to-slope_stack",),
+        "displacedfacetoedgepistacking": ("disp_face-to-edge_stack",),
+        "displacedfacetofacepistacking": ("disp_face-to-face_stack",),
+        "displacedfacetoslopepistacking": ("disp_face-to-slope_stack",),
+        "parallel": ("par_multipol",),
+        "parallelmultipolar": ("par_multipol",),
+        "antiparallelmultipolar": ("antipar_multipol",),
+        "orthogonalmultipolar": ("ort_multipol",),
+        "tiltedmultipolar": ("tilted_multipol",),
+        "hydrophobic": ("hphobe",),
+        "amidearomaticstacking": ("amide_stack",),
+        "metalcoordination": ("metal-coord",),
+        "vanderwaals": ("vdw",),
+        "proximal": ("prox",),
+        "multipolarinteraction": ("multipol",),
+        "repulsive": ("repuls",),
+        "unfavorableanionnucleophile": ("unf_ani_nucleop",),
+        "unfavorablecationelectrophile": ("unf_cat_electrop",),
+        "unfavorableelectrophileelectrophile": ("unf_electrop_electrop",),
+        "unfavorablenucleophilenucleophile": ("unf_nucleop_nucleop",),
+    }
+    return tuple(f".{name}." for name in short_names.get(normalized, ()))
+
+
+def _matches_pymol_interaction_object(object_name, normalized_name, interaction_name):
+    markers = _pymol_interaction_markers(interaction_name)
+    if markers:
+        object_name = str(object_name).lower()
+        return any(marker in object_name for marker in markers)
+    return any(token and token in normalized_name for token in _pymol_interaction_tokens(interaction_name))
+
+
+def _apply_pse_interaction_colors(pse_path, palette):
+    """Recolor PyMOL interaction objects using the GUI's canonical palette."""
+    if not isinstance(palette, dict) or not palette:
+        return 0
+    try:
+        from pymol import cmd
+    except Exception as exc:
+        print(f"[warn] paleta PSE ignorada: pymol.cmd indisponivel ({ex})", flush=True)
+        return 0
+    try:
+        object_names = list(cmd.get_names("objects") or [])
+        if not object_names and os.path.exists(pse_path):
+            cmd.load(pse_path)
+            object_names = list(cmd.get_names("objects") or [])
+    except Exception as exc:
+        print(f"[warn] paleta PSE ignorada: nao foi possivel listar objetos ({ex})", flush=True)
+        return 0
+
+    normalized_names = {
+        name: re.sub(r"[^a-z0-9]+", "", str(name).lower())
+        for name in object_names
+    }
+    colored = 0
+    for interaction_name, hex_color in palette.items():
+        color = str(hex_color or "").lstrip("#")
+        if len(color) != 6:
+            continue
+        try:
+            rgb = [int(color[index:index + 2], 16) / 255.0 for index in (0, 2, 4)]
+        except ValueError:
+            continue
+        color_name = _pymol_color_name(interaction_name)
+        try:
+            cmd.set_color(color_name, rgb)
+        except Exception:
+            continue
+        for object_name, normalized_name in normalized_names.items():
+            if not _matches_pymol_interaction_object(
+                object_name,
+                normalized_name,
+                interaction_name,
+            ):
+                continue
+            try:
+                cmd.color(color_name, object_name)
+                cmd.set("dash_color", color_name, object_name)
+                cmd.set("label_color", color_name, object_name)
+                colored += 1
+            except Exception:
+                continue
+    if colored:
+        try:
+            cmd.save(pse_path)
+        except Exception as exc:
+            print(f"[warn] PSE colorido, mas nao foi salvo: {exc}", flush=True)
+            return 0
+    return colored
+
+
+def _reset_pymol_session():
+    """Discard the previous entry before creating the next standalone PSE."""
+    try:
+        from pymol import cmd
+        cmd.reinitialize()
+        return True
+    except Exception:
+        return False
 
 
 def _merge_entries(existing_entries, new_entries):
@@ -1101,6 +1234,14 @@ def _atom_sort_key(label):
 
 
 def _interaction_ligand_atom_labels(interaction):
+    explicit = _explicit_interaction_atoms(interaction)
+    if explicit:
+        return {
+            label
+            for atom in explicit
+            for label in [_atom_label(atom)]
+            if label
+        }
     labels = set()
     for group in (getattr(interaction, "src_grp", None), getattr(interaction, "trgt_grp", None)):
         if _group_role(group) != "ligand":
@@ -1110,6 +1251,22 @@ def _interaction_ligand_atom_labels(interaction):
             if label:
                 labels.add(label)
     return labels
+
+
+def _explicit_interaction_atoms(interaction):
+    atoms = []
+    for attr in (
+        "src_atom", "trgt_atom", "src_atm", "trgt_atm", "atom",
+        "src_atoms", "trgt_atoms", "atoms", "atom_pairs", "pairs",
+    ):
+        value = getattr(interaction, attr, None)
+        if value is None:
+            continue
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        for item in values:
+            pair = item if isinstance(item, (list, tuple, set)) else [item]
+            atoms.extend(atom for atom in pair if hasattr(atom, "name") or hasattr(atom, "get_name"))
+    return atoms
 
 
 def _atom_serial(atom):
@@ -1743,10 +1900,20 @@ if p.get("out_pse", False):
                 workdir_pdb = os.path.join(workdir, "pdbs", f"{entry.pdb_id}.pdb")
                 pdb_file = workdir_pdb if os.path.exists(workdir_pdb) else os.path.join(pdb_dir, f"{entry.pdb_id}.pdb")
             try:
+                # InteractionViewer reuses PyMOL's process-global object store. Reset it
+                # for every entry so a .pse cannot inherit prior ligands/interactions.
+                _reset_pymol_session()
                 viewer = InteractionViewer(show_hydrop_surface=False)
                 viewer.new_session([(entry, inter, pdb_file)], pse_path)
+                colored = _apply_pse_interaction_colors(
+                    pse_path,
+                    p.get("pse_interaction_colors") or {},
+                )
+                print(f"[luna-api] PSE {safe_name}: {colored} objetos coloridos", flush=True)
             except Exception as ex:
                 print(f"[warn] PSE para {safe_name} falhou: {ex}", flush=True)
+            finally:
+                _reset_pymol_session()
         print(f"[luna-api] PSE salvos em {pse_dir}", flush=True)
         print("[luna-api-progress] 97% - sessoes PyMOL salvas", flush=True)
 
@@ -2110,6 +2277,7 @@ def write_params(workdir: str | Path, cfg: ProjectConfig, entries: list[str]) ->
         "out_pse": cfg.out_pse,
         "pse_path": cfg.pse_path,
         "pse_interaction_types": cfg.pse_interaction_types,
+        "pse_interaction_colors": dict(INTERACTION_COLORS),
         "ic_add_proximal": cfg.ic_add_proximal,
         "ic_add_atom_atom": cfg.ic_add_atom_atom,
         "ic_add_dependent_inter": cfg.ic_add_dependent_inter,

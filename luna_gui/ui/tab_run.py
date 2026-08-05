@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 
 from ..core.project import ProjectConfig
 from ..core import env_manager as em, luna_runner, ligand_io, luna_api_runner
-from ..i18n import t
+from ..i18n import retranslate_ui, t
 
 
 class RunTab(QWidget):
@@ -102,6 +102,11 @@ class RunTab(QWidget):
     def set_luna(self, py_exe: str, run_py: str) -> None:
         self.py_exe = py_exe
         self.run_py = run_py
+
+    def retranslate_dynamic(self) -> None:
+        retranslate_ui(self)
+        if self._phase == "plots":
+            self.progress.setFormat(f"{self._last_progress_pct}% - {t('plots generation')}")
 
     def _resolve_luna_runtime(self) -> bool:
         """Recover from a missed setup signal by checking the installed env directly."""

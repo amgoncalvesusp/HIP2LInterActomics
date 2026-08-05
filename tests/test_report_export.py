@@ -4,14 +4,17 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
+import luna_gui.core.report_export as report_export
 from luna_gui.core.project import ProjectConfig
 from luna_gui.core.plot_manifest import PlotManifest, PlotRecord, manifest_path
 from luna_gui.core.report_export import (
     PdfReportError,
     _fit_image_box,
+    _pdf_payload,
     build_report,
     cleanup_pdf_render_job,
     collect_result_images,
@@ -56,7 +59,7 @@ class ReportExportTests(unittest.TestCase):
         self._image(self.root / "_report_pdf_similarity.png", (100, 100), "white")
         (self.results / "table.csv").write_text("a,b\n1,2\n", encoding="utf-8")
 
-        pages = collect_result_images(self.root)
+        pages = collect_result_images(self.root, language="pt")
 
         self.assertEqual([item[1] for item in pages], [network, heatmap])
         self.assertIn("Rede", pages[0][0])
@@ -73,6 +76,86 @@ class ReportExportTests(unittest.TestCase):
         self.assertIn("width:auto;height:auto;object-fit:contain", document)
         self.assertIn("frequência ou intensidade das interações", document)
         self.assertIn("abundância relativa dos tipos de contato", document)
+
+    def test_html_and_pdf_payload_follow_the_configured_export_language(self) -> None:
+        expectations = {
+            "en": ("HIP2LInterActomics report", "Interaction count by type", "Hydrogen bond", "levels="),
+            "pt": ("Relat\u00f3rio HIP2LInterActomics", "Contagem por tipo de intera\u00e7\u00e3o", "Liga\u00e7\u00e3o de hidrog\u00eanio", "n\u00edveis="),
+            "es": ("Reporte HIP2LInterActomics", "Conteo por tipo de interacci\u00f3n", "Puente de hidr\u00f3geno", "niveles="),
+        }
+        for language, (report_title, count_title, interaction_label, levels_label) in expectations.items():
+            with self.subTest(language=language):
+                cfg = ProjectConfig(
+                    workdir=str(self.root),
+                    protein_file="protein.pdb",
+                    ligand_file="ligands.sdf",
+                    language=language,
+                )
+                document = build_report(cfg=cfg, analysis=self.analysis)
+                payload = _pdf_payload(cfg, self.analysis, None, None, None, None, None, None)
+                captured_titles: list[str] = []
+                output = self.root / f"{language}-localized.pdf"
+                with patch.object(
+                    report_export,
+                    "_reportlab_write_text_page",
+                    side_effect=lambda _canvas, title, *_args: captured_titles.append(title),
+                ):
+                    report_export._write_pdf_payload_reportlab(output, payload)
+
+                self.assertIn(report_title, document)
+                self.assertIn(count_title, document)
+                self.assertIn(interaction_label, document)
+                self.assertEqual(payload["interaction_rows"][0][0], interaction_label)
+                self.assertIn(levels_label, next(value for key, value in payload["cfg_rows"] if key == "IFP"))
+                self.assertIn(report_title, captured_titles)
+                self.assertIn(count_title, captured_titles)
+
+    def test_html_embeds_every_legacy_per_type_heatmap_passed_by_gui(self) -> None:
+        heatmaps = [
+            self._image(
+                self.root / "results" / "plots" / "heatmaps" / name,
+                (900, 500),
+                "#174f4b",
+            )
+            for name in (
+                "interaction_hydrogen_bond.png",
+                "interaction_cation_pi.png",
+                "interaction_hydrophobic.png",
+            )
+        ]
+        extra = [
+            (
+                f"Heatmap por tipo: {path.stem}",
+                path,
+                "Explicação científica do tipo de interação.",
+            )
+            for path in heatmaps
+        ]
+
+        document = build_report(cfg=self.cfg, analysis=self.analysis, extra_images=extra)
+
+        self.assertEqual(document.count("data:image/png;base64,"), len(heatmaps))
+        for path in heatmaps:
+            self.assertIn(path.stem, document)
+
+    def test_legacy_english_complete_heatmap_stays_in_the_complete_section(self) -> None:
+        self.cfg.language = "en"
+        distribution = self._image(self.root / "interaction_distribution.png", (800, 400), "#174f4b")
+        complete = self._image(self.root / "complete_interaction_heatmap.png", (800, 400), "#c8693a")
+
+        document = build_report(
+            cfg=self.cfg,
+            analysis=self.analysis,
+            extra_images=[
+                ("Interaction distribution", distribution, "distribution"),
+                ("Complete interaction heatmap", complete, "complete"),
+            ],
+        )
+
+        self.assertLess(
+            document.index("Interaction distribution"),
+            document.index("Complete interaction heatmap"),
+        )
 
     def test_reports_explain_fp_columns_and_include_both_top50_rankings(self) -> None:
         dashboard = {
@@ -235,7 +318,7 @@ class ReportExportTests(unittest.TestCase):
         self.assertEqual(document.count("data:image/png;base64,"), 3)
         for interaction_type in ("Hydrogen bond", "Hydrophobic", "Ionic"):
             self.assertIn(f"Heatmap por tipo: {interaction_type}", document)
-        self.assertEqual(document.count("Explicação científica do padrão"), 3)
+        self.assertEqual(document.count("O mapa de calor resume"), 3)
 
     def test_report_uses_scientific_order_and_deterministic_top30(self) -> None:
         manifest = PlotManifest()
@@ -243,6 +326,8 @@ class ReportExportTests(unittest.TestCase):
             ("clusters", "05 Clusters", 50, "clusters", "", ""),
             ("complete", "03 Complete", 30, "complete_heatmap", "", ""),
             ("distribution", "01 Distribution", 10, "distribution", "", ""),
+            ("amino_acids", "01.1 Amino acid distribution", 11, "distribution", "", ""),
+            ("ligand_atoms", "01.2 Ligand atom distribution", 12, "distribution", "", ""),
             ("by_type", "02 By type", 20, "interaction_heatmap", "", ""),
             ("similarity", "04 Similarity", 40, "similarity", "", ""),
             ("et_plot", "ET chart", 104, "fingerprint", "EIFP", "extra_trees"),
@@ -296,6 +381,8 @@ class ReportExportTests(unittest.TestCase):
 
         ordered_tokens = [
             "01 Distribution",
+            "01.1 Amino acid distribution",
+            "01.2 Ligand atom distribution",
             "02 By type",
             "03 Complete",
             "04 Similarity",

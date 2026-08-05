@@ -324,6 +324,9 @@ def prepare_static_inputs(base_config: dict[str, Any]) -> dict[str, Any]:
     prepared = copy.deepcopy(base_config)
     project = _project_section(prepared)
     terminal = _terminal_section(prepared)
+    complexes_are_prepared = bool(
+        terminal.get("prepare_complexes") or terminal.get("complex_folder")
+    )
     selected = _configured_ligands(project.get("selected_ligands"))
     entries_file = terminal.get("entries_file") or terminal.get(
         "selected_ligands_file"
@@ -343,7 +346,7 @@ def prepare_static_inputs(base_config: dict[str, Any]) -> dict[str, Any]:
             raise BatchConfigurationError(
                 f"Could not read the shared entries file {entries_path}: {exc}"
             ) from exc
-    elif not selected:
+    elif not selected and not complexes_are_prepared:
         ligand_file = str(project.get("ligand_file") or "").strip()
         ligand_path = Path(ligand_file).expanduser() if ligand_file else None
         if ligand_path is not None and ligand_path.exists():
@@ -459,6 +462,11 @@ def generate_configurations(
             project["ifp_output"] = ""
             project["sim_matrix_output"] = ""
             project["pse_path"] = ""
+            # Each combination owns its workdir, so a shared preparation output
+            # would make serial runs overwrite one another's receptors/ligands.
+            terminal = _terminal_section(document)
+            if terminal.get("prepare_complexes") or terminal.get("complex_folder"):
+                terminal["prepare_output"] = ""
 
         config_path = config_dir / f"hipplinteractomics_{run_id}.json"
         _write_json_atomic(config_path, document)
