@@ -18,7 +18,10 @@ class EnvManagerTests(unittest.TestCase):
                 r"C:\ProgramData\Anaconda3\envs",
             ],
         }
-        with mock.patch.object(env_manager, "conda_info", return_value=info):
+        with (
+            mock.patch.object(env_manager, "conda_info", return_value=info),
+            mock.patch.object(env_manager.Path, "home", return_value=Path(r"C:\\Users\\danie")),
+        ):
             prefix = env_manager.env_prefix(conda)
 
         self.assertEqual(prefix, Path(r"C:\Users\danie\.conda\envs\luna-env"))
