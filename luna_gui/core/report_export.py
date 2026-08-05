@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import csv
 import gc
 import html
 import json
@@ -144,6 +145,84 @@ _REPORT_COPY: dict[str, dict[str, str]] = {
     },
 }
 _REPORT_COPY["es"]["no_residues"] = "No hay residuos contabilizados."
+
+# Section titles are intentionally kept in the report catalog instead of the
+# GUI catalog: report generation also runs from the terminal and PDF workers.
+_REPORT_COPY["en"].update({
+    "interaction_distribution": "Interaction distribution",
+    "interaction_summary": "Interaction summary",
+    "amino_acid_distribution": "Interactions by amino acid across all ligands",
+    "ligand_atom_distribution": "Interactions by ligand atoms",
+    "interaction_heatmaps": "Interaction heatmaps",
+    "heatmaps_by_type": "Heatmaps by interaction type",
+    "complete_interaction_heatmap": "Complete interaction heatmap",
+    "fingerprint_analyses": "Fingerprint analyses",
+    "fingerprint_definitions": "EIFP records interaction environments; FIFP records interaction features; HIFP records hybrid interaction features. Each fingerprint describes the molecular recognition pattern at a different structural granularity.",
+    "similarity_matrix": "Similarity matrix",
+    "hierarchical_clustering": "Hierarchical clustering",
+    "matrix_reordered": "Matrix reordered by cluster",
+    "brief_supervised_learning": "Brief supervised learning",
+    "supervised_intro": "The supervised-learning panels rank fingerprint features with Extra Trees and Gradient Boosting. Interpret importance together with coverage, assigned class, interaction assignment, and the underlying structural evidence.",
+    "report_appendix": "Additional available plots",
+    "fp_top50_plot": "FP top 50 importance",
+    "fp_class_summary_plot": "FP class summary",
+    "fp_class_assignment_plot": "FP class assignment",
+    "fp_coverage_importance_plot": "FP coverage importance",
+    "fp_feature_presence_heatmap_plot": "FP feature presence heatmap",
+    "fp_interaction_assignment_plot": "FP interaction assignment",
+    "fp_prevalent_interactions_plot": "FP prevalent interactions",
+    "fp_prevalent_interactions_heatmap_plot": "FP prevalent interactions heatmap",
+})
+_REPORT_COPY["pt"].update({
+    "interaction_distribution": "Distribui\u00e7\u00e3o de intera\u00e7\u00f5es",
+    "interaction_summary": "Resumo de intera\u00e7\u00f5es",
+    "amino_acid_distribution": "Intera\u00e7\u00f5es por amino\u00e1cido em todos os ligantes",
+    "ligand_atom_distribution": "Intera\u00e7\u00f5es por \u00e1tomos do ligante",
+    "interaction_heatmaps": "Mapas de calor de intera\u00e7\u00f5es",
+    "heatmaps_by_type": "Mapas de calor por tipo de intera\u00e7\u00e3o",
+    "complete_interaction_heatmap": "Mapa de calor completo de intera\u00e7\u00f5es",
+    "fingerprint_analyses": "An\u00e1lises de fingerprints",
+    "fingerprint_definitions": "EIFP registra ambientes de intera\u00e7\u00e3o; FIFP registra features de intera\u00e7\u00e3o; HIFP registra features h\u00edbridas de intera\u00e7\u00e3o. Cada fingerprint descreve o padr\u00e3o de reconhecimento molecular em uma granularidade estrutural diferente.",
+    "similarity_matrix": "Matriz de similaridade",
+    "hierarchical_clustering": "Agrupamento hier\u00e1rquico",
+    "matrix_reordered": "Matriz reordenada por cluster",
+    "brief_supervised_learning": "Breve aprendizado supervisionado",
+    "supervised_intro": "Os pain\u00e9is de aprendizado supervisionado classificam features de fingerprints com Extra Trees e Gradient Boosting. Interprete a import\u00e2ncia junto com cobertura, classe atribu\u00edda, atribui\u00e7\u00e3o de intera\u00e7\u00f5es e a evid\u00eancia estrutural subjacente.",
+    "report_appendix": "Gr\u00e1ficos adicionais dispon\u00edveis",
+    "fp_top50_plot": "Import\u00e2ncia das top 50 features de FP",
+    "fp_class_summary_plot": "Resumo de classes de FP",
+    "fp_class_assignment_plot": "Atribui\u00e7\u00e3o de classes de FP",
+    "fp_coverage_importance_plot": "Cobertura e import\u00e2ncia de FP",
+    "fp_feature_presence_heatmap_plot": "Mapa de calor de presen\u00e7a de features de FP",
+    "fp_interaction_assignment_plot": "Atribui\u00e7\u00e3o de intera\u00e7\u00f5es de FP",
+    "fp_prevalent_interactions_plot": "Intera\u00e7\u00f5es prevalentes de FP",
+    "fp_prevalent_interactions_heatmap_plot": "Mapa de calor de intera\u00e7\u00f5es prevalentes de FP",
+})
+_REPORT_COPY["es"].update({
+    "interaction_distribution": "Distribuci\u00f3n de interacciones",
+    "interaction_summary": "Resumen de interacciones",
+    "amino_acid_distribution": "Interacciones por amino\u00e1cido en todos los ligandos",
+    "ligand_atom_distribution": "Interacciones por \u00e1tomos del ligando",
+    "interaction_heatmaps": "Mapas de calor de interacciones",
+    "heatmaps_by_type": "Mapas de calor por tipo de interacci\u00f3n",
+    "complete_interaction_heatmap": "Mapa de calor completo de interacciones",
+    "fingerprint_analyses": "An\u00e1lisis de fingerprints",
+    "fingerprint_definitions": "EIFP registra entornos de interacci\u00f3n; FIFP registra features de interacci\u00f3n; HIFP registra features h\u00edbridas de interacci\u00f3n. Cada fingerprint describe el patr\u00f3n de reconocimiento molecular con una granularidad estructural diferente.",
+    "similarity_matrix": "Matriz de similitud",
+    "hierarchical_clustering": "Agrupamiento jer\u00e1rquico",
+    "matrix_reordered": "Matriz reordenada por cluster",
+    "brief_supervised_learning": "Breve aprendizaje supervisado",
+    "supervised_intro": "Los paneles de aprendizaje supervisado clasifican features de fingerprints con Extra Trees y Gradient Boosting. Interprete la importancia junto con la cobertura, la clase asignada, la asignaci\u00f3n de interacciones y la evidencia estructural subyacente.",
+    "report_appendix": "Gr\u00e1ficos adicionales disponibles",
+    "fp_top50_plot": "Importancia de las top 50 features de FP",
+    "fp_class_summary_plot": "Resumen de clases de FP",
+    "fp_class_assignment_plot": "Asignaci\u00f3n de clases de FP",
+    "fp_coverage_importance_plot": "Cobertura e importancia de FP",
+    "fp_feature_presence_heatmap_plot": "Mapa de calor de presencia de features de FP",
+    "fp_interaction_assignment_plot": "Asignaci\u00f3n de interacciones de FP",
+    "fp_prevalent_interactions_plot": "Interacciones prevalentes de FP",
+    "fp_prevalent_interactions_heatmap_plot": "Mapa de calor de interacciones prevalentes de FP",
+})
 
 
 def _report_language(value: str | None = None) -> str:
@@ -452,6 +531,16 @@ def _fallback_sequence(path: Path) -> tuple[int, str]:
     # Imported/legacy results do not have a manifest. Recognize the stable
     # English and Portuguese filenames before relying on broad image keywords.
     stem = path.stem.casefold()
+    if "interactions_by_amino" in stem or "interacoes_por_amino" in stem:
+        return 11, "distribution"
+    if "interactions_by_ligand_atom" in stem or "interacoes_por_atomo" in stem:
+        return 12, "distribution"
+    if "hierarchical_clustering" in stem:
+        return 50, "clusters"
+    if "reordered_matrix_cluster" in stem:
+        return 60, "clusters"
+    if "similarity" in stem:
+        return 40, "similarity"
     if "complete" in stem or "completo" in stem:
         return 30, "complete_heatmap"
     if "distribution" in stem or "distribui" in stem or "interaction_summary" in stem:
@@ -474,12 +563,54 @@ def _fallback_sequence(path: Path) -> tuple[int, str]:
 def _path_fp_metadata(path: Path) -> tuple[str, str]:
     tokens = [part.casefold() for part in path.parts]
     ifp_type = next((value for value in _IFP_ORDER if value.casefold() in tokens), "")
+    if not ifp_type and "fingerprints" in tokens:
+        suffixes = {"e": "EIFP", "f": "FIFP", "h": "HIFP"}
+        ifp_type = next((suffixes[token] for token in tokens if token in suffixes), "")
     model = ""
     if "extra_trees" in tokens or "extra trees" in tokens:
         model = "extra_trees"
     elif "gradient_boosting" in tokens or "gradient boosting" in tokens:
         model = "gradient_boosting"
     return ifp_type, model
+
+
+def _discover_report_profile_images(
+    cfg: ProjectConfig,
+    language: str,
+    excluded_paths: list[Path],
+) -> list[dict]:
+    """Supplement the manifest with report plots already present on disk.
+
+    Rendering can be interrupted after an image is written but before the
+    manifest is saved. A report must still include that valid active-language
+    plot instead of silently dropping it.
+    """
+    root = Path(cfg.workdir) / "results" / "plots" / language / "report"
+    if not root.exists():
+        return []
+    excluded = {str(path.resolve(strict=False)).casefold() for path in excluded_paths}
+    rows: list[dict] = []
+    for path in sorted(root.rglob("*"), key=lambda item: str(item).casefold()):
+        if not path.is_file() or path.suffix.lower() not in _IMAGE_SUFFIXES:
+            continue
+        key = str(path.resolve(strict=False)).casefold()
+        if key in excluded:
+            continue
+        sequence, category = _fallback_sequence(path)
+        ifp_type, model = _path_fp_metadata(path)
+        title, caption = describe_report_image(path, language)
+        rows.append({
+            "plot_id": path.stem,
+            "title": title,
+            "path": path,
+            "caption": caption,
+            "sequence": sequence,
+            "category": category,
+            "ifp_type": ifp_type,
+            "model": model,
+            "appendix": category == "appendix",
+        })
+    return rows
 
 
 def _semantic_report_images(
@@ -535,6 +666,7 @@ def _semantic_report_images(
                 "appendix": category == "appendix",
             })
 
+    rows.extend(_discover_report_profile_images(cfg, language, excluded))
     discovered = collect_result_images(cfg.workdir, excluded, language) if str(cfg.workdir).strip() else []
     for title, path, caption in discovered:
         sequence, category = _fallback_sequence(path)
@@ -798,6 +930,12 @@ def _fp_report_sections(fp_dashboards: dict | None, images: list[dict], language
             continue
         ifp_type = str(dashboard.get("ifp_type") or dashboard.get("ifp_label") or "IFP")
         dashboards_by_type.setdefault(ifp_type, dashboard)
+    for image in images:
+        if image.get("category") != "fingerprint":
+            continue
+        ifp_type = str(image.get("ifp_type") or "").upper()
+        if ifp_type:
+            dashboards_by_type.setdefault(ifp_type, {"ifp_type": ifp_type})
     tables = {
         (table["ifp_type"], table["model_key"]): table
         for table in _fp_model_tables(fp_dashboards)
@@ -835,6 +973,391 @@ def _fp_report_sections(fp_dashboards: dict | None, images: list[dict], language
     return sections
 
 
+def _load_persisted_fp_dashboards(workdir: str | Path) -> dict[str, dict]:
+    """Read terminal-exported FP dashboards without requiring an open GUI tab."""
+    root = Path(workdir) / "results" / "terminal" / "fingerprints"
+    dashboards: dict[str, dict] = {}
+    suffixes = {"E": "EIFP", "F": "FIFP", "H": "HIFP"}
+    for suffix, ifp_type in suffixes.items():
+        path = root / suffix / "fp_dashboard.json"
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        if isinstance(data, dict):
+            data.setdefault("ifp_type", ifp_type)
+            dashboards[ifp_type] = data
+    return dashboards
+
+
+def _report_dashboards(workdir: str | Path, fp_dashboards: dict | None) -> dict[str, dict]:
+    """Merge live GUI state with on-disk analysis artifacts, preferring live data."""
+    merged = _load_persisted_fp_dashboards(workdir)
+    for key, dashboard in (fp_dashboards or {}).items():
+        if not isinstance(dashboard, dict):
+            continue
+        ifp_type = str(dashboard.get("ifp_type") or dashboard.get("ifp_label") or key).upper()
+        if ifp_type:
+            merged[ifp_type] = dashboard
+    return merged
+
+
+def _load_cluster_assignments(workdir: str | Path) -> dict[str, list[tuple[str, str]]]:
+    """Load all terminal cluster CSVs so exports do not depend on GUI cache."""
+    root = Path(workdir) / "results" / "terminal"
+    assignments: dict[str, list[tuple[str, str]]] = {}
+    for suffix, ifp_type in (("E", "EIFP"), ("F", "FIFP"), ("H", "HIFP")):
+        path = root / f"clusters_{suffix}.csv"
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                rows = [
+                    (str(row.get("ligand_id") or ""), str(row.get("cluster_id") or ""))
+                    for row in csv.DictReader(handle)
+                    if row.get("ligand_id") is not None and row.get("cluster_id") is not None
+                ]
+        except OSError:
+            continue
+        if rows:
+            assignments[ifp_type] = rows
+    return assignments
+
+
+def _model_plot_order(image: dict) -> tuple[int, int, str]:
+    stem = str(image.get("plot_id") or "").casefold()
+    order = (
+        ("fp_top50", 0),
+        ("fp_class_summary", 1),
+        ("fp_class_assignment", 2),
+        ("fp_coverage_importance", 3),
+        ("fp_feature_presence_heatmap", 4),
+        ("fp_interaction_assignment", 5),
+        ("fp_prevalent_interactions_heatmap", 7),
+        ("fp_prevalent_interactions", 6),
+    )
+    for marker, item_order in order:
+        if marker in stem:
+            return item_order, int(image.get("sequence", 999)), stem
+    return 99, int(image.get("sequence", 999)), stem
+
+
+def _model_plot_title(image: dict, language: str) -> str:
+    stem = str(image.get("plot_id") or "").casefold()
+    title_key = next(
+        (
+            key
+            for marker, key in (
+                ("fp_top50", "fp_top50_plot"),
+                ("fp_class_summary", "fp_class_summary_plot"),
+                ("fp_class_assignment", "fp_class_assignment_plot"),
+                ("fp_coverage_importance", "fp_coverage_importance_plot"),
+                ("fp_feature_presence_heatmap", "fp_feature_presence_heatmap_plot"),
+                ("fp_interaction_assignment", "fp_interaction_assignment_plot"),
+                ("fp_prevalent_interactions_heatmap", "fp_prevalent_interactions_heatmap_plot"),
+                ("fp_prevalent_interactions", "fp_prevalent_interactions_plot"),
+            )
+            if marker in stem
+        ),
+        "",
+    )
+    if not title_key:
+        return str(image.get("title") or _rt("image_fingerprint_title", language))
+    return f"{image.get('ifp_type') or 'IFP'} / {_MODEL_ORDER_LABELS.get(str(image.get('model') or ''), image.get('model') or '')}: {_rt(title_key, language)}"
+
+
+_MODEL_ORDER_LABELS = {
+    "extra_trees": "Extra Trees",
+    "gradient_boosting": "Gradient Boosting",
+}
+
+
+def _numbered_title(number: str, title: str) -> str:
+    return f"{number}. {title}" if number else title
+
+
+def _image_report_section(number: str, title: str, image: dict) -> dict:
+    item = dict(image)
+    item["title"] = _numbered_title(number, title)
+    return {
+        "kind": "image",
+        "number": number,
+        "title": title,
+        "image": item,
+        "paragraphs": [],
+        "table_headers": [],
+        "table_rows": [],
+        "pdf_rows": [],
+    }
+
+
+def _text_report_section(
+    number: str,
+    title: str,
+    *,
+    paragraphs: list[str] | None = None,
+    table_headers: list[str] | None = None,
+    table_rows: list[tuple] | None = None,
+    pdf_rows: list[tuple[str, str]] | None = None,
+    kind: str = "data",
+) -> dict:
+    return {
+        "kind": kind,
+        "number": number,
+        "title": title,
+        "paragraphs": list(paragraphs or []),
+        "table_headers": list(table_headers or []),
+        "table_rows": list(table_rows or []),
+        "pdf_rows": list(pdf_rows or []),
+    }
+
+
+def _top_feature_table_rows(rows: list[dict], language: str) -> tuple[list[tuple], list[tuple[str, str]]]:
+    table_rows: list[tuple] = []
+    pdf_rows: list[tuple[str, str]] = []
+    for row in rows[:50]:
+        rank = str(row.get("rank", "-"))
+        feature_id = str(row.get("feature_id", "-"))
+        level = str(row.get("assigned_level") or "-")
+        assigned_class = _translate_report_data(row.get("assigned_class") or "-", language)
+        coverage = f"{float(row.get('coverage_pct', 0.0) or 0.0):.2f}"
+        importance = f"{float(row.get('importance_score', 0.0) or 0.0):.8f}"
+        table_rows.append((rank, feature_id, level, assigned_class, coverage, importance))
+        pdf_rows.append((
+            f"{rank}. {_rt('feature', language)} {feature_id}",
+            "; ".join((
+                f"{_rt('assigned_level', language)}={level}",
+                f"{_rt('assigned_class', language)}={assigned_class}",
+                f"{_rt('coverage', language)}={coverage}%",
+                f"{_rt('importance', language)}={importance}",
+            )),
+        ))
+    return table_rows, pdf_rows
+
+
+def _build_report_sections(payload: dict) -> list[dict]:
+    """Build the complete report outline shared by HTML and both PDF engines."""
+    language = _report_language(payload.get("language"))
+    images = [dict(image) for image in payload.get("semantic_images", [])]
+    used: set[int] = set()
+
+    def take(predicate) -> list[dict]:
+        selected: list[dict] = []
+        for index, image in enumerate(images):
+            if index in used or not predicate(image):
+                continue
+            used.add(index)
+            selected.append(image)
+        return selected
+
+    def display_title(base: str, image: dict) -> str:
+        original = str(image.get("title") or "").strip()
+        if not original or original.casefold() in base.casefold():
+            return base
+        return f"{base}: {original}"
+
+    sections: list[dict] = [
+        _text_report_section(
+            "1",
+            _rt("summary", language),
+            paragraphs=[f"{_rt('generated', language)} {payload['generated_at']}.", _rt("analysis_intro", language)],
+            table_headers=[_rt("parameter", language), _rt("value", language)],
+            table_rows=payload["summary_rows"],
+            pdf_rows=payload["summary_rows"],
+        ),
+        _text_report_section(
+            "2",
+            _rt("configuration", language),
+            table_headers=[_rt("parameter", language), _rt("value", language)],
+            table_rows=payload["cfg_rows"],
+            pdf_rows=payload["cfg_rows"],
+        ),
+        _text_report_section(
+            "3",
+            _rt("interaction_count", language),
+            table_headers=[_rt("type", language), _rt("total", language)],
+            table_rows=payload["interaction_rows"],
+            pdf_rows=payload["interaction_rows"],
+        ),
+        _text_report_section(
+            "4",
+            _rt("top_residues", language),
+            table_headers=[_rt("residue", language), _rt("count", language)],
+            table_rows=payload["top_res_rows"],
+            pdf_rows=[(str(key), str(value)) for key, value in payload["top_res_rows"]],
+        ),
+    ]
+
+    distribution_images = take(lambda image: image.get("category") == "distribution")
+    if distribution_images:
+        sections.append(_text_report_section("5", _rt("interaction_distribution", language), kind="heading"))
+        distribution_titles = {
+            "interaction_distribution": _rt("interaction_summary", language),
+            "interactions_by_amino_acid": _rt("amino_acid_distribution", language),
+            "interactions_by_ligand_atom": _rt("ligand_atom_distribution", language),
+        }
+        distribution_numbers = {
+            "interaction_distribution": "5.1",
+            "interactions_by_amino_acid": "5.2",
+            "interactions_by_ligand_atom": "5.3",
+        }
+        next_number = 4
+        for image in distribution_images:
+            plot_id = str(image.get("plot_id") or "")
+            number = distribution_numbers.get(plot_id, f"5.{next_number}")
+            if plot_id not in distribution_numbers:
+                next_number += 1
+            sections.append(_image_report_section(
+                number,
+                display_title(distribution_titles.get(plot_id, str(image["title"])), image),
+                image,
+            ))
+
+    heatmaps_by_type = take(lambda image: image.get("category") == "interaction_heatmap")
+    complete_heatmaps = take(lambda image: image.get("category") == "complete_heatmap")
+    if heatmaps_by_type or complete_heatmaps:
+        sections.append(_text_report_section("6", _rt("interaction_heatmaps", language), kind="heading"))
+        for index, image in enumerate(heatmaps_by_type, start=1):
+            sections.append(_image_report_section(
+                f"6.1.{index}",
+                display_title(_rt("heatmaps_by_type", language), image),
+                image,
+            ))
+        for index, image in enumerate(complete_heatmaps, start=1):
+            number = "6.2" if index == 1 else f"6.2.{index}"
+            sections.append(_image_report_section(
+                number,
+                display_title(_rt("complete_interaction_heatmap", language), image),
+                image,
+            ))
+
+    similarity_images = take(lambda image: image.get("category") == "similarity")
+    cluster_images = take(lambda image: image.get("category") == "clusters")
+    fingerprint_images = take(lambda image: image.get("category") == "fingerprint" and bool(image.get("ifp_type")))
+    dashboards = payload.get("fp_dashboards") or {}
+    clusters_by_type = payload.get("clusters_by_type") or {}
+    fp_types = {
+        str(image.get("ifp_type") or "").upper()
+        for image in similarity_images + cluster_images + fingerprint_images
+        if image.get("ifp_type")
+    }
+    fp_types.update(str(key).upper() for key in dashboards if str(key).strip())
+    fp_types.update(str(key).upper() for key in clusters_by_type if str(key).strip())
+    fp_types.discard("")
+    ordered_types = sorted(fp_types, key=lambda value: (_IFP_ORDER.get(value, 99), value))
+
+    if ordered_types:
+        sections.append(_text_report_section(
+            "7",
+            _rt("fingerprint_analyses", language),
+            paragraphs=[_rt("fingerprint_definitions", language)],
+            kind="heading",
+        ))
+        hierarchical_images = [image for image in cluster_images if "hierarchical_clustering" in str(image.get("plot_id", ""))]
+        reordered_images = [image for image in cluster_images if "reordered_matrix_cluster" in str(image.get("plot_id", ""))]
+        other_cluster_images = [image for image in cluster_images if image not in hierarchical_images and image not in reordered_images]
+        for kind_number, label, images_for_kind in (
+            ("7.1", _rt("similarity_matrix", language), similarity_images),
+            ("7.2", _rt("hierarchical_clustering", language), hierarchical_images),
+            ("7.3", _rt("matrix_reordered", language), reordered_images + other_cluster_images),
+        ):
+            for index, image in enumerate(images_for_kind, start=1):
+                ifp_type = str(image.get("ifp_type") or "IFP")
+                sections.append(_image_report_section(
+                    f"{kind_number}.{index}",
+                    display_title(f"{ifp_type}: {label}", image),
+                    image,
+                ))
+        for index, ifp_type in enumerate(ordered_types, start=1):
+            rows = clusters_by_type.get(ifp_type) or []
+            if rows:
+                sections.append(_text_report_section(
+                    f"7.4.{index}",
+                    f"{ifp_type}: {_rt('cluster_assignment', language)}",
+                    paragraphs=[_rt("cluster_table_intro", language)],
+                    table_headers=[_rt("ligand", language), _rt("cluster", language)],
+                    table_rows=rows,
+                    pdf_rows=rows,
+                ))
+
+    if ordered_types:
+        sections.extend((
+            _text_report_section(
+                "8",
+                _rt("brief_supervised_learning", language),
+                paragraphs=[_rt("supervised_intro", language)],
+                kind="heading",
+            ),
+            _text_report_section(
+                "8.0",
+                _rt("fp_interpret", language),
+                paragraphs=[_translate_report_data(paragraph, language) for paragraph in _FP_EDUCATION],
+                kind="narrative",
+            ),
+            _text_report_section(
+                "8.1",
+                _rt("fp_columns", language),
+                paragraphs=[_rt("fp_guide_intro", language)],
+                table_headers=[_rt("column", language), _rt("interpretation", language)],
+                table_rows=[(_translate_report_data(column, language), _translate_report_data(description, language)) for column, description in _FP_COLUMN_GUIDE],
+                pdf_rows=[(_translate_report_data(column, language), _translate_report_data(description, language)) for column, description in _FP_COLUMN_GUIDE],
+            ),
+            _text_report_section(
+                "8.2",
+                _rt("fp_summary", language),
+                paragraphs=[_rt("fp_summary_intro", language)],
+                table_headers=[_rt("type", language), _rt("value", language)],
+                table_rows=payload.get("fp_rows", []),
+                pdf_rows=payload.get("fp_rows", []),
+            ),
+        ))
+        for ifp_index, ifp_type in enumerate(ordered_types, start=1):
+            dashboard = dashboards.get(ifp_type) or {"ifp_type": ifp_type}
+            model_tables = {
+                table["model_key"]: table
+                for table in _fp_model_tables({ifp_type: dashboard})
+            }
+            model_images = [
+                image for image in fingerprint_images
+                if str(image.get("ifp_type") or "").upper() == ifp_type
+            ]
+            sections.append(_text_report_section(f"8.2.{ifp_index}", ifp_type, kind="heading"))
+            for model_index, (model_key, model_title) in enumerate(_MODEL_ORDER_LABELS.items(), start=1):
+                table = model_tables.get(model_key)
+                images_for_model = sorted(
+                    [image for image in model_images if image.get("model") == model_key],
+                    key=_model_plot_order,
+                )
+                if not table and not images_for_model:
+                    continue
+                model_number = f"8.2.{ifp_index}.{model_index}"
+                if table:
+                    table_rows, pdf_rows = _top_feature_table_rows(table["rows"], language)
+                    sections.append(_text_report_section(
+                        f"{model_number}.1",
+                        f"{_rt('top_features', language)}: {ifp_type} / {model_title}",
+                        paragraphs=[_rt("top_features_intro", language)],
+                        table_headers=[_rt("rank", language), _rt("feature", language), _rt("assigned_level", language), _rt("assigned_class", language), _rt("coverage", language), _rt("importance", language)],
+                        table_rows=table_rows,
+                        pdf_rows=pdf_rows,
+                    ))
+                for plot_index, image in enumerate(images_for_model, start=2):
+                    sections.append(_image_report_section(
+                        f"{model_number}.{plot_index}",
+                        display_title(_model_plot_title(image, language), image),
+                        image,
+                    ))
+
+    appendix_images = [image for index, image in enumerate(images) if index not in used]
+    if appendix_images:
+        sections.append(_text_report_section("", _rt("report_appendix", language), kind="heading"))
+        for index, image in enumerate(appendix_images, start=1):
+            sections.append(_image_report_section(f"A.{index}", str(image["title"]), image))
+    return sections
+
+
 def build_report(
     cfg: ProjectConfig,
     analysis: dict,
@@ -857,22 +1380,20 @@ def build_report(
         fp_dashboards,
         extra_images,
     )
-    images = [dict(row) for row in payload["semantic_images"]]
-    for row in images:
-        row["data_uri"] = _img_b64(Path(row["path"]))
-        row["path"] = str(row["path"])
-    general_images = [
-        row for row in images
-        if not row.get("appendix") and row.get("category") != "fingerprint"
-    ]
-    appendix_images = [
-        row for row in images
-        if row.get("appendix") or (
-            row.get("category") == "fingerprint"
-            and (not row.get("ifp_type") or not row.get("model"))
-        )
-    ]
-    fp_sections = _fp_report_sections(fp_dashboards, images, language)
+    report_sections = []
+    for source in payload["report_sections"]:
+        section = dict(source)
+        if section.get("kind") == "image":
+            image = dict(section["image"])
+            image["data_uri"] = _img_b64(Path(image["path"]))
+            image["path"] = str(image["path"])
+            section["image"] = image
+        report_sections.append(section)
+    # Kept as empty compatibility fields while third-party templates migrate to
+    # the unified outline below.
+    general_images: list[dict] = []
+    appendix_images: list[dict] = []
+    fp_sections: list[dict] = []
     environment = Environment(
         loader=PackageLoader("luna_gui", "templates"),
         autoescape=select_autoescape(("html", "xml")),
@@ -962,6 +1483,9 @@ def build_report(
         "appendix_title": _rt("appendix", language),
         "cfg_rows": payload["cfg_rows"],
     })
+    context["report_title"] = _rt("report_title", language)
+    context["source_label"] = _rt("source", language)
+    context["report_sections"] = report_sections
     return template.render(**context)
 
 
@@ -1237,6 +1761,12 @@ def _pdf_payload(
         cluster_png,
         extra_images,
     )
+    dashboards = _report_dashboards(cfg.workdir, fp_dashboards)
+    clusters_by_type = _load_cluster_assignments(cfg.workdir)
+    if clusters:
+        selected_types = list(cfg.selected_ifp_types()) if hasattr(cfg, "selected_ifp_types") else []
+        current_type = str(selected_types[0] if selected_types else "IFP").upper()
+        clusters_by_type[current_type] = [(str(label), str(cluster_id)) for label, cluster_id in clusters]
     payload = {
         "language": language,
         "analysis": analysis,
@@ -1257,11 +1787,13 @@ def _pdf_payload(
             for row in semantic_images
         ],
         "semantic_images": semantic_images,
-        "fp_sections": _fp_report_sections(fp_dashboards, semantic_images, language),
+        "fp_dashboards": dashboards,
+        "fp_sections": _fp_report_sections(dashboards, semantic_images, language),
         "top_res_rows": top_res,
-        "fp_rows": _fp_rows(fp_dashboards),
-        "fp_model_tables": _fp_model_tables(fp_dashboards),
-        "clusters": [(str(label), str(cluster_id)) for label, cluster_id in (clusters or [])],
+        "fp_rows": _fp_rows(dashboards),
+        "fp_model_tables": _fp_model_tables(dashboards),
+        "clusters_by_type": clusters_by_type,
+        "clusters": [row for rows in clusters_by_type.values() for row in rows],
     }
     payload.update({
         "entries": analysis.get("entries", _rt("not_reported", language)),
@@ -1279,8 +1811,9 @@ def _pdf_payload(
         ],
         "top_inter": _localized_count_summary(top_inter, "no_interactions", language),
         "top_res": _localized_count_summary(top_res, "no_residues", language),
-        "fp_rows": _localized_fp_rows(fp_dashboards, language),
+        "fp_rows": _localized_fp_rows(dashboards, language),
     })
+    payload["report_sections"] = _build_report_sections(payload)
     return payload
 
 
@@ -1419,6 +1952,53 @@ def _reportlab_write_image_page(canvas, image: dict, page_state: list[int]) -> s
     return None
 
 
+def _write_reportlab_sections(canvas, payload: dict, page_state: list[int]) -> list[str]:
+    """Render the ordered outline used by the HTML report, one section at a time."""
+    warnings: list[str] = []
+    for section in payload.get("report_sections", []):
+        if section.get("kind") == "image":
+            warning = _reportlab_write_image_page(canvas, section["image"], page_state)
+            if warning:
+                warnings.append(warning)
+            continue
+        title = _numbered_title(str(section.get("number") or ""), str(section.get("title") or ""))
+        _reportlab_write_text_page(
+            canvas,
+            title,
+            list(section.get("paragraphs") or []),
+            list(section.get("pdf_rows") or []),
+            page_state,
+        )
+    return warnings
+
+
+def _write_matplotlib_sections(pdf, payload: dict, page_state: list[int]) -> list[str]:
+    """Fallback equivalent of the ReportLab section renderer."""
+    warnings: list[str] = []
+    language = _report_language(payload.get("language"))
+    for section in payload.get("report_sections", []):
+        if section.get("kind") == "image":
+            image = section["image"]
+            warning = _add_image_page(
+                pdf,
+                str(image["title"]),
+                Path(image["path"]),
+                str(image.get("caption") or ""),
+                page_state,
+            )
+            if warning:
+                warnings.append(warning)
+            continue
+        _add_text_page(
+            pdf,
+            _numbered_title(str(section.get("number") or ""), str(section.get("title") or "")),
+            list(section.get("paragraphs") or []),
+            list(section.get("pdf_rows") or []),
+            page_state,
+        )
+    return warnings
+
+
 def _write_pdf_payload_reportlab_legacy(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.pdfgen.canvas import Canvas
@@ -1551,7 +2131,7 @@ def _write_pdf_payload_reportlab_legacy(path: str | Path, payload: dict) -> tupl
 
 
 def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
-    """Render the PDF from the same localized payload used by the HTML template."""
+    """Render the PDF from the exact report outline used by the HTML template."""
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.pdfgen.canvas import Canvas
 
@@ -1561,7 +2141,6 @@ def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path,
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.part")
     temporary.unlink(missing_ok=True)
-    warnings: list[str] = []
     page_state = [0]
     canvas = Canvas(str(temporary), pagesize=landscape(A4), pageCompression=1)
     try:
@@ -1569,109 +2148,10 @@ def _write_pdf_payload_reportlab(path: str | Path, payload: dict) -> tuple[Path,
             canvas,
             _rt("report_title", language),
             [f"{_rt('generated', language)} {payload['generated_at']}."],
-            payload["summary_rows"],
+            None,
             page_state,
         )
-        _reportlab_write_text_page(
-            canvas,
-            _rt("configuration", language),
-            [],
-            payload["cfg_rows"],
-            page_state,
-        )
-        _reportlab_write_text_page(
-            canvas,
-            _rt("interaction_count", language),
-            [],
-            payload["interaction_rows"],
-            page_state,
-        )
-        _reportlab_write_text_page(
-            canvas,
-            _rt("top_residues", language),
-            [],
-            [(str(key), str(value)) for key, value in payload["top_res_rows"]],
-            page_state,
-        )
-        general_images = [
-            image for image in payload["semantic_images"]
-            if not image.get("appendix") and image.get("category") != "fingerprint"
-        ]
-        for image in general_images:
-            warning = _reportlab_write_image_page(canvas, image, page_state)
-            if warning:
-                warnings.append(warning)
-        if payload["clusters"]:
-            _reportlab_write_text_page(
-                canvas,
-                _rt("cluster_assignment", language),
-                [_rt("cluster_table_intro", language)],
-                payload["clusters"],
-                page_state,
-            )
-        for section in payload["fp_sections"]:
-            ifp_type = str(section["ifp_type"])
-            _reportlab_write_text_page(
-                canvas,
-                f"{ifp_type}: {_rt('fp_interpret', language)}",
-                section["education"],
-                None,
-                page_state,
-            )
-            _reportlab_write_text_page(
-                canvas,
-                f"{ifp_type}: {_rt('fp_columns', language)}",
-                [],
-                section["column_guide"],
-                page_state,
-            )
-            _reportlab_write_text_page(
-                canvas,
-                f"{ifp_type}: {_rt('fp_summary', language)}",
-                [],
-                section["summary_rows"],
-                page_state,
-            )
-            for model in section["models"]:
-                model_rows = [
-                    (
-                        f"{row.get('rank', '-')}. {_rt('feature', language)} {row.get('feature_id', '-')}",
-                        "; ".join(
-                            (
-                                f"{_rt('assigned_level', language)}={row.get('assigned_level') or '-'}",
-                                f"{_rt('assigned_class', language)}={_translate_report_data(row.get('assigned_class') or '-', language)}",
-                                f"{_rt('coverage', language)}={float(row.get('coverage_pct', 0.0) or 0.0):.2f}%",
-                                f"{_rt('importance', language)}={float(row.get('importance_score', 0.0) or 0.0):.8f}",
-                            )
-                        ),
-                    )
-                    for row in model["rows"]
-                ]
-                _reportlab_write_text_page(
-                    canvas,
-                    f"{_rt('top_features', language)}: {ifp_type} / {model['title']}",
-                    [_rt("top_features_intro", language)],
-                    model_rows,
-                    page_state,
-                )
-                for image in model["images"]:
-                    warning = _reportlab_write_image_page(canvas, image, page_state)
-                    if warning:
-                        warnings.append(warning)
-        appendix = [
-            image
-            for image in payload["semantic_images"]
-            if image.get("appendix") or (
-                image.get("category") == "fingerprint"
-                and (not image.get("ifp_type") or not image.get("model"))
-            )
-        ]
-        if appendix:
-            _reportlab_write_text_page(canvas, _rt("appendix", language), [], None, page_state)
-            for image in appendix:
-                warning = _reportlab_write_image_page(canvas, image, page_state)
-                if warning:
-                    warnings.append(warning)
+        warnings = _write_reportlab_sections(canvas, payload, page_state)
         canvas.save()
         temporary.replace(output)
     except BaseException:
@@ -1772,7 +2252,7 @@ def _write_pdf_payload_matplotlib_legacy(path: str | Path, payload: dict) -> tup
 
 
 def _write_pdf_payload_matplotlib(path: str | Path, payload: dict) -> tuple[Path, list[str]]:
-    """Fallback renderer consuming the same localized report payload."""
+    """Fallback renderer that follows the same sections and order as HTML."""
     from matplotlib.backends.backend_pdf import PdfPages
 
     language = _report_language(payload.get("language"))
@@ -1782,106 +2262,16 @@ def _write_pdf_payload_matplotlib(path: str | Path, payload: dict) -> tuple[Path
     temporary = output.with_name(f".{output.name}.part")
     temporary.unlink(missing_ok=True)
     page_state = [0]
-    warnings: list[str] = []
     try:
         with PdfPages(temporary) as pdf:
             _add_text_page(
                 pdf,
                 _rt("report_title", language),
-                [
-                    f"{_rt('generated', language)} {payload['generated_at']}.",
-                    _rt("analysis_intro", language),
-                    f"{_rt('processed_entries', language)}: {payload['entries']}.",
-                ],
-                payload["cfg_rows"],
+                [f"{_rt('generated', language)} {payload['generated_at']}."],
+                None,
                 page_state,
             )
-            _add_text_page(
-                pdf,
-                _rt("analysis_interpretation", language),
-                [
-                    _rt("image_distribution_caption", language),
-                    _rt("image_heatmap_caption", language),
-                    _rt("image_similarity_caption", language),
-                    _rt("image_cluster_caption", language),
-                    _rt("image_fingerprint_caption", language),
-                    _rt("image_network_caption", language),
-                ],
-                [
-                    (_rt("frequent_interactions", language), payload["top_inter"]),
-                    (_rt("frequent_residues", language), payload["top_res"]),
-                ],
-                page_state,
-            )
-            general_images = [
-                image for image in payload["semantic_images"]
-                if not image.get("appendix") and image.get("category") != "fingerprint"
-            ]
-            for image in general_images:
-                warning = _add_image_page(
-                    pdf,
-                    _report_display_text(image["title"], language),
-                    Path(image["path"]),
-                    _report_display_text(image["caption"], language),
-                    page_state,
-                )
-                if warning:
-                    warnings.append(warning)
-            if payload["clusters"]:
-                _add_text_page(
-                    pdf,
-                    _rt("cluster_assignment", language),
-                    [_rt("cluster_table_intro", language)],
-                    payload["clusters"],
-                    page_state,
-                )
-            for section in payload["fp_sections"]:
-                ifp_type = str(section["ifp_type"])
-                _add_text_page(pdf, f"{ifp_type}: {_rt('fp_interpret', language)}", section["education"], None, page_state)
-                _add_text_page(pdf, f"{ifp_type}: {_rt('fp_columns', language)}", [_rt("fp_guide_intro", language)], section["column_guide"], page_state)
-                if section["summary_rows"]:
-                    _add_text_page(pdf, f"{ifp_type}: {_rt('fp_summary', language)}", [_rt("fp_summary_intro", language)], section["summary_rows"], page_state)
-                for model in section["models"]:
-                    rows = [
-                        (
-                            f"{row.get('rank', '-')}. {_rt('feature', language)} {row.get('feature_id', '-')} ({_rt('assigned_level', language)} {row.get('assigned_level') or '-'})",
-                            "; ".join(
-                                (
-                                    f"{_rt('assigned_class', language)}={_translate_report_data(row.get('assigned_class') or '-', language)}",
-                                    f"{_rt('coverage', language)}={float(row.get('coverage_pct', 0.0) or 0.0):.2f}%",
-                                    f"{_rt('importance', language)}={float(row.get('importance_score', 0.0) or 0.0):.8f}",
-                                )
-                            ),
-                        )
-                        for row in model["rows"]
-                    ]
-                    _add_text_page(
-                        pdf,
-                        f"{_rt('top_features', language)}: {ifp_type} / {model['title']}",
-                        [_rt("top_features_intro", language)],
-                        rows,
-                        page_state,
-                    )
-            appendix_images = [
-                image
-                for image in payload["semantic_images"]
-                if image.get("appendix") or (
-                    image.get("category") == "fingerprint"
-                    and (not image.get("ifp_type") or not image.get("model"))
-                )
-            ]
-            if appendix_images:
-                _add_text_page(pdf, _rt("appendix", language), [], None, page_state)
-                for image in appendix_images:
-                    warning = _add_image_page(
-                        pdf,
-                        _report_display_text(image["title"], language),
-                        Path(image["path"]),
-                        _report_display_text(image["caption"], language),
-                        page_state,
-                    )
-                    if warning:
-                        warnings.append(warning)
+            warnings = _write_matplotlib_sections(pdf, payload, page_state)
         temporary.replace(output)
     except BaseException:
         temporary.unlink(missing_ok=True)

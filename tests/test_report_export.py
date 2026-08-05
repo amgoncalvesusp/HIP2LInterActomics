@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import unittest
@@ -107,8 +108,8 @@ class ReportExportTests(unittest.TestCase):
                 self.assertIn(interaction_label, document)
                 self.assertEqual(payload["interaction_rows"][0][0], interaction_label)
                 self.assertIn(levels_label, next(value for key, value in payload["cfg_rows"] if key == "IFP"))
-                self.assertIn(report_title, captured_titles)
-                self.assertIn(count_title, captured_titles)
+                self.assertTrue(any(report_title in title for title in captured_titles))
+                self.assertTrue(any(count_title in title for title in captured_titles))
 
     def test_html_embeds_every_legacy_per_type_heatmap_passed_by_gui(self) -> None:
         heatmaps = [
@@ -401,6 +402,114 @@ class ReportExportTests(unittest.TestCase):
         self.assertIn("A/RES/00", top_section)
         self.assertIn("A/RES/29", top_section)
         self.assertNotIn("A/RES/30", top_section)
+
+    def test_report_outline_scans_persisted_fp_assets_and_is_shared_by_pdf(self) -> None:
+        manifest = PlotManifest()
+        specs = [
+            ("interaction_distribution", "interaction summary", 10, "distribution", "", ""),
+            ("interactions_by_amino_acid", "amino acids", 11, "distribution", "", ""),
+            ("interactions_by_ligand_atom", "ligand atoms", 12, "distribution", "", ""),
+            ("interaction_heatmap_hbond", "hbond heatmap", 20, "interaction_heatmap", "", ""),
+            ("interaction_heatmap_ionic", "ionic heatmap", 21, "interaction_heatmap", "", ""),
+            ("complete_interaction_heatmap", "complete heatmap", 30, "complete_heatmap", "", ""),
+            ("similarity_matrix", "similarity", 40, "similarity", "EIFP", ""),
+            ("hierarchical_clustering", "hierarchical", 50, "clusters", "EIFP", ""),
+            ("reordered_matrix_cluster", "reordered", 60, "clusters", "EIFP", ""),
+        ]
+        fp_plot_ids = [
+            "fp_top50_extra_trees",
+            "fp_class_summary",
+            "fp_class_assignment",
+            "fp_coverage_importance",
+            "fp_feature_presence_heatmap",
+            "fp_interaction_assignment",
+            "fp_prevalent_interactions",
+            "fp_prevalent_interactions_heatmap",
+        ]
+        for index, plot_id in enumerate(fp_plot_ids):
+            specs.append((plot_id, plot_id, 100 + index, "fingerprint", "EIFP", "extra_trees"))
+        for plot_id, title, sequence, category, ifp_type, model in specs:
+            path = self._image(
+                self.root / "results" / "plots" / "pt" / "report" / category / f"{plot_id}.png",
+                (300, 160),
+                "#174f4b",
+            )
+            manifest.add(PlotRecord(
+                plot_id,
+                "pt",
+                "report",
+                str(path),
+                title,
+                "caption",
+                sequence,
+                ifp_type=ifp_type,
+                model=model,
+                category=category,
+            ))
+        manifest.save(manifest_path(self.root))
+
+        dashboard_dir = self.root / "results" / "terminal" / "fingerprints" / "E"
+        dashboard_dir.mkdir(parents=True)
+        dashboard_dir.joinpath("fp_dashboard.json").write_text(json.dumps({
+            "ifp_type": "EIFP",
+            "features": [{"feature_id": 10}],
+            "important_features": [{"feature_id": 10}],
+            "top_features_by_model": {
+                "extra_trees": [{
+                    "rank": 1,
+                    "feature_id": 10,
+                    "assigned_level": "2",
+                    "assigned_class": "class",
+                    "coverage_pct": 75.0,
+                    "importance_score": 0.5,
+                }],
+            },
+        }), encoding="utf-8")
+        (self.root / "results" / "terminal" / "clusters_E.csv").write_text(
+            "ligand_id,cluster_id,leaf_order\nligA,1,0\n",
+            encoding="utf-8",
+        )
+
+        payload = _pdf_payload(self.cfg, self.analysis, None, None, None, None, None, None)
+        section_titles = [
+            report_export._numbered_title(section["number"], section["title"])
+            if section["kind"] != "image" else section["image"]["title"]
+            for section in payload["report_sections"]
+        ]
+        expected = [
+            "1. Resumo",
+            "2. Configura\u00e7\u00e3o",
+            "3. Contagem por tipo de intera\u00e7\u00e3o",
+            "4. Top 30 res\u00edduos com mais intera\u00e7\u00f5es",
+            "5. Distribui\u00e7\u00e3o de intera\u00e7\u00f5es",
+            "6. Mapas de calor de intera\u00e7\u00f5es",
+            "7. An\u00e1lises de fingerprints",
+            "7.4.1. EIFP: Atribui\u00e7\u00e3o de clusters",
+            "8. Breve aprendizado supervisionado",
+            "8.2.1.1.1. Top 50 features: EIFP / Extra Trees",
+        ]
+        positions = [next(index for index, title in enumerate(section_titles) if expected_title in title) for expected_title in expected]
+        self.assertEqual(positions, sorted(positions))
+        self.assertTrue(any(title.startswith("8.2.1.1.9.") for title in section_titles))
+
+        document = build_report(cfg=self.cfg, analysis=self.analysis)
+        for expected_title in expected:
+            self.assertIn(expected_title, document)
+
+        captured: list[str] = []
+        output = self.root / "outline.pdf"
+        with patch.object(
+            report_export,
+            "_reportlab_write_text_page",
+            side_effect=lambda _canvas, title, *_args: captured.append(title),
+        ), patch.object(
+            report_export,
+            "_reportlab_write_image_page",
+            side_effect=lambda _canvas, image, *_args: captured.append(image["title"]),
+        ):
+            report_export._write_pdf_payload_reportlab(output, payload)
+
+        self.assertEqual(captured[1:], section_titles)
 
 
 if __name__ == "__main__":

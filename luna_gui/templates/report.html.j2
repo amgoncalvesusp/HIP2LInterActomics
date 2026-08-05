@@ -21,59 +21,19 @@ th{background:#efe7db;text-align:left}.number{text-align:right}.meta,small{color
 </head>
 <body>
 <h1>{{ report_title }}</h1>
-<p class="meta">{{ generated_label }} {{ generated_at }}</p>
-<h2>{{ summary_title }}</h2>
-<ul>
-  <li><b>{{ protein_label }}:</b> {{ cfg.protein_file or "-" }}</li>
-  <li><b>{{ ligands_label }}:</b> {{ cfg.ligand_file or "-" }}</li>
-  <li><b>{{ selected_label }}:</b> {{ cfg.selected_ligands|length }}</li>
-  <li><b>{{ workdir_label }}:</b> {{ cfg.workdir or "-" }}</li>
-  <li><b>{{ processed_label }}:</b> {{ analysis.entries|default("-", true) }}</li>
-</ul>
-<h2>{{ configuration_title }}</h2>
-<table><thead><tr><th>{{ parameter_label }}</th><th>{{ value_label }}</th></tr></thead><tbody>
-{% for key, value in cfg_rows %}<tr><td>{{ key }}</td><td>{{ value }}</td></tr>{% endfor %}
-</tbody></table>
-<h2>{{ interaction_count_title }}</h2>
-<table><thead><tr><th>{{ type_label }}</th><th>{{ total_label }}</th></tr></thead><tbody>
-{% for key, value in interaction_rows %}<tr><td>{{ key }}</td><td class="number">{{ value }}</td></tr>{% endfor %}
-</tbody></table>
-<h2>{{ top_residue_title }}</h2>
-<table><thead><tr><th>{{ residue_label }}</th><th>{{ count_label }}</th></tr></thead><tbody>
-{% for key, value in top_residue_rows %}<tr><td>{{ key }}</td><td class="number">{{ value }}</td></tr>{% endfor %}
-</tbody></table>
-
-{% for image in general_images %}
-<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>
-{% endfor %}
-
-{% if clusters %}
-<section class="data-section page-break"><h2>{{ cluster_assignment_title }}</h2>
-<table><thead><tr><th>{{ ligand_label }}</th><th>{{ cluster_label }}</th></tr></thead><tbody>
-{% for label, cluster_id in clusters %}<tr><td>{{ label }}</td><td class="number">{{ cluster_id }}</td></tr>{% endfor %}
-</tbody></table></section>
-{% endif %}
-
-{% for fp in fp_sections %}
-<section class="data-section page-break"><h2>{{ fp.ifp_type }}</h2>
-<h3>{{ fp_interpret_title }}</h3>{% for paragraph in fp.education %}<p>{{ paragraph }}</p>{% endfor %}
-<h3>{{ fp_columns_title }}</h3>
-<table><thead><tr><th>{{ column_label }}</th><th>{{ interpretation_label }}</th></tr></thead><tbody>
-{% for column, description in fp.column_guide %}<tr><td>{{ column }}</td><td>{{ description }}</td></tr>{% endfor %}
-</tbody></table>
-<h3>{{ fp_summary_title }}</h3>
-<table><tbody>{% for key, value in fp.summary_rows %}<tr><td>{{ key }}</td><td>{{ value }}</td></tr>{% endfor %}</tbody></table>
+{% for section in report_sections %}
+{% if section.kind == "image" %}
+<section class="plot"><h2>{{ section.image.title }}</h2><img src="{{ section.image.data_uri }}" alt="{{ section.image.title }}"><p>{{ section.image.caption }}</p><small>{{ source_label }}: {{ section.image.path }}</small></section>
+{% else %}
+<section class="{% if section.kind == 'heading' %}page-break{% else %}data-section{% endif %}">
+  <h2>{% if section.number %}{{ section.number }}. {% endif %}{{ section.title }}</h2>
+  {% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+  {% if section.table_rows %}
+  <table>{% if section.table_headers %}<thead><tr>{% for header in section.table_headers %}<th>{{ header }}</th>{% endfor %}</tr></thead>{% endif %}<tbody>
+  {% for row in section.table_rows %}<tr>{% for value in row %}<td{% if loop.last %} class="number"{% endif %}>{{ value }}</td>{% endfor %}</tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
 </section>
-{% for model in fp.models %}
-<section class="data-section page-break"><h2>{{ top_features_title }}: {{ fp.ifp_type }} / {{ model.title }}</h2>
-<table><thead><tr><th>{{ rank_label }}</th><th>{{ feature_label }}</th><th>{{ assigned_level_label }}</th><th>{{ assigned_class_label }}</th><th>{{ coverage_label }}</th><th>{{ importance_label }}</th></tr></thead><tbody>
-{% for row in model.rows %}<tr><td class="number">{{ row.rank }}</td><td>{{ row.feature_id }}</td><td>{{ row.assigned_level or "-" }}</td><td>{{ row.assigned_class or "-" }}</td><td class="number">{{ "%.2f"|format(row.coverage_pct) }}</td><td class="number">{{ "%.8f"|format(row.importance_score) }}</td></tr>{% endfor %}
-</tbody></table></section>
-{% for image in model.images %}<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>{% endfor %}
-{% endfor %}
-{% endfor %}
-
-{% if appendix_images %}<section class="page-break"><h2>{{ appendix_title }}</h2></section>
-{% for image in appendix_images %}<section class="plot"><h2>{{ image.title }}</h2><img src="{{ image.data_uri }}" alt="{{ image.title }}"><p>{{ image.caption }}</p><small>{{ source_label }}: {{ image.path }}</small></section>{% endfor %}
 {% endif %}
+{% endfor %}
 </body></html>

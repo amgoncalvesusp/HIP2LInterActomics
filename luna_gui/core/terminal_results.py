@@ -494,7 +494,10 @@ def _save_statistics_detail_plots(
         ylabel="% of frames (entries)" if trajectory_analysis else "Interaction count",
         language=language,
         profile=profile,
-        percentage=trajectory_analysis,
+        # The vertical scale remains the measured total outside trajectories,
+        # while every visible stacked segment is identified by its share of the
+        # residue total. This makes the report comparable in both modes.
+        percentage=True,
     )
     if residue_output:
         outputs.append((
