@@ -44,6 +44,7 @@ BOOL_FIELDS = {
     "filter_binding_modes",
     "overwrite",
     "include_waters",
+    "include_protein_heteroatoms",
     "ic_add_proximal",
     "ic_add_atom_atom",
     "ic_add_dependent_inter",
@@ -100,6 +101,7 @@ EXAMPLE_CONFIG = """{
   "out_pse": false,
 
   "include_waters": true,
+  "include_protein_heteroatoms": false,
   "add_h": true,
   "ph": 7.4,
   "nproc": 1,
@@ -707,6 +709,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--include-waters",
         help_text="Preserve water-mediated interactions.",
     )
+    _add_boolean_option(
+        inputs,
+        "--include-protein-heteroatoms",
+        help_text=(
+            "Treat non-water HETATM residues in the receptor PDB as protein "
+            "components, including cofactors and coordinated metal ions."
+        ),
+    )
 
     fingerprints = parser.add_argument_group("fingerprints and supervised labels")
     _add_boolean_option(
@@ -885,6 +895,7 @@ _PROJECT_OVERRIDE_NAMES = (
     "nproc",
     "overwrite",
     "include_waters",
+    "include_protein_heteroatoms",
     "ic_add_proximal",
     "ic_add_atom_atom",
     "ic_add_dependent_inter",

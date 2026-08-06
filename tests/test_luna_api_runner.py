@@ -75,6 +75,101 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertTrue(ProjectConfig(interaction_config_file="D:/config.cfg").uses_python_api())
         self.assertTrue(ProjectConfig(inter_max_distance_cap=4.5).uses_python_api())
 
+    def test_protein_heteroatom_option_defaults_to_off_and_uses_api_runner(self) -> None:
+        self.assertFalse(ProjectConfig().include_protein_heteroatoms)
+        self.assertTrue(
+            ProjectConfig(include_protein_heteroatoms=True).uses_python_api()
+        )
+
+    def test_receptor_heteroatom_role_is_opt_in_and_keeps_chain_residue_id(self) -> None:
+        tree = ast.parse(API_RUNNER_SCRIPT)
+        required = {
+            "_group_has_water_residue",
+            "_residue_name_from_atom",
+            "_residue_key_from_atom",
+            "_group_has_ligand_residue",
+            "_group_is_configured_protein_heteroatom",
+            "_group_has_structural_residue",
+            "_group_role",
+            "_residue_label",
+            "_labels_from_group",
+            "_interaction_residue_payload",
+        }
+        functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in required
+        ]
+        namespace = {
+            "AA_RESIDUES": {"ALA", "GLY"},
+            "WATER_RESIDUES": {"HOH"},
+            "INCLUDE_PROTEIN_HETEROATOMS": False,
+            "PROTEIN_HETEROATOM_RESIDUES": {"A/ZN/228"},
+        }
+        exec(compile(ast.Module(body=functions, type_ignores=[]), "<roles>", "exec"), namespace)
+
+        class Chain:
+            id = "A"
+
+        class Residue:
+            parent = Chain()
+            resname = "ZN"
+            id = ("H_ZN", 228, " ")
+
+        class Atom:
+            parent = Residue()
+
+        class Group:
+            atoms = [Atom()]
+
+            def has_water(self):
+                return False
+
+            def has_residue(self):
+                return False
+
+            def has_nucleotide(self):
+                return False
+
+            def has_hetatm(self):
+                return True
+
+        class LigandGroup:
+            atoms = []
+
+            def has_water(self):
+                return False
+
+            def has_residue(self):
+                return False
+
+            def has_nucleotide(self):
+                return False
+
+            def has_hetatm(self):
+                return True
+
+        class Interaction:
+            src_grp = LigandGroup()
+            trgt_grp = Group()
+
+        zinc = Group()
+        self.assertEqual(namespace["_group_role"](zinc), "ligand")
+        self.assertEqual(namespace["_interaction_residue_payload"](Interaction()), {})
+
+        namespace["INCLUDE_PROTEIN_HETEROATOMS"] = True
+        namespace["PROTEIN_HETEROATOM_RESIDUES"] = set()
+        self.assertEqual(namespace["_group_role"](zinc), "ligand")
+        namespace["PROTEIN_HETEROATOM_RESIDUES"] = {"A/ZN/228"}
+        self.assertEqual(namespace["_group_role"](zinc), "protein")
+        self.assertEqual(
+            namespace["_interaction_residue_payload"](Interaction()),
+            {"A/ZN/228": "protein_heteroatom"},
+        )
+
+    def test_intermediate_artifact_records_heteroatom_roles(self) -> None:
+        self.assertIn('"residue_roles"', API_RUNNER_SCRIPT)
+        self.assertIn("ignore_res_hetatm=False", API_RUNNER_SCRIPT)
+
     def test_api_runner_rebuilds_similarity_from_ifp_instead_of_using_luna_internal_queue(self) -> None:
         self.assertIn("proj.ifp_sim_matrix_output = None", API_RUNNER_SCRIPT)
         self.assertIn("_write_similarity_outputs_from_ifp(", API_RUNNER_SCRIPT)
@@ -118,6 +213,23 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertIn("finally:\n                _reset_pymol_session()", API_RUNNER_SCRIPT)
         self.assertIn("def _reset_pymol_session", _PSE_FILTER_SCRIPT)
         self.assertIn("viewer = InteractionViewer(show_hydrop_surface=False)", _PSE_FILTER_SCRIPT)
+
+    def test_pse_palette_is_applied_in_the_active_session_without_reloading(self) -> None:
+        palette_function = next(
+            node
+            for node in ast.parse(API_RUNNER_SCRIPT).body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_apply_pse_interaction_colors"
+        )
+        calls_load = [
+            node
+            for node in ast.walk(palette_function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "load"
+        ]
+        self.assertEqual(calls_load, [])
+        self.assertNotIn("objetos coloridos", API_RUNNER_SCRIPT)
 
     def test_prepared_protein_flags_keep_add_h_without_staging_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,6 +416,7 @@ class LunaApiRunnerTests(unittest.TestCase):
             self.assertEqual(params["fork_from"], str(root / "source_project"))
             self.assertEqual(params["interaction_config_file"], str(root / "custom_interactions.cfg"))
             self.assertEqual(params["inter_max_distance_cap"], 4.5)
+            self.assertFalse(params["include_protein_heteroatoms"])
             self.assertTrue(params["add_h"])
             self.assertTrue(params["amend_mol"])
             self.assertEqual(params["ifp_seed"], 321)
@@ -325,6 +438,29 @@ class LunaApiRunnerTests(unittest.TestCase):
                     "FIFP": str(workdir / "sim_matrix_F.csv"),
                 },
             )
+
+    def test_write_params_persists_protein_heteroatom_option(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            protein_file = root / "protein.pdb"
+            ligand_file = root / "ligands.mol2"
+            protein_file.write_text(
+                "HEADER\n"
+                "HETATM 3594  ZN   ZN A 228       3.425   8.551   3.392  1.00  0.00          ZN2+  \n",
+                encoding="utf-8",
+            )
+            ligand_file.write_text("@<TRIPOS>MOLECULE\nligA\n", encoding="utf-8")
+            cfg = ProjectConfig(
+                protein_file=str(protein_file),
+                ligand_file=str(ligand_file),
+                workdir=str(root / "workdir"),
+                include_protein_heteroatoms=True,
+            )
+
+            params = json.loads(Path(write_params(cfg.workdir, cfg, ["ligA"])).read_text(encoding="utf-8"))
+
+        self.assertTrue(params["include_protein_heteroatoms"])
+        self.assertEqual(params["protein_heteroatom_residues"], ["A/ZN/228"])
 
     def test_write_params_uses_typed_similarity_output_for_single_ifp(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -478,6 +478,9 @@ class MainWindow(QMainWindow):
         self.tab_project.cb_fork.setChecked(bool(self.cfg.fork_from))
         self.tab_project.fork_edit.setText(self.cfg.fork_from)
         self.tab_project.cb_waters.setChecked(self.cfg.include_waters)
+        self.tab_project.cb_protein_heteroatoms.setChecked(
+            bool(getattr(self.cfg, "include_protein_heteroatoms", False))
+        )
         a.adv_box.setChecked(
             self.cfg.force_python_api
             or bool(self.cfg.inter_config_overrides)

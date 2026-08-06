@@ -92,6 +92,14 @@ class TerminalCliTests(unittest.TestCase):
         self.assertEqual(project["selected_ligands"], ["ligand-a", "ligand-b"])
         self.assertEqual(runtime, {})
 
+    def test_parser_exposes_protein_heteroatom_option(self) -> None:
+        parser = terminal._build_parser()
+        args = parser.parse_args(["--include-protein-heteroatoms"])
+        project, runtime = terminal._collect_cli_overrides(args, parser)
+
+        self.assertTrue(project["include_protein_heteroatoms"])
+        self.assertEqual(runtime, {})
+
     def test_template_is_valid_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "template.json"
@@ -200,6 +208,7 @@ class MultipleRunTests(unittest.TestCase):
                         "protein_file": "protein.pdb",
                         "ligand_file": "ligands",
                         "workdir": str(root / "runs"),
+                        "include_protein_heteroatoms": True,
                     },
                     "terminal": {"env_name": "luna-env"},
                 },
@@ -219,6 +228,7 @@ class MultipleRunTests(unittest.TestCase):
         self.assertFalse(documents[2]["project"]["ifp_bit"])
         self.assertEqual(documents[0]["project"]["ifp_levels"], 2)
         self.assertEqual(documents[0]["project"]["ifp_radius"], 10.0)
+        self.assertTrue(documents[0]["project"]["include_protein_heteroatoms"])
         self.assertTrue(
             documents[0]["project"]["workdir"].endswith("B1024_L2_G10_bin")
         )

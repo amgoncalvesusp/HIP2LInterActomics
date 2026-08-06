@@ -272,9 +272,6 @@ def _apply_pse_interaction_colors(pse_path, palette, *, save=True):
     try:
         from pymol import cmd
         object_names = list(cmd.get_names("objects") or [])
-        if not object_names and pse_path and Path(pse_path).exists():
-            cmd.load(str(pse_path))
-            object_names = list(cmd.get_names("objects") or [])
     except Exception as exc:
         print(f"[fp-session-helper] paleta PSE ignorada ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
         return 0
@@ -738,6 +735,13 @@ from pathlib import Path
 warnings.filterwarnings("ignore", message=r'.*"import openbabel".*')
 
 WATER_RESIDUES = {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+AA_RESIDUES = {
+    "ALA", "ARG", "ASN", "ASP", "ASH", "CYS", "CYM", "CYX", "GLN", "GLU", "GLH",
+    "GLY", "HIS", "HID", "HIE", "HIP", "HSD", "HSE", "HSP", "ILE", "LEU", "LYS",
+    "LYN", "MET", "MSE", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", "SEC",
+}
+INCLUDE_PROTEIN_HETEROATOMS = False
+PROTEIN_HETEROATOM_RESIDUES = set()
 
 
 def _group_has_water_residue(atm_grp):
@@ -756,6 +760,50 @@ def _group_has_water_residue(atm_grp):
     return False
 
 
+def _group_has_ligand_residue(atm_grp):
+    for atom in getattr(atm_grp, "atoms", []) or []:
+        residue = getattr(atom, "parent", None)
+        if residue is None:
+            continue
+        resname = getattr(residue, "resname", None)
+        if resname is None:
+            try:
+                resname = residue.get_resname()
+            except Exception:
+                resname = ""
+        resname = str(resname or "").strip().upper()
+        if resname and resname not in AA_RESIDUES and resname not in WATER_RESIDUES:
+            return True
+    return False
+
+
+def _residue_key_from_atom(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    resname = getattr(residue, "resname", None)
+    if resname is None:
+        try:
+            resname = residue.get_resname()
+        except Exception:
+            resname = ""
+    resname = str(resname or "").strip().upper()
+    resid = getattr(residue, "id", None)
+    if isinstance(resid, (list, tuple)) and len(resid) > 1:
+        resid = resid[1]
+    chain = getattr(getattr(residue, "parent", None), "id", "?")
+    if not resname or resid in (None, ""):
+        return ""
+    return f"{chain}/{resname}/{resid}"
+
+
+def _group_is_configured_protein_heteroatom(atm_grp):
+    return any(
+        _residue_key_from_atom(atom) in PROTEIN_HETEROATOM_RESIDUES
+        for atom in (getattr(atm_grp, "atoms", []) or [])
+    )
+
+
 def _group_role(atm_grp):
     if atm_grp is None:
         return "unknown"
@@ -769,8 +817,19 @@ def _group_role(atm_grp):
             return "water"
     except Exception:
         pass
+    if INCLUDE_PROTEIN_HETEROATOMS and _group_is_configured_protein_heteroatom(atm_grp):
+        return "protein"
     try:
-        if atm_grp.has_residue() or atm_grp.has_nucleotide():
+        is_structural = bool(atm_grp.has_residue() or atm_grp.has_nucleotide())
+        is_hetatm = bool(atm_grp.has_hetatm())
+        if (
+            is_structural
+            and (
+                not is_hetatm
+                or not _group_has_ligand_residue(atm_grp)
+                or INCLUDE_PROTEIN_HETEROATOMS
+            )
+        ):
             return "protein"
     except Exception:
         pass
@@ -835,6 +894,20 @@ def _shell_level_key(shell):
 
 
 workdir = Path(sys.argv[1])
+for config_path in (workdir / "_luna_api_params.json", workdir / ".luna_gui.json"):
+    try:
+        project_options = json.loads(config_path.read_text(encoding="utf-8"))
+        INCLUDE_PROTEIN_HETEROATOMS = bool(
+            project_options.get("include_protein_heteroatoms", False)
+        )
+        PROTEIN_HETEROATOM_RESIDUES = {
+            str(value).strip()
+            for value in (project_options.get("protein_heteroatom_residues") or [])
+            if str(value).strip()
+        }
+        break
+    except Exception:
+        pass
 ifp_type = sys.argv[2]
 output_path = Path(sys.argv[3])
 suffix = {"EIFP": "E", "HIFP": "H", "FIFP": "F"}.get(ifp_type)
@@ -908,6 +981,7 @@ for payload_path in files:
 payload = {
     "ifp_type": ifp_type,
     "feature_details": feature_details,
+    "protein_heteroatom_residues": sorted(PROTEIN_HETEROATOM_RESIDUES),
 }
 output_path.parent.mkdir(parents=True, exist_ok=True)
 output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1037,9 +1111,6 @@ def _apply_pse_interaction_colors(pse_path, *, save=True):
     try:
         from pymol import cmd
         object_names = list(cmd.get_names("objects") or [])
-        if not object_names and pse_path and Path(pse_path).exists():
-            cmd.load(str(pse_path))
-            object_names = list(cmd.get_names("objects") or [])
     except Exception:
         return 0
     normalized_names = {name: re.sub(r"[^a-z0-9]+", "", str(name).lower()) for name in object_names}

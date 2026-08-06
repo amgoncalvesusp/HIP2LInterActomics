@@ -158,6 +158,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "Proteína (PDB):": {"en": "Protein (PDB):", "es": "Proteína (PDB):"},
     "Ligantes (MOL2/SDF):": {"en": "Ligands (MOL2/SDF):", "es": "Ligandos (MOL2/SDF):"},
     "Incluir águas (HOH) — análise hidratada": {"en": "Include waters (HOH) - hydrated analysis", "es": "Incluir aguas (HOH) - análisis hidratado"},
+    "Incluir cofatores e íons metálicos da proteína (HETATM)": {
+        "en": "Include protein cofactors and metal ions (HETATM)",
+        "es": "Incluir cofactores e iones metálicos de la proteína (HETATM)",
+    },
+    (
+        "Quando marcado, resíduos HETATM não aquosos presentes no arquivo da proteína "
+        "são tratados como componentes da proteína em registros, gráficos, fingerprints "
+        "e sessões PyMOL. Use apenas um arquivo de proteína que contenha os componentes "
+        "que devem pertencer ao receptor."
+    ): {
+        "en": (
+            "When checked, non-water HETATM residues in the protein file are treated as "
+            "protein components in records, plots, fingerprints and PyMOL sessions. Use only "
+            "a protein file containing the components that belong to the receptor."
+        ),
+        "es": (
+            "Cuando está marcado, los residuos HETATM no acuosos del archivo de proteína se "
+            "tratan como componentes de la proteína en registros, gráficos, fingerprints y "
+            "sesiones PyMOL. Use solo un archivo de proteína con los componentes que pertenecen al receptor."
+        ),
+    },
+    (
+        "Inclui cofatores e íons metálicos HETATM do arquivo da proteína como resíduos "
+        "da proteína. Eles passam a aparecer como cadeia/resíduo/ID, por exemplo A/ZN/228."
+    ): {
+        "en": (
+            "Includes HETATM cofactors and metal ions from the protein file as protein residues. "
+            "They appear as chain/residue/ID, for example A/ZN/228."
+        ),
+        "es": (
+            "Incluye cofactores e iones metálicos HETATM del archivo de proteína como residuos "
+            "de la proteína. Aparecen como cadena/residuo/ID, por ejemplo A/ZN/228."
+        ),
+    },
     "Águas detectadas nos inputs: 0": {"en": "Waters detected in inputs: 0", "es": "Aguas detectadas en los inputs: 0"},
     "Análise de trajetória de dinâmica molecular/poses de docking (entradas = frames/poses)": {
         "en": "Molecular dynamics trajectory/docking pose analysis (entries = frames/poses)",

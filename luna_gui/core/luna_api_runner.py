@@ -19,6 +19,7 @@ from .results_analysis import INTERACTION_COLORS
 _LIGAND_SUFFIXES = ("_ligand", "-ligand", "_lig", "-lig")
 _LIGAND_FILE_SUFFIXES = {".mol2", ".sdf", ".sd", ".mol", ".pdb", ".ent"}
 _PREPARED_PROTEIN_MARKER = "REMARK   Separated Protein"
+_WATER_RESIDUE_NAMES = {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
 
 
 API_RUNNER_SCRIPT = r'''
@@ -29,6 +30,16 @@ from pathlib import Path
 params_file = sys.argv[1]
 with open(params_file, "r", encoding="utf-8") as fh:
     p = json.load(fh)
+
+# A receptor PDB can intentionally contain non-water HETATM residues such as
+# cofactors and coordinated metal ions.  The GUI keeps this opt-in so legacy
+# projects retain their original interpretation.
+INCLUDE_PROTEIN_HETEROATOMS = bool(p.get("include_protein_heteroatoms", False))
+PROTEIN_HETEROATOM_RESIDUES = {
+    str(value).strip()
+    for value in (p.get("protein_heteroatom_residues") or [])
+    if str(value).strip()
+}
 
 import luna
 from luna.mol.entry import MolFileEntry
@@ -127,9 +138,6 @@ def _apply_pse_interaction_colors(pse_path, palette, *, save=True):
         return 0
     try:
         object_names = list(cmd.get_names("objects") or [])
-        if not object_names and pse_path and os.path.exists(pse_path):
-            cmd.load(pse_path)
-            object_names = list(cmd.get_names("objects") or [])
     except Exception as exc:
         print(f"[warn] paleta PSE ignorada: nao foi possivel listar objetos ({ex})", flush=True)
         return 0
@@ -504,12 +512,42 @@ def _residue_name_from_atom(atom):
     return str(resname or "").strip().upper()
 
 
+def _residue_key_from_atom(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    resname = _residue_name_from_atom(atom)
+    if not resname:
+        return ""
+    chain = getattr(getattr(residue, "parent", None), "id", "?")
+    resid = getattr(residue, "id", None)
+    if isinstance(resid, (tuple, list)) and len(resid) > 1:
+        resid = resid[1]
+    if resid in (None, ""):
+        return ""
+    return f"{chain}/{resname}/{resid}"
+
+
 def _group_has_ligand_residue(atm_grp):
     for atom in getattr(atm_grp, "atoms", []) or []:
         resname = _residue_name_from_atom(atom)
         if resname and resname not in AA_RESIDUES and resname not in WATER_RESIDUES:
             return True
     return False
+
+
+def _group_is_configured_protein_heteroatom(atm_grp):
+    return any(
+        _residue_key_from_atom(atom) in PROTEIN_HETEROATOM_RESIDUES
+        for atom in (getattr(atm_grp, "atoms", []) or [])
+    )
+
+
+def _group_has_structural_residue(atm_grp):
+    try:
+        return bool(atm_grp.has_residue() or atm_grp.has_nucleotide())
+    except Exception:
+        return False
 
 
 def _group_role(atm_grp):
@@ -525,16 +563,22 @@ def _group_role(atm_grp):
             return "water"
     except Exception:
         pass
-    try:
-        if atm_grp.has_hetatm() and _group_has_ligand_residue(atm_grp):
-            return "ligand"
-    except Exception:
-        pass
-    try:
-        if atm_grp.has_residue() or atm_grp.has_nucleotide():
+    if INCLUDE_PROTEIN_HETEROATOMS and _group_is_configured_protein_heteroatom(atm_grp):
+        return "protein"
+    if _group_has_structural_residue(atm_grp):
+        try:
+            is_hetatm = bool(atm_grp.has_hetatm())
+        except Exception:
+            is_hetatm = False
+        # Keep amino-acid variants that happen to be encoded as HETATM (for
+        # example MSE) on their historical protein path.  The opt-in controls
+        # only non-standard residues such as cofactors and metal ions.
+        if (
+            not is_hetatm
+            or not _group_has_ligand_residue(atm_grp)
+            or INCLUDE_PROTEIN_HETEROATOMS
+        ):
             return "protein"
-    except Exception:
-        pass
     try:
         if atm_grp.has_hetatm():
             return "ligand"
@@ -1135,6 +1179,7 @@ def _export_fp_artifacts(proj, params, type_name):
     detail_artifact = {
         "ifp_type": type_name,
         "feature_details": feature_details,
+        "protein_heteroatom_residues": sorted(PROTEIN_HETEROATOM_RESIDUES),
         "source": "luna_api_live_shells",
     }
     detail_path = workdir / "results" / "fingerprints" / f"fp_detail_{suffix}.json"
@@ -1207,12 +1252,17 @@ def _interaction_type_name(interaction):
     return str(value or interaction.__class__.__name__)
 
 
-def _residue_label(atom, include_water=False):
+def _residue_label(atom, include_water=False, include_protein_heteroatoms=False):
     residue = getattr(atom, "parent", None)
     if residue is None:
         return None
     resname = str(getattr(residue, "resname", "") or "").upper()
-    if resname not in AA_RESIDUES and not (include_water and resname in WATER_RESIDUES):
+    is_water = resname in WATER_RESIDUES
+    if (
+        resname not in AA_RESIDUES
+        and not (include_water and is_water)
+        and not (include_protein_heteroatoms and resname and not is_water)
+    ):
         return None
     chain = getattr(getattr(residue, "parent", None), "id", "?")
     resid = getattr(residue, "id", None)
@@ -1221,10 +1271,14 @@ def _residue_label(atom, include_water=False):
     return f"{chain}/{resname}/{resid}"
 
 
-def _labels_from_group(group, include_water=False):
+def _labels_from_group(group, include_water=False, include_protein_heteroatoms=False):
     labels = set()
     for atom in getattr(group, "atoms", []) or []:
-        label = _residue_label(atom, include_water=include_water)
+        label = _residue_label(
+            atom,
+            include_water=include_water,
+            include_protein_heteroatoms=include_protein_heteroatoms,
+        )
         if label:
             labels.add(label)
     return labels
@@ -1329,20 +1383,45 @@ def _interaction_ligand_atom_records(interaction):
     return records
 
 
-def _interaction_residue_labels(interaction):
+def _interaction_residue_payload(interaction):
     src_grp = getattr(interaction, "src_grp", None)
     trgt_grp = getattr(interaction, "trgt_grp", None)
     src_role = _group_role(src_grp)
     trgt_role = _group_role(trgt_grp)
     pair = {src_role, trgt_role}
-    labels = set()
+    group = None
+    group_role = "unknown"
+    include_water = False
     if pair == {"ligand", "protein"}:
-        labels.update(_labels_from_group(src_grp if src_role == "protein" else trgt_grp))
+        group = src_grp if src_role == "protein" else trgt_grp
+        group_role = "protein"
     elif pair == {"protein", "water"}:
-        labels.update(_labels_from_group(src_grp if src_role == "protein" else trgt_grp))
+        group = src_grp if src_role == "protein" else trgt_grp
+        group_role = "protein"
     elif pair == {"ligand", "water"}:
-        labels.update(_labels_from_group(src_grp if src_role == "water" else trgt_grp, include_water=True))
-    return labels
+        group = src_grp if src_role == "water" else trgt_grp
+        group_role = "water"
+        include_water = True
+    if group is None:
+        return {}
+    is_protein_heteroatom = (
+        group_role == "protein"
+        and INCLUDE_PROTEIN_HETEROATOMS
+        and _group_has_ligand_residue(group)
+    )
+    residue_kind = "protein_heteroatom" if is_protein_heteroatom else group_role
+    return {
+        label: residue_kind
+        for label in _labels_from_group(
+            group,
+            include_water=include_water,
+            include_protein_heteroatoms=(group_role == "protein" and INCLUDE_PROTEIN_HETEROATOMS),
+        )
+    }
+
+
+def _interaction_residue_labels(interaction):
+    return set(_interaction_residue_payload(interaction))
 
 
 def _save_json(path, data):
@@ -1675,6 +1754,7 @@ def _export_summary_artifacts(proj, workdir, params=None):
     ligand_atom_counts = {}
     entries = []
     residues = set()
+    residue_roles = {}
     ligand_atoms = set()
     ligand_atom_metadata = {}
     interaction_types = set()
@@ -1696,9 +1776,10 @@ def _export_summary_artifacts(proj, workdir, params=None):
             per_entry_counts[itype] = per_entry_counts.get(itype, 0) + 1
             summary["interaction_counts"][itype] = summary["interaction_counts"].get(itype, 0) + 1
 
-            touched_residues = _interaction_residue_labels(interaction)
-            for label in touched_residues:
+            touched_residues = _interaction_residue_payload(interaction)
+            for label, residue_role in touched_residues.items():
                 residues.add(label)
+                residue_roles[label] = residue_role
                 by_type = residue_counts.setdefault(itype, {})
                 by_entry = by_type.setdefault(entry_name, {})
                 by_entry[label] = by_entry.get(label, 0) + 1
@@ -1740,6 +1821,11 @@ def _export_summary_artifacts(proj, workdir, params=None):
     residue_artifact = {
         "interaction_types": sorted(interaction_types),
         "residues": residue_labels,
+        "protein_heteroatom_residues": sorted(PROTEIN_HETEROATOM_RESIDUES),
+        "residue_roles": {
+            label: residue_roles.get(label, "protein")
+            for label in residue_labels
+        },
         "ligand_atoms": ligand_atom_labels,
         "ligand_atom_metadata": {
             label: ligand_atom_metadata.get(label, {"matrix_label": label})
@@ -1862,6 +1948,10 @@ if inter_max_distance_cap > 0:
 inter_filter = InteractionFilter.new_pli_filter(
     ignore_self_inter=p.get("ic_ignore_self_inter", True),
     ignore_any_h2o=not p.get("include_waters", False),
+    # A protein-residue/HETATM contact is the geometric basis for a ligand
+    # contact with a receptor cofactor or coordinated ion.  Make LUNA's
+    # permissive default explicit so it remains enabled across versions.
+    ignore_res_hetatm=False,
 )
 ic_kwargs = {
     "inter_filter": inter_filter,
@@ -1940,7 +2030,6 @@ if p.get("out_pse", False):
                     pse_path,
                     p.get("pse_interaction_colors") or {},
                 )
-                print(f"[luna-api] PSE {safe_name}: {colored} objetos coloridos", flush=True)
             except Exception as ex:
                 print(f"[warn] PSE para {safe_name} falhou: {ex}", flush=True)
             finally:
@@ -2003,6 +2092,36 @@ def _candidate_protein_files(cfg: ProjectConfig) -> list[Path]:
     if protein_path.is_dir():
         return sorted(protein_path.glob("*.pdb"))
     return [protein_path]
+
+
+def protein_heteroatom_residue_keys(protein_file: str | Path) -> list[str]:
+    """Return non-water HETATM residue keys declared in receptor PDB input(s).
+
+    LUNA deliberately classes every PDB ``HETATM`` as a hetero group.  The
+    entry therefore does not retain enough role information to tell a zinc in
+    the receptor PDB from a zinc supplied with a ligand.  Persisting these
+    keys in the run parameters preserves the source-file decision throughout
+    the API runner and all post-processing helpers.
+    """
+    keys: set[str] = set()
+    for pdb_path in _candidate_protein_files(
+        ProjectConfig(protein_file=str(protein_file))
+    ):
+        try:
+            with pdb_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if not line.startswith("HETATM"):
+                        continue
+                    resname = line[17:20].strip().upper()
+                    if not resname or resname in _WATER_RESIDUE_NAMES:
+                        continue
+                    chain = line[21:22].strip() or "?"
+                    resid = line[22:26].strip()
+                    if resid:
+                        keys.add(f"{chain}/{resname}/{resid}")
+        except OSError:
+            continue
+    return sorted(keys)
 
 
 def _iter_ligand_hydrogen_flags(ligand_file: str | Path) -> list[bool]:
@@ -2290,6 +2409,11 @@ def write_params(workdir: str | Path, cfg: ProjectConfig, entries: list[str]) ->
         "stage_ligand_without_h": protein_flags["stage_ligand_without_h"],
         "trajectory_analysis": cfg.trajectory_analysis,
         "include_waters": cfg.include_waters,
+        "include_protein_heteroatoms": cfg.include_protein_heteroatoms,
+        "protein_heteroatom_residues": (
+            protein_heteroatom_residue_keys(cfg.protein_file)
+            if cfg.include_protein_heteroatoms else []
+        ),
         "out_ifp": cfg.out_ifp,
         "ifp_type": cfg.ifp_type,
         "ifp_types": cfg.selected_ifp_types() if (cfg.out_ifp or cfg.sim_matrix) else [],

@@ -159,6 +159,30 @@ class ProjectTab(QWidget):
         water_row.addStretch()
         form.addRow(self._wrap(water_row))
 
+        self.cb_protein_heteroatoms = QCheckBox(
+            "Incluir cofatores e íons metálicos da proteína (HETATM)"
+        )
+        self.cb_protein_heteroatoms.setChecked(
+            bool(getattr(self.cfg, "include_protein_heteroatoms", False))
+        )
+        self.cb_protein_heteroatoms.setToolTip(
+            "Quando marcado, resíduos HETATM não aquosos presentes no arquivo da proteína "
+            "são tratados como componentes da proteína em registros, gráficos, fingerprints "
+            "e sessões PyMOL. Use apenas um arquivo de proteína que contenha os componentes "
+            "que devem pertencer ao receptor."
+        )
+        self.cb_protein_heteroatoms.toggled.connect(
+            self._on_protein_heteroatoms_toggled
+        )
+        heteroatom_row = QHBoxLayout()
+        heteroatom_row.addWidget(self.cb_protein_heteroatoms)
+        heteroatom_row.addWidget(InfoButton(
+            "Inclui cofatores e íons metálicos HETATM do arquivo da proteína como resíduos "
+            "da proteína. Eles passam a aparecer como cadeia/resíduo/ID, por exemplo A/ZN/228."
+        ))
+        heteroatom_row.addStretch()
+        form.addRow(self._wrap(heteroatom_row))
+
         self.water_count_label = QLabel("Águas detectadas nos inputs: 0")
         self.water_count_label.setProperty("muted", True)
         self.water_count_label.setWordWrap(True)
@@ -170,6 +194,9 @@ class ProjectTab(QWidget):
         layout.addWidget(form_box)
         self._on_fork_toggled(False)
         self._on_waters_toggled(bool(getattr(self.cfg, "include_waters", False)))
+        self._on_protein_heteroatoms_toggled(
+            bool(getattr(self.cfg, "include_protein_heteroatoms", False))
+        )
 
         self.cb_trajectory = QCheckBox("Análise de trajetória de dinâmica molecular/poses de docking (entradas = frames/poses)")
         self.cb_trajectory.setToolTip(
@@ -404,6 +431,9 @@ class ProjectTab(QWidget):
         self._update_protein_picker_mode()
         self._update_water_count()
 
+    def _on_protein_heteroatoms_toggled(self, enabled: bool) -> None:
+        self.cfg.include_protein_heteroatoms = bool(enabled)
+
     def _update_protein_picker_mode(self) -> None:
         self.protein_edit.setToolTip(
             "Arquivo PDB da proteína para todos os ligantes, ou pasta com um PDB por ligante/complexo.\n"
@@ -430,6 +460,7 @@ class ProjectTab(QWidget):
         self.cfg.ligand_file = self.ligand_edit.text().strip()
         self.cfg.workdir = self.workdir_edit.text().strip()
         self.cfg.include_waters = self.cb_waters.isChecked()
+        self.cfg.include_protein_heteroatoms = self.cb_protein_heteroatoms.isChecked()
         self.cfg.trajectory_analysis = self.cb_trajectory.isChecked()
         self.cfg.selected_ligands = [
             self.lig_list.item(i).data(Qt.ItemDataRole.UserRole)

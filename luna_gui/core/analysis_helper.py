@@ -18,7 +18,30 @@ from .env_manager import python_process_env
 HELPER_SCRIPT = r"""
 import sys, os, json, glob
 workdir = sys.argv[1]
-out = {"entries": 0, "interaction_counts": {}, "residue_counts": {}, "errors": []}
+_project_options = {}
+for _options_path in ("_luna_api_params.json", ".luna_gui.json"):
+    try:
+        with open(os.path.join(workdir, _options_path), "r", encoding="utf-8") as fh:
+            _project_options = json.load(fh)
+        break
+    except Exception:
+        pass
+INCLUDE_PROTEIN_HETEROATOMS = bool(
+    _project_options.get("include_protein_heteroatoms", False)
+)
+INCLUDE_WATERS = bool(_project_options.get("include_waters", False))
+PROTEIN_HETEROATOM_RESIDUES = {
+    str(value).strip()
+    for value in (_project_options.get("protein_heteroatom_residues") or [])
+    if str(value).strip()
+}
+out = {
+    "entries": 0,
+    "interaction_counts": {},
+    "residue_counts": {},
+    "residue_roles": {},
+    "errors": [],
+}
 try:
     from luna.projects import EntryResults
 except Exception as e:
@@ -34,6 +57,149 @@ AA_RESIDUES = {
     "GLY", "HIS", "HID", "HIE", "HIP", "HSD", "HSE", "HSP", "ILE", "LEU", "LYS",
     "LYN", "MET", "MSE", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", "SEC",
 }
+WATER_RESIDUES = {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+
+
+def _residue_name(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    value = getattr(residue, "resname", None)
+    if value is None:
+        try:
+            value = residue.get_resname()
+        except Exception:
+            value = ""
+    return str(value or "").strip().upper()
+
+
+def _group_has_water_residue(group):
+    return any(
+        _residue_name(atom) in WATER_RESIDUES
+        for atom in (getattr(group, "atoms", []) or [])
+    )
+
+
+def _group_has_structural_residue(group):
+    try:
+        return bool(group.has_residue() or group.has_nucleotide())
+    except Exception:
+        return False
+
+
+def _group_has_ligand_residue(group):
+    return any(
+        _residue_name(atom) not in (AA_RESIDUES | WATER_RESIDUES)
+        for atom in (getattr(group, "atoms", []) or [])
+    )
+
+
+def _residue_key(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    resname = _residue_name(atom)
+    residue_id = getattr(residue, "id", None)
+    if isinstance(residue_id, (tuple, list)) and len(residue_id) > 1:
+        residue_id = residue_id[1]
+    chain = getattr(getattr(residue, "parent", None), "id", "?")
+    if not resname or residue_id in (None, ""):
+        return ""
+    return "%s/%s/%s" % (chain, resname, residue_id)
+
+
+def _group_is_configured_protein_heteroatom(group):
+    return any(
+        _residue_key(atom) in PROTEIN_HETEROATOM_RESIDUES
+        for atom in (getattr(group, "atoms", []) or [])
+    )
+
+
+def _group_role(group):
+    if group is None:
+        return "unknown"
+    try:
+        if group.has_water():
+            return "water"
+    except Exception:
+        pass
+    if _group_has_water_residue(group):
+        return "water"
+    if INCLUDE_PROTEIN_HETEROATOMS and _group_is_configured_protein_heteroatom(group):
+        return "protein"
+    if _group_has_structural_residue(group):
+        try:
+            is_hetatm = bool(group.has_hetatm())
+        except Exception:
+            is_hetatm = False
+        if (
+            not is_hetatm
+            or not _group_has_ligand_residue(group)
+            or INCLUDE_PROTEIN_HETEROATOMS
+        ):
+            return "protein"
+    try:
+        if group.has_hetatm():
+            return "ligand"
+    except Exception:
+        pass
+    return "other"
+
+
+def _residue_label(atom, *, include_water=False, include_protein_heteroatoms=False):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return None
+    resname = _residue_name(atom)
+    if (
+        resname not in AA_RESIDUES
+        and not (include_water and resname in WATER_RESIDUES)
+        and not (include_protein_heteroatoms and resname and resname not in WATER_RESIDUES)
+    ):
+        return None
+    residue_id = getattr(residue, "id", None)
+    if isinstance(residue_id, (tuple, list)) and len(residue_id) > 1:
+        residue_id = residue_id[1]
+    chain = getattr(getattr(residue, "parent", None), "id", "?")
+    return "%s/%s/%s" % (chain, resname, residue_id)
+
+
+def _interaction_residue_payload(interaction):
+    src_group = getattr(interaction, "src_grp", None)
+    trgt_group = getattr(interaction, "trgt_grp", None)
+    src_role = _group_role(src_group)
+    trgt_role = _group_role(trgt_group)
+    pair = {src_role, trgt_role}
+    group = None
+    group_role = "unknown"
+    include_water = False
+    if pair == {"ligand", "protein"} or pair == {"protein", "water"}:
+        group = src_group if src_role == "protein" else trgt_group
+        group_role = "protein"
+    elif pair == {"ligand", "water"} and INCLUDE_WATERS:
+        group = src_group if src_role == "water" else trgt_group
+        group_role = "water"
+        include_water = True
+    if group is None:
+        return {}
+    role = group_role
+    if group_role == "protein" and INCLUDE_PROTEIN_HETEROATOMS:
+        has_nonstandard = any(
+            _residue_name(atom) not in (AA_RESIDUES | WATER_RESIDUES)
+            for atom in (getattr(group, "atoms", []) or [])
+        )
+        if has_nonstandard:
+            role = "protein_heteroatom"
+    payload = {}
+    for atom in (getattr(group, "atoms", []) or []):
+        label = _residue_label(
+            atom,
+            include_water=include_water,
+            include_protein_heteroatoms=(group_role == "protein" and INCLUDE_PROTEIN_HETEROATOMS),
+        )
+        if label:
+            payload[label] = role
+    return payload
 
 # LUNA stores per-entry pickles under <workdir>/results/ (compressed).
 patterns = [
@@ -69,17 +235,13 @@ for f in files:
                 out["interaction_counts"][k] = out["interaction_counts"].get(k, 0) + int(v)
         except Exception as e:
             out["errors"].append("count_interaction_types: %s" % e)
-    # Tally per-residue
+    # Tally the same receptor-side residues exported by the API runner.  This
+    # is a compatibility path for older projects without cached artifacts.
     for it in interactions:
-        interaction_residues = set()
+        interaction_residues = _interaction_residue_payload(it)
         try:
-            for grp in (it.src_grp, it.trgt_grp):
-                for atm in getattr(grp, "atoms", []) or []:
-                    res = atm.parent
-                    if str(getattr(res, "resname", "") or "").strip().upper() not in AA_RESIDUES:
-                        continue
-                    name = "%s/%s/%s" % (res.parent.id, res.resname, res.id[1])
-                    interaction_residues.add(name)
+            for name, role in interaction_residues.items():
+                out["residue_roles"][name] = role
         except Exception:
             pass
         for name in interaction_residues:
@@ -91,6 +253,25 @@ print(json.dumps(out))
 RESIDUE_MATRIX_SCRIPT = r"""
 import sys, os, json, glob, re
 workdir = sys.argv[1]
+_project_options = {}
+for _options_path in ("_luna_api_params.json", ".luna_gui.json"):
+    try:
+        with open(os.path.join(workdir, _options_path), "r", encoding="utf-8") as fh:
+            _project_options = json.load(fh)
+        break
+    except Exception:
+        pass
+try:
+    INCLUDE_PROTEIN_HETEROATOMS = bool(
+        _project_options.get("include_protein_heteroatoms", False)
+    )
+except Exception:
+    INCLUDE_PROTEIN_HETEROATOMS = False
+PROTEIN_HETEROATOM_RESIDUES = {
+    str(value).strip()
+    for value in (_project_options.get("protein_heteroatom_residues") or [])
+    if str(value).strip()
+}
 out = {
     "interaction_types": [],
     "residues": [],
@@ -98,22 +279,26 @@ out = {
     "entries": [],
     "matrix": {},
     "ligand_atom_matrix": {},
+    "protein_heteroatom_residues": sorted(PROTEIN_HETEROATOM_RESIDUES),
+    "residue_roles": {},
     "errors": [],
 }
 try:
     from luna.projects import EntryResults
-    from luna.analysis.residues import generate_residue_matrix
-    from luna.interaction.calc import InteractionsManager
 except Exception as e:
     print(json.dumps({"error": "luna import failed: %s" % e}))
     sys.exit(0)
 
 AA_RESIDUES = {
     "ALA", "ARG", "ASN", "ASP", "ASH", "CYS", "CYM", "CYX", "GLN", "GLU", "GLH",
-    "GLY", "HIS", "HID", "HIE", "HIP", "ILE", "LEU", "LYS", "LYN", "MET", "PHE",
-    "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "GLY", "HIS", "HID", "HIE", "HIP", "HSD", "HSE", "HSP", "ILE", "LEU", "LYS",
+    "LYN", "MET", "MSE", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", "SEC",
 }
 WATER_RESIDUES = {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}
+try:
+    INCLUDE_WATERS = bool(_project_options.get("include_waters", False))
+except Exception:
+    INCLUDE_WATERS = False
 
 
 def _residue_name(atom):
@@ -144,6 +329,34 @@ def _group_has_ligand_residue(atm_grp):
     return False
 
 
+def _group_has_structural_residue(atm_grp):
+    try:
+        return bool(atm_grp.has_residue() or atm_grp.has_nucleotide())
+    except Exception:
+        return False
+
+
+def _residue_key(atom):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return ""
+    resname = _residue_name(atom)
+    residue_id = getattr(residue, "id", None)
+    if isinstance(residue_id, (tuple, list)) and len(residue_id) > 1:
+        residue_id = residue_id[1]
+    chain = getattr(getattr(residue, "parent", None), "id", "?")
+    if not resname or residue_id in (None, ""):
+        return ""
+    return "%s/%s/%s" % (chain, resname, residue_id)
+
+
+def _group_is_configured_protein_heteroatom(atm_grp):
+    return any(
+        _residue_key(atom) in PROTEIN_HETEROATOM_RESIDUES
+        for atom in (getattr(atm_grp, "atoms", []) or [])
+    )
+
+
 def _group_role(atm_grp):
     if atm_grp is None:
         return "unknown"
@@ -154,16 +367,22 @@ def _group_role(atm_grp):
         pass
     if _group_has_water_residue(atm_grp):
         return "water"
+    if INCLUDE_PROTEIN_HETEROATOMS and _group_is_configured_protein_heteroatom(atm_grp):
+        return "protein"
+    is_structural = _group_has_structural_residue(atm_grp)
     try:
-        if atm_grp.has_hetatm() and _group_has_ligand_residue(atm_grp):
-            return "ligand"
+        is_hetatm = bool(atm_grp.has_hetatm())
     except Exception:
-        pass
-    try:
-        if atm_grp.has_residue() or atm_grp.has_nucleotide():
-            return "protein"
-    except Exception:
-        pass
+        is_hetatm = False
+    if (
+        is_structural
+        and (
+            not is_hetatm
+            or not _group_has_ligand_residue(atm_grp)
+            or INCLUDE_PROTEIN_HETEROATOMS
+        )
+    ):
+        return "protein"
     try:
         if atm_grp.has_hetatm():
             return "ligand"
@@ -213,6 +432,58 @@ def _atom_sort_key(label):
         elif part:
             key.append((1, part.lower()))
     return key or [(1, text.lower())]
+
+
+def _residue_label(atom, include_water=False, include_protein_heteroatoms=False):
+    residue = getattr(atom, "parent", None)
+    if residue is None:
+        return None
+    resname = _residue_name(atom)
+    if (
+        resname not in AA_RESIDUES
+        and not (include_water and resname in WATER_RESIDUES)
+        and not (include_protein_heteroatoms and resname and resname not in WATER_RESIDUES)
+    ):
+        return None
+    residue_id = getattr(residue, "id", None)
+    if isinstance(residue_id, (tuple, list)) and len(residue_id) > 1:
+        residue_id = residue_id[1]
+    chain = getattr(getattr(residue, "parent", None), "id", "?")
+    return "%s/%s/%s" % (chain, resname, residue_id)
+
+
+def _interaction_residue_payload(interaction):
+    src_group = getattr(interaction, "src_grp", None)
+    trgt_group = getattr(interaction, "trgt_grp", None)
+    src_role = _group_role(src_group)
+    trgt_role = _group_role(trgt_group)
+    pair = {src_role, trgt_role}
+    group = None
+    group_role = "unknown"
+    include_water = False
+    if pair == {"ligand", "protein"} or pair == {"protein", "water"}:
+        group = src_group if src_role == "protein" else trgt_group
+        group_role = "protein"
+    elif pair == {"ligand", "water"} and INCLUDE_WATERS:
+        group = src_group if src_role == "water" else trgt_group
+        group_role = "water"
+        include_water = True
+    if group is None:
+        return {}
+    residue_role = group_role
+    if group_role == "protein" and INCLUDE_PROTEIN_HETEROATOMS:
+        if _group_has_ligand_residue(group):
+            residue_role = "protein_heteroatom"
+    payload = {}
+    for atom in (getattr(group, "atoms", []) or []):
+        label = _residue_label(
+            atom,
+            include_water=include_water,
+            include_protein_heteroatoms=(group_role == "protein" and INCLUDE_PROTEIN_HETEROATOMS),
+        )
+        if label:
+            payload[label] = residue_role
+    return payload
 
 
 def _interaction_ligand_atom_labels(interaction):
@@ -265,10 +536,11 @@ for pat in patterns:
         if f in seen: continue
         seen.add(f); files.append(f)
 
-managers = []
 entry_names = []
 ligand_atoms = set()
 ligand_atom_values = {}
+residue_values = {}
+residue_roles = {}
 for f in files:
     try:
         er = EntryResults.load(f)
@@ -276,7 +548,6 @@ for f in files:
         continue
     im = getattr(er, "interactions_mngr", None)
     if im is None: continue
-    managers.append(im)
     name = ""
     try:
         name = er.entry.to_string()
@@ -284,45 +555,33 @@ for f in files:
         name = os.path.basename(f)
     entry_names.append(name)
     for interaction in list(getattr(im, "interactions", []) or []):
+        itype = _interaction_type_name(interaction)
+        for label, residue_role in _interaction_residue_payload(interaction).items():
+            residue_roles[label] = residue_role
+            by_entry = residue_values.setdefault(itype, {}).setdefault(name, {})
+            by_entry[label] = by_entry.get(label, 0) + 1
         labels = _interaction_ligand_atom_labels(interaction)
         if not labels:
             continue
-        itype = _interaction_type_name(interaction)
         by_entry = ligand_atom_values.setdefault(itype, {}).setdefault(name, {})
         for label in labels:
             ligand_atoms.add(label)
             by_entry[label] = by_entry.get(label, 0) + 1
 
-if not managers:
+if not entry_names:
     print(json.dumps(out)); sys.exit(0)
 
 try:
-    df = generate_residue_matrix(managers, by_interaction=True)
-except Exception as e:
-    out["errors"].append("generate_residue_matrix: %s" % e)
-    print(json.dumps(out)); sys.exit(0)
-
-# df.index is a MultiIndex (entry, interaction); df.columns are residue labels
-try:
-    rows = []
-    interaction_types = sorted({idx[1] for idx in df.index})
-    residues = list(df.columns)
-    # Build {interaction_type: {residue: [values-per-entry]}} where entry order is stable
-    entries_in_order = []
-    seen_e = set()
-    for (ent, _inter) in df.index:
-        if ent not in seen_e:
-            seen_e.add(ent); entries_in_order.append(ent)
-
-    matrix = {}
-    for it in interaction_types:
-        sub = df.loc[[i for i in df.index if i[1] == it]]
-        # Reindex rows so missing (entry, it) pairs become zeros
-        sub_entries = [i[0] for i in sub.index]
-        per_entry = {e: [0.0] * len(residues) for e in entries_in_order}
-        for (e, _), vals in zip(sub.index, sub.values):
-            per_entry[e] = [float(v) for v in vals]
-        matrix[it] = [per_entry[e] for e in entries_in_order]
+    residues = sorted(residue_roles)
+    entries_in_order = entry_names
+    interaction_types = sorted(set(residue_values) | set(ligand_atom_values))
+    matrix = {
+        itype: [
+            [float(residue_values.get(itype, {}).get(entry, {}).get(label, 0.0)) for label in residues]
+            for entry in entries_in_order
+        ]
+        for itype in interaction_types
+    }
 
     ligand_atom_labels = sorted(ligand_atoms, key=_atom_sort_key)
     ligand_atom_matrix = {}
@@ -332,15 +591,13 @@ try:
             [float(by_entry.get(e, {}).get(label, 0.0)) for label in ligand_atom_labels]
             for e in entries_in_order
         ]
-        if it not in interaction_types:
-            interaction_types.append(it)
-
     out["interaction_types"] = interaction_types
     out["residues"] = residues
     out["ligand_atoms"] = ligand_atom_labels
     out["entries"] = entries_in_order
     out["matrix"] = matrix
     out["ligand_atom_matrix"] = ligand_atom_matrix
+    out["residue_roles"] = {label: residue_roles[label] for label in residues}
 except Exception as e:
     out["errors"].append("matrix build: %s" % e)
 

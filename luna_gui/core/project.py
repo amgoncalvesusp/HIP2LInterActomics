@@ -65,6 +65,9 @@ class ProjectConfig:
     # When any of the fields below differ from defaults, the GUI switches
     # from the LUNA CLI to the Python-API runner (core/luna_api_runner.py).
     include_waters: bool = False          # keep HOH; passes ignore_any_h2o=False
+    # Treat non-water HETATM residues present in the receptor PDB as protein
+    # components (for example cofactors and coordinated metal ions).
+    include_protein_heteroatoms: bool = False
     # InteractionCalculator flags
     ic_add_proximal: bool = False
     ic_add_atom_atom: bool = False
@@ -104,6 +107,8 @@ class ProjectConfig:
         if abs(float(self.ph) - 7.4) > 1e-9:
             return True
         if self.include_waters:
+            return True
+        if self.include_protein_heteroatoms:
             return True
         if self.interaction_config_file:
             return True

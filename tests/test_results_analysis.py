@@ -305,6 +305,7 @@ class ResultsAnalysisTests(unittest.TestCase):
     def test_format_residue_label_converts_three_letter_code(self) -> None:
         self.assertEqual(format_residue_label("A/GLY/12"), "A:G12")
         self.assertEqual(format_residue_label("B/TYR/104A"), "B:Y104A")
+        self.assertEqual(format_residue_label("A/ZN/228"), "A/ZN/228")
 
     def test_pi_stacking_interactions_use_magenta_pink_palette(self) -> None:
         names = [

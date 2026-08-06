@@ -730,6 +730,12 @@ def format_residue_label(value: str | None) -> str:
     if not index:
         return raw
 
+    # Non-standard receptor components (cofactors and coordinated ions) must
+    # retain the unambiguous chain/residue/ID notation.  Amino acids continue
+    # to use the compact A:Y152 notation used throughout the plots.
+    if residue not in AA_THREE_TO_ONE:
+        return f"{chain}/{residue}/{index}"
+
     aa = AA_THREE_TO_ONE.get(residue[:3], residue[:3] or "?")
     match = re.match(r"^(-?\d+)([A-Za-z]?)$", index)
     if match:
