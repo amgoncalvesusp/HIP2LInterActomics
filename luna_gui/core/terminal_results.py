@@ -237,11 +237,18 @@ def _annotate_bar_segments(
     bases=None,
     references=None,
     percentage: bool,
+    label_percentages: bool | None = None,
     horizontal: bool = False,
     color: object = "#2f7f83",
     fontsize: float = 7.0,
 ) -> None:
-    """Write quantitative labels inside segments representing at least 5 percent."""
+    """Write quantitative labels inside segments representing at least 5 percent.
+
+    ``percentage`` describes the units of ``values``.  ``label_percentages``
+    separately controls whether the rendered label is a percentage of the
+    reference total.  Keeping those concerns separate prevents raw counts
+    from being displayed with a percent sign in stacked interaction plots.
+    """
     numeric_values = np.asarray(values, dtype=float)
     numeric_bases = np.zeros(len(numeric_values), dtype=float) if bases is None else np.asarray(bases, dtype=float)
     numeric_references = (
@@ -250,17 +257,20 @@ def _annotate_bar_segments(
         else np.asarray(references, dtype=float)
     )
     text_color = _bar_label_color(color)
+    if label_percentages is None:
+        label_percentages = percentage
     for bar, value, base, reference in zip(bars, numeric_values, numeric_bases, numeric_references):
         if value <= 0.0:
             continue
         represented_percent = value if percentage else (100.0 * value / reference if reference > 0.0 else 0.0)
         if represented_percent < _BAR_LABEL_MIN_PERCENT:
             continue
+        label_value = value if percentage else represented_percent
         if horizontal:
             axis.text(
                 base + (value / 2.0),
                 bar.get_y() + (bar.get_height() / 2.0),
-                _bar_label(value, percentage=percentage),
+                _bar_label(label_value, percentage=label_percentages),
                 ha="center",
                 va="center",
                 fontsize=fontsize,
@@ -271,7 +281,7 @@ def _annotate_bar_segments(
             axis.text(
                 bar.get_x() + (bar.get_width() / 2.0),
                 base + (value / 2.0),
-                _bar_label(value, percentage=percentage),
+                _bar_label(label_value, percentage=label_percentages),
                 ha="center",
                 va="center",
                 fontsize=fontsize,
@@ -441,6 +451,7 @@ def _save_stacked_interaction_distribution(
             bases=bottoms,
             references=references,
             percentage=percentage,
+            label_percentages=True,
             color=results_analysis.get_interaction_color(interaction_type),
             fontsize=6.8 if len(labels) > 30 else 7.5,
         )
@@ -494,10 +505,10 @@ def _save_statistics_detail_plots(
         ylabel="% of frames (entries)" if trajectory_analysis else "Interaction count",
         language=language,
         profile=profile,
-        # The vertical scale remains the measured total outside trajectories,
-        # while every visible stacked segment is identified by its share of the
-        # residue total. This makes the report comparable in both modes.
-        percentage=True,
+        # Outside trajectories the bars retain their measured interaction
+        # counts, but labels show each segment's percentage of that residue.
+        # Trajectory values are already percentages of frames.
+        percentage=trajectory_analysis,
     )
     if residue_output:
         outputs.append((
@@ -611,6 +622,18 @@ def _save_complete_residue_heatmap(
     entries, residues, layered_cells, interaction_types = results_analysis.build_complete_heatmap_layers(residue_artifact)
     if not entries or not residues or not layered_cells:
         return None
+    # Rows without any detected interaction only create empty bands between
+    # ligands.  Removing them makes the categorical interaction map compact
+    # while preserving every ligand that contributes signal.
+    populated_rows = [
+        (entry, row)
+        for entry, row in zip(entries, layered_cells)
+        if any(cell_types for cell_types in row)
+    ]
+    if not populated_rows:
+        return None
+    entries = [entry for entry, _row in populated_rows]
+    layered_cells = [row for _entry, row in populated_rows]
     plt = _get_pyplot()
     if plt is None:
         return None
@@ -651,8 +674,8 @@ def _save_complete_residue_heatmap(
                         1.0,
                         1.0,
                         facecolor="#ffffff",
-                        edgecolor="#94a3b8",
-                        linewidth=0.35,
+                        edgecolor="none",
+                        linewidth=0.0,
                     )
                 )
                 continue
@@ -665,12 +688,13 @@ def _save_complete_residue_heatmap(
                         stripe_width,
                         1.0,
                         facecolor=results_analysis.get_interaction_color(interaction_name),
-                        edgecolor="#94a3b8",
-                        linewidth=0.2,
+                        edgecolor="none",
+                        linewidth=0.0,
                     )
                 )
     axis.set_xlim(0, len(residue_labels))
     axis.set_ylim(len(entries), 0)
+    axis.margins(x=0, y=0)
     axis.set_title(t("Tipos de interação por par ligante x resíduo", lang=language), pad=14.17)
     axis.set_xlabel(t("Resíduos", lang=language), labelpad=14.17)
     axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
@@ -765,6 +789,78 @@ def _fp_dashboard_for_model(dashboard: dict, model_key: str) -> dict:
     return model_dashboard
 
 
+def _fp_threshold_labels(language: str) -> dict[str, str]:
+    """Return short, plot-safe threshold labels for every report language."""
+    if str(language).lower().startswith("pt"):
+        return {
+            "class": "Limiar da classe",
+            "level": "Limiar de nível",
+            "interaction": "Limiar do tipo de interação",
+            "pair": "Limiar do par interação/resíduo",
+        }
+    if str(language).lower().startswith("es"):
+        return {
+            "class": "Umbral de clase",
+            "level": "Umbral de nivel",
+            "interaction": "Umbral del tipo de interacción",
+            "pair": "Umbral del par interacción/residuo",
+        }
+    return {
+        "class": "Class threshold",
+        "level": "Level threshold",
+        "interaction": "Interaction-type threshold",
+        "pair": "Interaction/residue-pair threshold",
+    }
+
+
+def _fp_plot_label(language: str, key: str) -> str:
+    labels = {
+        "pt": {
+            "coverage": "Cobertura da feature (%)",
+            "pair_ligands": "Ligantes com o par interação/resíduo (%)",
+        },
+        "es": {
+            "coverage": "Cobertura de la característica (%)",
+            "pair_ligands": "Ligandos con el par interacción/residuo (%)",
+        },
+        "en": {
+            "coverage": "Feature coverage (%)",
+            "pair_ligands": "Ligands with the interaction/residue pair (%)",
+        },
+    }
+    language_key = str(language).lower()[:2]
+    return labels.get(language_key, labels["en"])[key]
+
+
+def _draw_confidence_threshold(axis, value: float, label: str) -> None:
+    """Draw the calculated confidence threshold and its exact percentage."""
+    threshold = max(0.0, min(100.0, float(value)))
+    axis.axvline(threshold, color="#334155", linestyle="--", linewidth=1.15, zorder=6)
+    axis.annotate(
+        f"{label}: {threshold:.2f}%",
+        xy=(threshold, 1.0),
+        xycoords=("data", "axes fraction"),
+        xytext=(4 if threshold < 88.0 else -4, 2),
+        textcoords="offset points",
+        ha="left" if threshold < 88.0 else "right",
+        va="bottom",
+        fontsize=7.5,
+        color="#1f2937",
+        bbox={"facecolor": "#ffffff", "edgecolor": "none", "alpha": 0.82, "pad": 1.2},
+        clip_on=False,
+    )
+
+
+def _set_heatmap_entry_extremes(axis, entries: list[str], language: str) -> None:
+    """Keep dense heatmaps legible by showing only the first and last entry."""
+    indices = reference_tick_indices(len(entries), trajectory=False)
+    axis.set_yticks(indices)
+    axis.set_yticklabels(
+        [f"{t('Ligante', lang=language)}: {entries[index]}" for index in indices],
+        fontsize=7,
+    )
+
+
 def _save_fp_dashboard_figures(
     dashboard: dict,
     output_dir: Path,
@@ -805,6 +901,10 @@ def _save_fp_dashboard_figures(
     if features:
         labels = [str(feature.get("feature_id", "-")) for feature in features]
         y = np.arange(len(features))
+        threshold_labels = _fp_threshold_labels(language)
+        class_threshold_pct = float(dashboard.get("threshold_pct", 100.0) or 100.0)
+        level_assignment = dashboard.get("level_assignment") or {}
+        level_threshold_pct = float(level_assignment.get("threshold_pct", 100.0) or 100.0)
         fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
         left = np.zeros(len(features), dtype=float)
         for class_name in results_analysis.FP_CLASS_ORDER:
@@ -820,27 +920,56 @@ def _save_fp_dashboard_figures(
         axis.set_yticks(y)
         axis.set_yticklabels(labels)
         axis.invert_yaxis()
-        axis.set_xlim(0, 100)
+        axis.set_xlim(0, 105)
         axis.set_xlabel(t("Frequência de atribuição de cada classe (%)", lang=language))
         axis.set_ylabel(t("ID da feature", lang=language))
-        axis.set_title(t("Frequência de atribuição de classes nas features importantes", lang=language))
+        axis.set_title(
+            t("Frequência de atribuição de classes nas features importantes", lang=language)
+            + "\n"
+            + f"{threshold_labels['class']} = {class_threshold_pct:.2f}% | "
+            + f"{threshold_labels['level']} = {level_threshold_pct:.2f}%",
+            pad=24,
+        )
+        _draw_confidence_threshold(axis, class_threshold_pct, threshold_labels["class"])
         axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=3, frameon=False)
         fig.tight_layout()
         outputs.append(_save_plot(fig, target / "fp_class_assignment.png", plt, profile=profile))
 
         fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
         coverage = [float(feature.get("coverage_pct", 0.0) or 0.0) for feature in features]
-        importance = [float(feature.get("importance_pct", 0.0) or 0.0) for feature in features]
+        importance_scores = [float(feature.get("importance_score", 0.0) or 0.0) for feature in features]
         coverage_colors = [colors.get(str(feature.get("assigned_class", "")), "#2f7f83") for feature in features]
         bars = axis.barh(y, coverage, color=coverage_colors)
         for bar, value, color in zip(bars, coverage, coverage_colors):
             _annotate_bar_segments(axis, [bar], [value], percentage=True, horizontal=True, color=color)
-        axis.scatter(importance, y, marker="*", color="#b42318", s=45, label=t("Importância relativa", lang=language))
+        # Keep the importance marker and its exact calculated value together
+        # just ahead of the corresponding coverage bar.
+        importance_positions = [min(106.0, value + 1.2) for value in coverage]
+        axis.scatter(
+            importance_positions,
+            y,
+            marker="*",
+            color="#b42318",
+            s=45,
+            label=t("Importância relativa", lang=language),
+            zorder=5,
+        )
+        for row, (position, score) in enumerate(zip(importance_positions, importance_scores)):
+            axis.text(
+                min(117.0, position + 1.1),
+                row,
+                f"{score:.4f}",
+                va="center",
+                ha="left",
+                fontsize=7.5,
+                color="#b42318",
+                fontweight="bold",
+            )
         axis.set_yticks(y)
         axis.set_yticklabels(labels)
         axis.invert_yaxis()
-        axis.set_xlim(0, 105)
-        axis.set_xlabel(t("Cobertura / importância relativa (%)", lang=language))
+        axis.set_xlim(0, 120)
+        axis.set_xlabel(_fp_plot_label(language, "coverage"))
         axis.set_ylabel(t("ID da feature", lang=language))
         axis.set_title(t("Cobertura das features importantes e importância do modelo", lang=language))
         axis.legend(frameon=False)
@@ -849,20 +978,47 @@ def _save_fp_dashboard_figures(
 
         entries = list(dashboard.get("entry_labels", []) or [])
         if entries:
-            presence = np.asarray(
-                [[1.0 if entry in (feature.get("entry_counts") or {}) else 0.0 for feature in features] for entry in entries],
-                dtype=float,
+            from matplotlib.colors import BoundaryNorm, ListedColormap
+
+            class_order = [
+                class_name
+                for class_name in results_analysis.FP_CLASS_ORDER
+                if class_name != results_analysis.CLASS_UNRELIABLE
+            ] + [results_analysis.CLASS_UNRELIABLE]
+            class_to_id = {class_name: index for index, class_name in enumerate(class_order, start=1)}
+            presence = np.zeros((len(entries), len(features)), dtype=int)
+            for column, feature in enumerate(features):
+                class_id = class_to_id.get(
+                    str(feature.get("assigned_class", results_analysis.CLASS_UNRELIABLE)),
+                    class_to_id[results_analysis.CLASS_UNRELIABLE],
+                )
+                entry_counts = feature.get("entry_counts") or {}
+                for row, entry in enumerate(entries):
+                    if float(entry_counts.get(entry, 0.0) or 0.0) > 0.0:
+                        presence[row, column] = class_id
+            class_colors = ["#ffffff"] + [
+                colors.get(class_name, "#7d7d7d")
+                for class_name in class_order
+            ]
+            cmap = ListedColormap(class_colors)
+            norm = BoundaryNorm(
+                np.arange(-0.5, len(class_colors) + 0.5, 1.0),
+                cmap.N,
             )
             fig, axis = plt.subplots(figsize=(max(9.0, 0.30 * len(features) + 4.0), max(6.5, 0.06 * _rendered_entry_count(len(entries)) + 3.0)))
-            image = axis.imshow(presence, cmap="Blues", aspect="auto", vmin=0, vmax=1)
+            image = axis.imshow(presence, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
             axis.set_xticks(range(len(features)))
             axis.set_xticklabels(labels, rotation=90, fontsize=7)
-            axis.set_yticks(range(len(entries)))
-            axis.set_yticklabels(entries, fontsize=7)
+            _set_heatmap_entry_extremes(axis, entries, language)
             axis.set_xlabel(t("ID da feature", lang=language))
             axis.set_ylabel(t("Ligantes", lang=language))
             axis.set_title(t("Mapa de presença das features importantes por classe", lang=language))
-            fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
+            colorbar = fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
+            colorbar.set_ticks(range(len(class_colors)))
+            colorbar.set_ticklabels(
+                [t("Ausente", lang=language)]
+                + [t(class_name, lang=language) for class_name in class_order]
+            )
             outputs.append(
                 _save_plot(
                     fig,
@@ -882,6 +1038,10 @@ def _save_fp_dashboard_figures(
                     interaction_names.append(str(interaction_name))
         interaction_names = sorted(interaction_names, key=results_analysis.interaction_priority_key)[:12]
         if interaction_names:
+            interaction_threshold_pct = float(dashboard.get("interaction_threshold_pct", 100.0) or 100.0)
+            pair_threshold_pct = float(
+                dashboard.get("pair_threshold_pct", interaction_threshold_pct) or interaction_threshold_pct
+            )
             fig, axis = plt.subplots(figsize=(11.5, max(6.5, 0.30 * len(features) + 2.5)))
             left = np.zeros(len(features), dtype=float)
             for interaction_name in interaction_names:
@@ -900,58 +1060,157 @@ def _save_fp_dashboard_figures(
             axis.set_yticks(y)
             axis.set_yticklabels(labels)
             axis.invert_yaxis()
-            axis.set_xlim(0, 100)
+            axis.set_xlim(0, 105)
             axis.set_xlabel(t("Frequência de atribuição de cada interação (%)", lang=language))
             axis.set_ylabel(t("ID da feature", lang=language))
-            axis.set_title(t("Frequência de atribuição da interação prevalente nas features importantes", lang=language))
+            axis.set_title(
+                t("Frequência de atribuição da interação prevalente nas features importantes", lang=language)
+                + "\n"
+                + f"{threshold_labels['interaction']} = {interaction_threshold_pct:.2f}% | "
+                + f"{threshold_labels['pair']} = {pair_threshold_pct:.2f}%",
+                pad=24,
+            )
+            _draw_confidence_threshold(
+                axis,
+                interaction_threshold_pct,
+                threshold_labels["interaction"],
+            )
             axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=3, frameon=False)
             fig.tight_layout()
             outputs.append(_save_plot(fig, target / "fp_interaction_assignment.png", plt, profile=profile))
 
         prevalent = [feature for feature in features if str(feature.get("prevalent_interaction", "")) not in {"", results_analysis.CLASS_UNRELIABLE}]
         if prevalent:
+            from matplotlib.patches import Patch
+
             prevalent_labels = [str(feature.get("feature_id", "-")) for feature in prevalent]
-            heights = [len(feature.get("prevalent_pair_entries", []) or []) for feature in prevalent]
-            fig, axis = plt.subplots(figsize=(max(10.0, 0.48 * len(prevalent) + 4.0), 6.2))
+            entry_count = max(1, len(entries))
+            heights = [
+                100.0 * len(feature.get("prevalent_pair_entries", []) or []) / entry_count
+                for feature in prevalent
+            ]
+            legend_types = sorted(
+                {
+                    str(feature.get("prevalent_interaction", "")).strip()
+                    for feature in prevalent
+                    if str(feature.get("prevalent_interaction", "")).strip()
+                },
+                key=results_analysis.interaction_priority_key,
+            )
+            legend_columns = max(1, min(3, len(legend_types)))
+            legend_rows = max(1, (len(legend_types) + legend_columns - 1) // legend_columns)
+            fig, axis = plt.subplots(
+                figsize=(max(10.0, 0.48 * len(prevalent) + 4.0), 6.2 + 0.28 * legend_rows)
+            )
             bar_colors = [results_analysis.get_interaction_color(str(feature.get("prevalent_interaction", ""))) for feature in prevalent]
             bars = axis.bar(
                 range(len(prevalent)),
                 heights,
                 color=bar_colors,
             )
-            for bar, value, color in zip(bars, heights, bar_colors):
+            for bar, feature, value, color in zip(bars, prevalent, heights, bar_colors):
                 _annotate_bar_segments(
                     axis,
                     [bar],
                     [value],
-                    references=[max(max(heights), 1)],
-                    percentage=False,
+                    percentage=True,
                     color=color,
                     fontsize=8,
                 )
+                residue = results_analysis.format_residue_label(
+                    str(feature.get("prevalent_residue", "") or "")
+                )
+                if residue:
+                    axis.text(
+                        bar.get_x() + (bar.get_width() / 2.0),
+                        bar.get_height() + max(0.05, max(heights, default=0.0) * 0.025),
+                        residue,
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                        color="#111827",
+                    )
             axis.set_xticks(range(len(prevalent)))
             axis.set_xticklabels(prevalent_labels, rotation=45, ha="right")
             axis.set_xlabel(t("ID da feature", lang=language))
-            axis.set_ylabel(t("Número de ligantes", lang=language))
+            axis.set_ylabel(_fp_plot_label(language, "pair_ligands"))
             axis.set_title(t("Interação e resíduo prevalentes nas features importantes", lang=language))
-            fig.tight_layout()
+            axis.set_ylim(0, max(1.0, max(heights, default=0.0) * 1.18))
+            if legend_types:
+                axis.legend(
+                    handles=[
+                        Patch(
+                            facecolor=results_analysis.get_interaction_color(interaction_name),
+                            edgecolor="none",
+                            label=t(interaction_name, lang=language),
+                        )
+                        for interaction_name in legend_types
+                    ],
+                    loc="upper center",
+                    bbox_to_anchor=(0.5, -0.16),
+                    ncol=legend_columns,
+                    fontsize=8,
+                    frameon=False,
+                )
+                fig.subplots_adjust(bottom=min(0.42, 0.16 + (0.06 * legend_rows)))
+            else:
+                fig.tight_layout()
             outputs.append(_save_plot(fig, target / "fp_prevalent_interactions.png", plt, profile=profile))
 
             if entries:
-                prevalence_matrix = np.asarray(
-                    [[1.0 if entry in (feature.get("prevalent_pair_entries") or []) else 0.0 for feature in prevalent] for entry in entries],
-                    dtype=float,
+                from matplotlib.colors import BoundaryNorm, ListedColormap
+
+                interaction_names = sorted(
+                    {
+                        str(feature.get("prevalent_interaction", "")).strip()
+                        for feature in prevalent
+                        if str(feature.get("prevalent_interaction", "")).strip()
+                    },
+                    key=results_analysis.interaction_priority_key,
+                )
+                interaction_to_id = {
+                    interaction_name: index
+                    for index, interaction_name in enumerate(interaction_names, start=1)
+                }
+                prevalence_matrix = np.zeros((len(entries), len(prevalent)), dtype=int)
+                for column, feature in enumerate(prevalent):
+                    interaction_id = interaction_to_id.get(
+                        str(feature.get("prevalent_interaction", "")).strip(),
+                        0,
+                    )
+                    pair_entries = set(feature.get("prevalent_pair_entries", []) or [])
+                    for row, entry in enumerate(entries):
+                        if entry in pair_entries:
+                            prevalence_matrix[row, column] = interaction_id
+                interaction_colors = ["#ffffff"] + [
+                    results_analysis.get_interaction_color(interaction_name)
+                    for interaction_name in interaction_names
+                ]
+                cmap = ListedColormap(interaction_colors)
+                norm = BoundaryNorm(
+                    np.arange(-0.5, len(interaction_colors) + 0.5, 1.0),
+                    cmap.N,
                 )
                 fig, axis = plt.subplots(figsize=(max(9.0, 0.30 * len(prevalent) + 4.0), max(6.5, 0.06 * _rendered_entry_count(len(entries)) + 3.0)))
-                image = axis.imshow(prevalence_matrix, cmap="YlGnBu", aspect="auto", vmin=0, vmax=1)
+                image = axis.imshow(
+                    prevalence_matrix,
+                    cmap=cmap,
+                    norm=norm,
+                    aspect="auto",
+                    interpolation="nearest",
+                )
                 axis.set_xticks(range(len(prevalent)))
                 axis.set_xticklabels(prevalent_labels, rotation=90, fontsize=7)
-                axis.set_yticks(range(len(entries)))
-                axis.set_yticklabels(entries, fontsize=7)
+                _set_heatmap_entry_extremes(axis, entries, language)
                 axis.set_xlabel(t("ID da feature", lang=language))
                 axis.set_ylabel(t("Ligantes", lang=language))
                 axis.set_title(t("Mapa de calor de interações prevalentes", lang=language))
-                fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
+                colorbar = fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
+                colorbar.set_ticks(range(len(interaction_colors)))
+                colorbar.set_ticklabels(
+                    [t("Ausente", lang=language)]
+                    + [t(interaction_name, lang=language) for interaction_name in interaction_names]
+                )
                 outputs.append(
                     _save_plot(
                         fig,

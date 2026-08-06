@@ -12,6 +12,8 @@ def test_run_tab_generates_plots_before_emitting_completion() -> None:
     assert "def _start_plot_generation" in source
     assert '"--results-only"' in source
     assert 'self._phase = "plots"' in source
+    plot_start = source.split("def _start_plot_generation", 1)[1]
+    assert plot_start.index("save_to_workdir(self.cfg)") < plot_start.index('Path(self.cfg.workdir) / ".luna_gui.json"')
     plot_branch = source.split('if phase == "plots":', 1)[1]
     assert plot_branch.index("self.finished_ok.emit()") < plot_branch.index("def _start_plot_generation")
 

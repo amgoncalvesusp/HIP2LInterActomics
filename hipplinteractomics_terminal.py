@@ -579,6 +579,10 @@ def run_results_from_config(
     cfg = ProjectConfig(**project_data)
     if not cfg.workdir:
         raise ValueError("workdir e obrigatorio para --results-only.")
+    # Keep the workdir self-contained for direct terminal invocations too.
+    # This mirrors the GUI flow and guarantees that follow-up tools always
+    # receive the current project configuration at the expected location.
+    save_to_workdir(cfg)
 
     try:
         py_exe = _resolve_luna_python(terminal_data)

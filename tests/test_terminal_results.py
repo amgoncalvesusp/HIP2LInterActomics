@@ -132,6 +132,27 @@ class TerminalResultsTests(unittest.TestCase):
         finally:
             plt.close(figure)
 
+    def test_count_segments_can_be_labeled_as_percentages_of_their_total(self) -> None:
+        from luna_gui.core.terminal_results import _get_pyplot
+
+        plt = _get_pyplot()
+        if plt is None:
+            self.skipTest("matplotlib is unavailable")
+        figure, axis = plt.subplots()
+        try:
+            bars = axis.bar([0, 1], [10.0, 30.0], color="#2f7f83")
+            _annotate_bar_segments(
+                axis,
+                bars,
+                [10.0, 30.0],
+                references=[40.0, 40.0],
+                percentage=False,
+                label_percentages=True,
+            )
+            self.assertEqual([text.get_text() for text in axis.texts], ["25%", "75%"])
+        finally:
+            plt.close(figure)
+
     def test_ligand_atom_distribution_embeds_the_atom_map_and_keeps_over_100_percent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)

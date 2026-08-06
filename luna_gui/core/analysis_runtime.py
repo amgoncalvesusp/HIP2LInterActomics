@@ -266,13 +266,13 @@ def _matches_pymol_interaction_object(object_name, normalized_name, interaction_
     return any(token and token in normalized_name for token in _pymol_interaction_tokens(interaction_name))
 
 
-def _apply_pse_interaction_colors(pse_path, palette):
+def _apply_pse_interaction_colors(pse_path, palette, *, save=True):
     if not isinstance(palette, dict) or not palette:
         return 0
     try:
         from pymol import cmd
         object_names = list(cmd.get_names("objects") or [])
-        if not object_names and Path(pse_path).exists():
+        if not object_names and pse_path and Path(pse_path).exists():
             cmd.load(str(pse_path))
             object_names = list(cmd.get_names("objects") or [])
     except Exception as exc:
@@ -304,13 +304,38 @@ def _apply_pse_interaction_colors(pse_path, palette):
                 colored += 1
             except Exception:
                 continue
-    if colored:
+    if colored and save:
         try:
             cmd.save(str(pse_path))
         except Exception as exc:
             print(f"[fp-session-helper] paleta aplicada, mas PSE nao salvo ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
             return 0
     return colored
+
+
+def _save_viewer_session_with_palette(viewer, session_rows, pse_path, palette):
+    # Color the active PyMOL objects before ShellViewer writes its session.
+    if not isinstance(palette, dict) or not palette:
+        viewer.new_session(session_rows, str(pse_path))
+        return 0
+    try:
+        from pymol import cmd
+        original_save = cmd.save
+    except Exception as exc:
+        raise RuntimeError(f"pymol.cmd indisponivel para salvar a paleta: {exc}") from exc
+
+    colored = [0]
+
+    def _save_with_palette(*args, **kwargs):
+        colored[0] = _apply_pse_interaction_colors(pse_path, palette, save=False)
+        return original_save(*args, **kwargs)
+
+    try:
+        cmd.save = _save_with_palette
+        viewer.new_session(session_rows, str(pse_path))
+    finally:
+        cmd.save = original_save
+    return colored[0]
 
 
 def _shell_level_key(shell):
@@ -681,17 +706,18 @@ except Exception as exc:
 _stage("ShellViewer carregado; salvando sessao PSE")
 try:
     viewer = ShellViewer()
-    viewer.new_session([(entry, shells, pdb_source)], str(output_path))
+    colored_interaction_objects = _save_viewer_session_with_palette(
+        viewer,
+        [(entry, shells, pdb_source)],
+        output_path,
+        runtime_args.get("pse_interaction_colors") or {},
+    )
 except Exception as exc:
     print(json.dumps({"error": f"LUNA ShellViewer falhou ao salvar a sessao PSE ({type(exc).__name__}: {exc})."}))
     sys.exit(0)
 if not output_path.exists():
     print(json.dumps({"error": f"LUNA ShellViewer terminou sem criar a sessao PSE: {output_path}"}))
     sys.exit(0)
-colored_interaction_objects = _apply_pse_interaction_colors(
-    output_path,
-    runtime_args.get("pse_interaction_colors") or {},
-)
 shell_label_count = _add_shell_number_labels(shells, feature_id, output_path)
 print(json.dumps({
     "ok": True,
@@ -1005,13 +1031,13 @@ def _matches_pymol_interaction_object(object_name, normalized_name, interaction_
     return any(token and token in normalized_name for token in _pymol_interaction_tokens(interaction_name))
 
 
-def _apply_pse_interaction_colors(pse_path):
+def _apply_pse_interaction_colors(pse_path, *, save=True):
     if not isinstance(PSE_INTERACTION_COLORS, dict) or not PSE_INTERACTION_COLORS:
         return 0
     try:
         from pymol import cmd
         object_names = list(cmd.get_names("objects") or [])
-        if not object_names and Path(pse_path).exists():
+        if not object_names and pse_path and Path(pse_path).exists():
             cmd.load(str(pse_path))
             object_names = list(cmd.get_names("objects") or [])
     except Exception:
@@ -1042,12 +1068,37 @@ def _apply_pse_interaction_colors(pse_path):
                 colored += 1
             except Exception:
                 continue
-    if colored:
+    if colored and save:
         try:
             cmd.save(str(pse_path))
         except Exception:
             return 0
     return colored
+
+
+def _save_viewer_session_with_palette(viewer, session_rows, pse_path):
+    # Let InteractionViewer save the PSE only after the palette is applied.
+    if not isinstance(PSE_INTERACTION_COLORS, dict) or not PSE_INTERACTION_COLORS:
+        viewer.new_session(session_rows, str(pse_path))
+        return 0
+    try:
+        from pymol import cmd
+        original_save = cmd.save
+    except Exception as exc:
+        raise RuntimeError(f"pymol.cmd indisponivel para salvar a paleta: {exc}") from exc
+
+    colored = [0]
+
+    def _save_with_palette(*args, **kwargs):
+        colored[0] = _apply_pse_interaction_colors(pse_path, save=False)
+        return original_save(*args, **kwargs)
+
+    try:
+        cmd.save = _save_with_palette
+        viewer.new_session(session_rows, str(pse_path))
+    finally:
+        cmd.save = original_save
+    return colored[0]
 
 
 def _reset_pymol_session():
@@ -1353,8 +1404,11 @@ for entry in list(getattr(project, "entries", []) or []):
         _reset_pymol_session()
         try:
             viewer = InteractionViewer(show_hydrop_surface=False)
-            viewer.new_session([(entry, selected, str(pdb_file))], str(pse_path))
-            colored_interaction_objects += _apply_pse_interaction_colors(pse_path)
+            colored_interaction_objects += _save_viewer_session_with_palette(
+                viewer,
+                [(entry, selected, str(pdb_file))],
+                pse_path,
+            )
             created += 1
         finally:
             _reset_pymol_session()

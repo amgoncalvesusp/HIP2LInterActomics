@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
 )
 
-from ..core.project import ProjectConfig
+from ..core.project import ProjectConfig, save_to_workdir
 from ..core import env_manager as em, luna_runner, ligand_io, luna_api_runner
 from ..i18n import retranslate_ui, t
 
@@ -300,6 +300,10 @@ class RunTab(QWidget):
             self._finish_run_failure(code, plots=True)
 
     def _start_plot_generation(self) -> None:
+        # The results-only process needs this project file.  Persist it again
+        # immediately before launch so an overwrite/fork during LUNA cannot
+        # leave the automatic plotting phase without its configuration.
+        save_to_workdir(self.cfg)
         project_path = Path(self.cfg.workdir) / ".luna_gui.json"
         if getattr(sys, "frozen", False):
             cmd = [

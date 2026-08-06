@@ -600,10 +600,14 @@ class LunaApiRunnerTests(unittest.TestCase):
         )
         self.assertIn("def _apply_pse_interaction_colors", API_RUNNER_SCRIPT)
         self.assertIn('cmd.set("dash_color", color_name, object_name)', API_RUNNER_SCRIPT)
+        self.assertIn("def _save_viewer_session_with_palette", API_RUNNER_SCRIPT)
+        self.assertIn("cmd.save = _save_with_palette", API_RUNNER_SCRIPT)
         self.assertIn("pse_interaction_colors", _FP_SESSION_SCRIPT)
         self.assertIn("def _apply_pse_interaction_colors", _FP_SESSION_SCRIPT)
+        self.assertIn("def _save_viewer_session_with_palette", _FP_SESSION_SCRIPT)
         self.assertIn("HIP2L_PSE_INTERACTION_COLORS", _PSE_FILTER_SCRIPT)
         self.assertIn('cmd.set("label_color", color_name, object_name)', _PSE_FILTER_SCRIPT)
+        self.assertIn("def _save_viewer_session_with_palette", _PSE_FILTER_SCRIPT)
 
     def test_pse_palette_matches_exact_luna_interaction_object_segments(self) -> None:
         tree = ast.parse(API_RUNNER_SCRIPT)

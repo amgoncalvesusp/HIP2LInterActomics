@@ -102,6 +102,34 @@ class TerminalCliTests(unittest.TestCase):
         self.assertIn("protein_file", payload)
         self.assertIn("workdir", payload)
 
+    def test_results_only_persists_the_workdir_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workdir = root / "workdir"
+            config_path = root / "project.json"
+            config_path.write_text(
+                json.dumps({"workdir": str(workdir)}),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                terminal,
+                "_resolve_luna_python",
+                return_value=Path(sys.executable),
+            ), mock.patch(
+                "luna_gui.core.project.HISTORY_FILE",
+                root / "history.json",
+            ), mock.patch.object(
+                terminal.terminal_results,
+                "run_terminal_results",
+                return_value={"outputs": {}, "errors": []},
+            ):
+                code = terminal.run_results_from_config(config_path)
+
+            saved = workdir / ".luna_gui.json"
+            self.assertTrue(saved.is_file())
+            self.assertEqual(json.loads(saved.read_text(encoding="utf-8"))["workdir"], str(workdir))
+        self.assertEqual(code, 1)
+
     def test_prepare_complexes_mode_processes_the_folder_and_exits(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -144,6 +172,13 @@ class TerminalCliTests(unittest.TestCase):
 
 
 class MultipleRunTests(unittest.TestCase):
+    def test_default_terminal_command_uses_the_shipped_terminal_script(self) -> None:
+        with mock.patch.object(batch.shutil, "which", return_value=None):
+            command = batch.resolve_terminal_command()
+
+        self.assertEqual(command[0], sys.executable)
+        self.assertEqual(Path(command[1]).name, "hipplinteractomics_terminal.py")
+
     def test_list_syntaxes_are_supported(self) -> None:
         self.assertEqual(batch.parse_bits(["[1024, 2048]"]), [1024, 2048])
         self.assertEqual(batch.parse_formats(["binary", "cnt"]), ["bin", "cnt"])
