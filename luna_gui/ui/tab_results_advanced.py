@@ -70,7 +70,9 @@ from ..core.results_analysis import (
     normalize_fp_class_name,
     resolve_fp_labels_file,
     resolve_fp_random_seed,
-    trajectory_frame_number,
+    format_trajectory_entry_name,
+    trajectory_entry_order,
+    trajectory_frame_count,
     _resolve_external_label_value,
 )
 from .tab_results_enhanced import (
@@ -644,8 +646,9 @@ class ResultsTab(EnhancedResultsTab):
         trajectory = self._results_trajectory_mode()
         indices = reference_tick_indices(len(entries), trajectory)
         if trajectory:
+            total_frames = trajectory_frame_count(entries)
             labels = [
-                f"{t('Frame')}: {trajectory_frame_number(entries[index]) or self._display_ligand_name(entries[index])}"
+                f"{t('Frame')}: {format_trajectory_entry_name(entries[index], total_frames)}"
                 for index in indices
             ]
             axis_label = t("All Frames")
@@ -889,15 +892,7 @@ class ResultsTab(EnhancedResultsTab):
 
     def _order_entries_by_activity(self, entries: list[str]) -> tuple[list[str], list[int]]:
         if self._is_trajectory_mode():
-            ranked = sorted(
-                range(len(entries)),
-                key=lambda idx: (
-                    0 if trajectory_frame_number(entries[idx]) is not None else 1,
-                    -(trajectory_frame_number(entries[idx]) or -1),
-                    str(entries[idx]).lower(),
-                    idx,
-                ),
-            )
+            ranked = trajectory_entry_order(entries)
             return [entries[idx] for idx in ranked], ranked
         context = self._entry_label_context(entries)
         task = str(context.get("task") or "")
@@ -1035,9 +1030,16 @@ class ResultsTab(EnhancedResultsTab):
         ax = self.fig.add_subplot(111)
         im = ax.imshow(self._sim_matrix, cmap="viridis", aspect="auto", vmin=0, vmax=1)
         ax.set_title("Similaridade de Tanimoto")
+        trajectory_analysis = self._is_trajectory_mode()
+        total_frames = trajectory_frame_count(self._sim_labels) if trajectory_analysis else 1
         _apply_tick_labels(
             ax,
-            [self._display_ligand_name(label) for label in self._sim_labels],
+            [
+                format_trajectory_entry_name(label, total_frames)
+                if trajectory_analysis
+                else self._display_ligand_name(label)
+                for label in self._sim_labels
+            ],
             axis="both",
             ligand_axis=True,
         )
@@ -3207,6 +3209,8 @@ class ResultsTab(EnhancedResultsTab):
         features = list(dashboard.get("important_features", []) or [])
         entries = list(dashboard.get("entry_labels", []) or [])
         entries, _row_order = self._order_entries_by_activity(entries)
+        trajectory_analysis = self._is_trajectory_mode()
+        total_frames = trajectory_frame_count(entries) if trajectory_analysis else 1
         self._resize_canvas(
             self.fp_heatmap_fig,
             self.fp_heatmap_canvas,
@@ -3245,7 +3249,12 @@ class ResultsTab(EnhancedResultsTab):
         )
         _apply_tick_labels(
             ax,
-            [self._display_ligand_name(entry) for entry in entries],
+            [
+                format_trajectory_entry_name(entry, total_frames)
+                if trajectory_analysis
+                else self._display_ligand_name(entry)
+                for entry in entries
+            ],
             axis="y",
             max_labels=28,
             rotation=0,
@@ -3253,7 +3262,7 @@ class ResultsTab(EnhancedResultsTab):
         )
         self._color_ticklabels_by_entry_group(ax, entries, axis="y")
         if len(entries) <= 220:
-            ax.set_ylabel("Ligantes")
+            ax.set_ylabel(t("All Frames") if trajectory_analysis else "Ligantes")
         ax.set_xlabel("ID da feature")
         ax.set_title("Mapa de presença das features importantes por classe")
 
@@ -3497,6 +3506,8 @@ class ResultsTab(EnhancedResultsTab):
         ]
         entries = list(dashboard.get("entry_labels", []) or [])
         entries, _row_order = self._order_entries_by_activity(entries)
+        trajectory_analysis = self._is_trajectory_mode()
+        total_frames = trajectory_frame_count(entries) if trajectory_analysis else 1
         self._resize_canvas(
             self.fp_interaction_heatmap_fig,
             self.fp_interaction_heatmap_canvas,
@@ -3549,7 +3560,12 @@ class ResultsTab(EnhancedResultsTab):
         )
         _apply_tick_labels(
             ax,
-            [self._display_ligand_name(entry) for entry in entries],
+            [
+                format_trajectory_entry_name(entry, total_frames)
+                if trajectory_analysis
+                else self._display_ligand_name(entry)
+                for entry in entries
+            ],
             axis="y",
             max_labels=28,
             rotation=0,
@@ -3557,7 +3573,7 @@ class ResultsTab(EnhancedResultsTab):
         )
         self._color_ticklabels_by_entry_group(ax, entries, axis="y")
         if len(entries) <= 220:
-            ax.set_ylabel("Ligantes")
+            ax.set_ylabel(t("All Frames") if trajectory_analysis else "Ligantes")
         ax.set_xlabel("ID da feature")
         ax.set_title("Interações prevalentes das features importantes por ligante")
 

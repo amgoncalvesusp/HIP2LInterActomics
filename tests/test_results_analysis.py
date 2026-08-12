@@ -30,6 +30,7 @@ from luna_gui.core.results_analysis import (
     cluster_rows,
     cluster_similarity_matrix,
     export_cluster_assignments,
+    format_trajectory_entry_name,
     format_residue_label,
     get_interaction_color,
     is_pi_stacking_interaction,
@@ -41,6 +42,8 @@ from luna_gui.core.results_analysis import (
     load_similarity_matrix,
     normalize_fp_breakdown,
     normalize_fp_class_name,
+    trajectory_entry_order,
+    trajectory_frame_count,
     trajectory_frame_number,
 )
 
@@ -74,6 +77,17 @@ class ResultsAnalysisTests(unittest.TestCase):
                 "frame_3",
                 "gold_soln_pose_2",
             ],
+        )
+
+    def test_trajectory_entry_order_and_display_padding_keep_frame_zero_last(self) -> None:
+        entries = ["frame0_LIG", "frame1000_LIG", "frame1001_LIG", "frame1_LIG"]
+        order = trajectory_entry_order(entries)
+
+        self.assertEqual(order, [2, 1, 3, 0])
+        self.assertEqual(trajectory_frame_count(entries), 1002)
+        self.assertEqual(
+            [format_trajectory_entry_name(entries[index], 30000) for index in order],
+            ["frame01001_LIG", "frame01000_LIG", "frame00001_LIG", "frame00000_LIG"],
         )
 
     @classmethod

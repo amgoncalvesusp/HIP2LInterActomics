@@ -757,6 +757,45 @@ def trajectory_frame_number(entry_name: str) -> int | None:
         return None
 
 
+def trajectory_entry_order(entries: list[str]) -> list[int]:
+    """Return trajectory entries from the largest frame number to the smallest."""
+    numbers = [trajectory_frame_number(entry) for entry in entries]
+    return sorted(
+        range(len(entries)),
+        key=lambda index: (
+            0 if numbers[index] is not None else 1,
+            -(numbers[index] or 0),
+            str(entries[index]).casefold(),
+            index,
+        ),
+    )
+
+
+def trajectory_frame_count(entries: list[str]) -> int:
+    """Return the trajectory span used to normalize every displayed frame label."""
+    numbers = [number for entry in entries if (number := trajectory_frame_number(entry)) is not None]
+    return max(1, len(entries), (max(numbers) + 1) if numbers else 1)
+
+
+def format_trajectory_entry_name(entry_name: str, total_frames: int) -> str:
+    """Pad the trailing frame/pose number for display without changing its ID."""
+    text = str(entry_name)
+    matches = list(
+        re.finditer(r"(?:frame|pose)?[_\-\s]*(\d+)(?=\D*$)", text, flags=re.IGNORECASE)
+    )
+    if not matches:
+        return text
+
+    match = matches[-1]
+    try:
+        number = int(match.group(1))
+    except ValueError:
+        return text
+    width = len(str(max(1, int(total_frames), number + 1)))
+    start, end = match.span(1)
+    return f"{text[:start]}{number:0{width}d}{text[end:]}"
+
+
 def normalize_interaction_name(name: str | None) -> str:
     raw = str(name or "").strip()
     if not raw:

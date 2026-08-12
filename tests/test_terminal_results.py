@@ -16,6 +16,8 @@ from luna_gui.core.terminal_results import (
     _annotate_bar_segments,
     _plot_worker_count,
     _save_complete_residue_heatmap,
+    _save_residue_heatmaps,
+    _save_similarity_figure,
     _save_stacked_interaction_distribution,
     run_terminal_results,
 )
@@ -117,6 +119,58 @@ class TerminalResultsTests(unittest.TestCase):
             color = results_analysis.get_interaction_color(interaction_name).lstrip("#")
             expected = tuple(int(color[index : index + 2], 16) for index in range(0, 6, 2))
             self.assertIn(expected, pixels)
+
+    def test_trajectory_similarity_plot_places_larger_frames_at_the_top(self) -> None:
+        captured: dict[str, object] = {}
+
+        def capture_plot(figure, output, _plt, **_kwargs):
+            axis = figure.axes[0]
+            captured["matrix"] = axis.images[0].get_array().tolist()
+            captured["labels"] = [label.get_text() for label in axis.get_yticklabels()]
+            _plt.close(figure)
+            return Path(output)
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "luna_gui.core.terminal_results._save_plot",
+            side_effect=capture_plot,
+        ):
+            _save_similarity_figure(
+                ["frame0_LIG", "frame1000_LIG", "frame1001_LIG"],
+                [[1.0, 0.1, 0.2], [0.1, 1.0, 0.3], [0.2, 0.3, 1.0]],
+                Path(tmp),
+                "EIFP",
+                trajectory_analysis=True,
+            )
+
+        self.assertEqual(captured["matrix"], [[1.0, 0.3, 0.2], [0.3, 1.0, 0.1], [0.2, 0.1, 1.0]])
+        self.assertEqual(captured["labels"], ["frame1001_LIG", "frame1000_LIG", "frame0000_LIG"])
+
+    def test_trajectory_residue_heatmap_places_larger_frames_at_the_top(self) -> None:
+        captured: dict[str, object] = {}
+
+        def capture_plot(figure, output, _plt, **_kwargs):
+            axis = figure.axes[0]
+            captured["matrix"] = axis.images[0].get_array().tolist()
+            captured["labels"] = [label.get_text() for label in axis.get_yticklabels()]
+            _plt.close(figure)
+            return Path(output)
+
+        artifact = {
+            "entries": ["frame0_LIG", "frame1000_LIG", "frame1001_LIG"],
+            "residues": ["A/GLY/1"],
+            "matrix": {"Hydrogen bond": [[0.0], [1000.0], [1001.0]]},
+        }
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "luna_gui.core.terminal_results._save_plot",
+            side_effect=capture_plot,
+        ):
+            _save_residue_heatmaps(artifact, Path(tmp), trajectory_analysis=True)
+
+        self.assertEqual(captured["matrix"], [[1001.0], [1000.0], [0.0]])
+        self.assertEqual(
+            captured["labels"],
+            ["Frame: frame1001_LIG", "Frame: frame1000_LIG", "Frame: frame0000_LIG"],
+        )
 
     def test_bar_segment_annotations_start_at_five_percent(self) -> None:
         from luna_gui.core.terminal_results import _get_pyplot

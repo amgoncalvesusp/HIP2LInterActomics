@@ -556,6 +556,9 @@ def _save_residue_heatmaps(
     matrices = residue_artifact.get("matrix")
     if not entries or not residues or not isinstance(matrices, dict):
         return []
+    total_frames = results_analysis.trajectory_frame_count(entries)
+    row_order = results_analysis.trajectory_entry_order(entries) if trajectory_analysis else list(range(len(entries)))
+    entries = [entries[index] for index in row_order]
 
     plt = _get_pyplot()
     if plt is None:
@@ -576,8 +579,9 @@ def _save_residue_heatmaps(
         if row_count != len(entries) or column_count != len(residues):
             continue
 
+        ordered_values = np.asarray(values, dtype=float)[row_order, :]
         fig, axis = plt.subplots(figsize=(width, height))
-        image = axis.imshow(values, cmap="viridis", aspect="auto")
+        image = axis.imshow(ordered_values, cmap="viridis", aspect="auto")
         axis.set_title(f"{t('Mapa de interação por resíduo', lang=language)}: {t(interaction_type, lang=language)}")
         axis.set_xlabel(t("Resíduos", lang=language))
         axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
@@ -588,7 +592,7 @@ def _save_residue_heatmaps(
         axis.set_yticklabels(
             [
                 (
-                    f"{t('Frame', lang=language)}: {results_analysis.trajectory_frame_number(entries[index]) or entries[index]}"
+                    f"{t('Frame', lang=language)}: {results_analysis.format_trajectory_entry_name(entries[index], total_frames)}"
                     if trajectory_analysis
                     else f"{t('Ligante', lang=language)}: {entries[index]}"
                 )
@@ -622,6 +626,7 @@ def _save_complete_residue_heatmap(
     entries, residues, layered_cells, interaction_types = results_analysis.build_complete_heatmap_layers(residue_artifact)
     if not entries or not residues or not layered_cells:
         return None
+    total_frames = results_analysis.trajectory_frame_count(entries)
     # Rows without any detected interaction only create empty bands between
     # ligands.  Removing them makes the categorical interaction map compact
     # while preserving every ligand that contributes signal.
@@ -634,6 +639,10 @@ def _save_complete_residue_heatmap(
         return None
     entries = [entry for entry, _row in populated_rows]
     layered_cells = [row for _entry, row in populated_rows]
+    if trajectory_analysis:
+        row_order = results_analysis.trajectory_entry_order(entries)
+        entries = [entries[index] for index in row_order]
+        layered_cells = [layered_cells[index] for index in row_order]
     plt = _get_pyplot()
     if plt is None:
         return None
@@ -705,7 +714,7 @@ def _save_complete_residue_heatmap(
     axis.set_yticklabels(
         [
             (
-                f"{t('Frame', lang=language)}: {results_analysis.trajectory_frame_number(entries[index]) or entries[index]}"
+                f"{t('Frame', lang=language)}: {results_analysis.format_trajectory_entry_name(entries[index], total_frames)}"
                 if trajectory_analysis
                 else f"{t('Ligante', lang=language)}: {entries[index]}"
             )
@@ -851,12 +860,26 @@ def _draw_confidence_threshold(axis, value: float, label: str) -> None:
     )
 
 
-def _set_heatmap_entry_extremes(axis, entries: list[str], language: str) -> None:
+def _set_heatmap_entry_extremes(
+    axis,
+    entries: list[str],
+    language: str,
+    trajectory_analysis: bool = False,
+) -> None:
     """Keep dense heatmaps legible by showing only the first and last entry."""
-    indices = reference_tick_indices(len(entries), trajectory=False)
+    indices = reference_tick_indices(len(entries), trajectory=trajectory_analysis)
+    total_frames = results_analysis.trajectory_frame_count(entries)
     axis.set_yticks(indices)
     axis.set_yticklabels(
-        [f"{t('Ligante', lang=language)}: {entries[index]}" for index in indices],
+        [
+            (
+                f"{t('Frame', lang=language)}: "
+                f"{results_analysis.format_trajectory_entry_name(entries[index], total_frames)}"
+                if trajectory_analysis
+                else f"{t('Ligante', lang=language)}: {entries[index]}"
+            )
+            for index in indices
+        ],
         fontsize=7,
     )
 
@@ -868,6 +891,7 @@ def _save_fp_dashboard_figures(
     language: str,
     model_key: str,
     profile: PlotProfile | None = None,
+    trajectory_analysis: bool = False,
 ) -> list[Path]:
     dashboard = _fp_dashboard_for_model(dashboard, model_key)
     if not dashboard.get("features"):
@@ -977,6 +1001,8 @@ def _save_fp_dashboard_figures(
         outputs.append(_save_plot(fig, target / "fp_coverage_importance.png", plt, profile=profile))
 
         entries = list(dashboard.get("entry_labels", []) or [])
+        if trajectory_analysis:
+            entries = [entries[index] for index in results_analysis.trajectory_entry_order(entries)]
         if entries:
             from matplotlib.colors import BoundaryNorm, ListedColormap
 
@@ -1009,9 +1035,9 @@ def _save_fp_dashboard_figures(
             image = axis.imshow(presence, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
             axis.set_xticks(range(len(features)))
             axis.set_xticklabels(labels, rotation=90, fontsize=7)
-            _set_heatmap_entry_extremes(axis, entries, language)
+            _set_heatmap_entry_extremes(axis, entries, language, trajectory_analysis)
             axis.set_xlabel(t("ID da feature", lang=language))
-            axis.set_ylabel(t("Ligantes", lang=language))
+            axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
             axis.set_title(t("Mapa de presença das features importantes por classe", lang=language))
             colorbar = fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
             colorbar.set_ticks(range(len(class_colors)))
@@ -1201,9 +1227,9 @@ def _save_fp_dashboard_figures(
                 )
                 axis.set_xticks(range(len(prevalent)))
                 axis.set_xticklabels(prevalent_labels, rotation=90, fontsize=7)
-                _set_heatmap_entry_extremes(axis, entries, language)
+                _set_heatmap_entry_extremes(axis, entries, language, trajectory_analysis)
                 axis.set_xlabel(t("ID da feature", lang=language))
-                axis.set_ylabel(t("Ligantes", lang=language))
+                axis.set_ylabel(t("All Frames", lang=language) if trajectory_analysis else t("Ligantes", lang=language))
                 axis.set_title(t("Mapa de calor de interações prevalentes", lang=language))
                 colorbar = fig.colorbar(image, ax=axis, fraction=0.03, pad=0.02)
                 colorbar.set_ticks(range(len(interaction_colors)))
@@ -1301,10 +1327,16 @@ def _save_similarity_figure(
     ifp_type: str,
     language: str = "en",
     profile: PlotProfile | None = None,
+    trajectory_analysis: bool = False,
 ) -> Path | None:
     plt = _get_pyplot()
     if plt is None:
         return None
+    total_frames = results_analysis.trajectory_frame_count(labels)
+    if trajectory_analysis:
+        order = results_analysis.trajectory_entry_order(labels)
+        labels = [labels[index] for index in order]
+        matrix = np.asarray(matrix)[np.ix_(order, order)]
     rendered_entries = _rendered_entry_count(len(labels))
     width = max(8.0, 4.0 + 0.035 * rendered_entries)
     height = max(7.0, 3.0 + 0.035 * rendered_entries)
@@ -1314,10 +1346,19 @@ def _save_similarity_figure(
     axis.set_xlabel(f"{t('Ligantes', lang=language)} ({len(labels)} {t('total', lang=language)})")
     axis.set_ylabel(f"{t('Ligantes', lang=language)} ({len(labels)} {t('total', lang=language)})")
     if len(labels) <= 40:
+        display_labels = [
+            results_analysis.format_trajectory_entry_name(
+                label,
+                total_frames,
+            )
+            if trajectory_analysis
+            else label
+            for label in labels
+        ]
         axis.set_xticks(range(len(labels)))
-        axis.set_xticklabels(labels, rotation=90, fontsize=7)
+        axis.set_xticklabels(display_labels, rotation=90, fontsize=7)
         axis.set_yticks(range(len(labels)))
-        axis.set_yticklabels(labels, fontsize=7)
+        axis.set_yticklabels(display_labels, fontsize=7)
     fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
     fig.tight_layout()
     output = output_dir / f"similarity_{IFP_SUFFIXES.get(ifp_type, ifp_type)}.png"
@@ -1720,6 +1761,7 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
                 ifp_type,
                 language,
                 profile,
+                trajectory_analysis,
             )
             if chart:
                 records.append(_plot_record(
@@ -1785,6 +1827,7 @@ def _render_language_payload(payload_path: str, workdir_text: str, language: str
                     language,
                     model_key,
                     profile,
+                    trajectory_analysis,
                 )
                 base_sequence = (
                     100
