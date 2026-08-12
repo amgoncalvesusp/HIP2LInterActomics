@@ -10,6 +10,23 @@ on:
       - "v*"
 
 jobs:
+  release-init:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --generate-notes --draft \
+              --title "HIP2LInterActomics $GITHUB_REF_NAME"
+          fi
+
   python-package:
     # The Conda discovery and complex-splitting tests exercise native Windows
     # paths and an RDKit conversion fallback. Run them where those contracts
@@ -31,12 +48,17 @@ jobs:
       - name: Build wheel and source distribution
         run: python -m build
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: HIP2LInterActomics-Python-Package
           path: dist/*
 
   windows:
+    needs: release-init
+    if: ${{ always() && (needs.release-init.result == 'success' || needs.release-init.result == 'skipped') }}
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,13 +81,27 @@ jobs:
           "/DBundleDir=$((Resolve-Path 'build/release-windows/bundle/HIP2LInterActomics').Path)"
           "/DOutputDir=$((Resolve-Path 'build/release-windows/installer').Path)"
           "installer/HIP2LInterActomics.iss"
+      - name: Publish Windows installer to draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: >-
+          gh release upload "$env:GITHUB_REF_NAME"
+          "build/release-windows/installer/HIP2LInterActomics-Setup.exe"
+          --repo "$env:GITHUB_REPOSITORY" --clobber
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: HIP2LInterActomics-Windows
           path: build/release-windows/installer/HIP2LInterActomics-Setup.exe
 
   linux:
+    needs: release-init
+    if: ${{ always() && (needs.release-init.result == 'success' || needs.release-init.result == 'skipped') }}
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install Qt runtime libraries
@@ -75,36 +111,30 @@ jobs:
           libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0
       - name: Build native Linux bundle
         run: bash installer/build_linux.sh
+      - name: Publish Linux installer to draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: >-
+          gh release upload "$GITHUB_REF_NAME"
+          build/release-linux/installer/HIP2LInterActomics-*.AppImage
+          --repo "$GITHUB_REPOSITORY" --clobber
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: HIP2LInterActomics-Linux
           path: build/release-linux/installer/*.AppImage
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows, linux]
+    needs: [release-init, windows, linux]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: HIP2LInterActomics-*
-          path: release-assets
-          merge-multiple: true
-      - name: Publish release assets
+      - name: Publish draft release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: |
-          assets=(
-            release-assets/HIP2LInterActomics-Setup.exe
-            release-assets/HIP2LInterActomics-*.AppImage
-          )
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
-              --title "HIP2LInterActomics $GITHUB_REF_NAME"
-          fi
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
