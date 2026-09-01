@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import signal
 import subprocess
 import tempfile
@@ -186,7 +187,7 @@ def _build_shell_level_only_fp_detail(wd: Path, ifp_type: str, output_path: Path
     return payload
 
 _FP_SESSION_SCRIPT = r"""
-import faulthandler, json, os, re, sys, warnings
+import copy, faulthandler, json, os, re, sys, tempfile, warnings
 from pathlib import Path
 
 try:
@@ -311,10 +312,9 @@ def _apply_pse_interaction_colors(pse_path, palette, *, save=True):
 
 
 def _save_viewer_session_with_palette(viewer, session_rows, pse_path, palette):
-    # Color the active PyMOL objects before ShellViewer writes its session.
-    if not isinstance(palette, dict) or not palette:
-        viewer.new_session(session_rows, str(pse_path))
-        return 0
+    # Apply the requested shell representation immediately before the LUNA
+    # session is serialized.  ShellViewer owns spheres, centroids, labels and
+    # interaction arrows; this hook only adds sticks for every shell atom.
     try:
         from pymol import cmd
         original_save = cmd.save
@@ -324,7 +324,10 @@ def _save_viewer_session_with_palette(viewer, session_rows, pse_path, palette):
     colored = [0]
 
     def _save_with_palette(*args, **kwargs):
-        colored[0] = _apply_pse_interaction_colors(pse_path, palette, save=False)
+        _show_all_shell_atoms_as_sticks(session_rows)
+        if isinstance(palette, dict) and palette:
+            colored[0] = _apply_pse_interaction_colors(pse_path, palette, save=False)
+        _apply_luna_shell_atom_colors(session_rows)
         return original_save(*args, **kwargs)
 
     try:
@@ -333,6 +336,83 @@ def _save_viewer_session_with_palette(viewer, session_rows, pse_path, palette):
     finally:
         cmd.save = original_save
     return colored[0]
+
+
+def _apply_luna_shell_atom_colors(session_rows):
+    '''Restore LUNA's element colors and the requested protein/ligand colors.'''
+    try:
+        from pymol import cmd
+    except Exception as exc:
+        _stage(f"cores dos atomos dos shells ignoradas ({type(exc).__name__}: {exc})")
+        return 0
+
+    colored = 0
+    for target_entry, _shells, _pathname in session_rows:
+        main_group = target_entry.to_string(sep="-").replace("'", "-")
+        # LUNA's default element palette for atoms other than carbon and H/D.
+        # Carbon is then overridden for protein and ligand, respectively.
+        rules = (
+            ("atomic", f"({main_group}) and not elem C+H+D"),
+            ("gray50", f"({main_group}) and polymer and elem C"),
+            ("green", f"({main_group}) and hetatm and not solvent and elem C"),
+            ("white", f"({main_group}) and hetatm and not solvent and elem H+D"),
+        )
+        for color, selection in rules:
+            try:
+                cmd.color(color, selection)
+                colored += 1
+            except Exception as exc:
+                _stage(f"regra de cor {color} ignorada ({type(exc).__name__}: {exc})")
+    return colored
+
+
+def _show_all_shell_atoms_as_sticks(session_rows):
+    '''Show every heavy atom belonging to the selected shells as sticks.'''
+    try:
+        from pymol import cmd
+        from luna.wrappers.pymol import bio_to_pymol_selection
+    except Exception as exc:
+        _stage(f"sticks dos shells ignorados ({type(exc).__name__}: {exc})")
+        return 0
+
+    shown = 0
+    for target_entry, shells, _pathname in session_rows:
+        main_group = target_entry.to_string(sep="-").replace("'", "-")
+        selections = []
+        seen = set()
+        for shell in list(shells or []):
+            groups = [getattr(shell, "central_atm_grp", None)]
+            groups.extend(list(getattr(shell, "neighborhood", []) or []))
+            for interaction in list(getattr(shell, "interactions", []) or []):
+                groups.extend(
+                    getattr(interaction, attr, None)
+                    for attr in (
+                        "src_grp", "trgt_grp",
+                        "src_interacting_atms", "trgt_interacting_atms",
+                    )
+                )
+            for group in groups:
+                for atom in list(getattr(group, "atoms", []) or []):
+                    try:
+                        if str(getattr(atom, "element", "") or "").upper() in {"H", "D"}:
+                            continue
+                        key = tuple(atom.get_full_id())
+                        if key in seen:
+                            continue
+                        selection = bio_to_pymol_selection(atom)
+                        if not isinstance(selection, str) or not selection:
+                            continue
+                        seen.add(key)
+                        selections.append(f"({main_group} and {selection})")
+                    except Exception:
+                        continue
+        if selections:
+            try:
+                cmd.show("sticks", " or ".join(selections))
+                shown += len(selections)
+            except Exception as exc:
+                _stage(f"sticks dos shells parcialmente ignorados ({type(exc).__name__}: {exc})")
+    return shown
 
 
 def _shell_level_key(shell):
@@ -393,28 +473,49 @@ def _restore_entry(meta):
     )
 
 
-def _local_entry_mol_file(workdir, entry_name, params):
-    # Resolve a relocated ligand path from the current runner parameters.
+def _path_file(value):
+    try:
+        return bool(value) and Path(str(value).replace("\\", "/")).is_file()
+    except Exception:
+        return False
+
+
+def _entry_aliases(entry_name):
+    requested = str(entry_name or "").strip()
+    values = {requested, requested.split(":", 1)[-1], requested.replace("/", "_")}
+    values.add(requested.replace(":", "_"))
+    return values
+
+
+def _local_entry_mol_file(workdir, entry_name, params, entry=None):
+    # Resolve a relocated ligand path from runner metadata or legacy siblings.
     specs = params.get("entry_specs") if isinstance(params, dict) else None
     if isinstance(specs, list):
         for spec in specs:
             if not isinstance(spec, dict):
                 continue
             name = str(spec.get("ligand_name") or "").strip()
-            requested = str(entry_name).strip()
-            aliases = {requested, requested.split(":", 1)[-1], requested.replace("/", "_")}
-            if name in aliases and spec.get("mol_file"):
-                candidate = Path(str(spec["mol_file"]))
-                if candidate.exists():
-                    return str(candidate)
+            if name in _entry_aliases(entry_name) and _path_file(spec.get("mol_file")):
+                return str(Path(str(spec["mol_file"]).replace("\\", "/")))
     raw_candidate = str(params.get("lig_file") or "").strip() if isinstance(params, dict) else ""
-    candidate = Path(raw_candidate) if raw_candidate else None
-    return str(candidate) if candidate is not None and candidate.is_file() else ""
+    if _path_file(raw_candidate):
+        return str(Path(raw_candidate.replace("\\", "/")))
+
+    raw_entry_file = str(getattr(entry, "mol_file", "") or "").strip() if entry is not None else ""
+    raw_entry_name = Path(raw_entry_file.replace("\\", "/")).name if raw_entry_file else ""
+    roots = (Path(workdir), Path(workdir).parent)
+    for root in roots:
+        for folder in ("ligantes_mol2", "ligantes_sdf", "ligands", "ligand", "ligand_file"):
+            if raw_entry_name:
+                candidate = root / folder / raw_entry_name
+                if _path_file(candidate):
+                    return str(candidate)
+    return ""
 
 
 def _viewer_entry(entry, workdir, entry_name, params):
     # Rebuild only the viewer entry when its molecule file moved.
-    local_mol_file = _local_entry_mol_file(workdir, entry_name, params)
+    local_mol_file = _local_entry_mol_file(workdir, entry_name, params, entry)
     if not local_mol_file or not isinstance(entry, MolFileEntry):
         return entry
     if str(getattr(entry, "mol_file", "")) == local_mol_file:
@@ -435,13 +536,18 @@ def _viewer_entry(entry, workdir, entry_name, params):
 
 def _resolve_pdb_source(workdir, entry, source):
     # Prefer PDB data in the active workdir over stale serialized paths.
-    local_dir = Path(workdir) / "pdbs"
     pdb_id = str(getattr(entry, "pdb_id", "") or "").strip()
-    if local_dir.is_dir() and pdb_id and (local_dir / f"{pdb_id}.pdb").is_file():
-        return str(local_dir)
+    roots = (Path(workdir), Path(workdir).parent)
+    for root in roots:
+        for folder in ("pdbs", "proteinas_pdb", "proteins", "protein_file"):
+            local_dir = root / folder
+            if local_dir.is_dir() and pdb_id and _path_file(local_dir / f"{pdb_id}.pdb"):
+                return str(local_dir)
     for value in (source, getattr(entry, "pdb_file", "")):
-        candidate = Path(str(value or ""))
-        if candidate.exists():
+        candidate = Path(str(value or "").replace("\\", "/"))
+        if _path_file(candidate):
+            return str(candidate.parent)
+        if candidate.is_dir() and pdb_id and _path_file(candidate / f"{pdb_id}.pdb"):
             return str(candidate)
     return source
 
@@ -493,6 +599,97 @@ def _load_project(workdir):
     raise RuntimeError("Falha ao reabrir projeto LUNA: " + "; ".join(errors[:3]))
 
 
+def _load_entry_results(project, entry):
+    from luna.projects import EntryResults
+
+    chunk_path = Path(project.working_path) / "chunks" / f"{_entry_key(entry)}.pkl.gz"
+    try:
+        result = EntryResults.load(str(chunk_path))
+    except Exception as exc:
+        visible = False
+        try:
+            visible = any(str(item.name) == chunk_path.name for item in chunk_path.parent.iterdir())
+        except Exception:
+            pass
+        status = "visivel_mas_inacessivel" if visible else "ausente_ou_inacessivel"
+        return None, f"{status}: {type(exc).__name__}: {exc}; caminho={chunk_path}"
+    if getattr(result, "atm_grps_mngr", None) is None:
+        return None, f"sem_estado_estrutural: {chunk_path}"
+    return result, ""
+
+
+def _rebuild_entry_results(project, matched_entry, workdir, entry_name, params):
+    mol_file = _local_entry_mol_file(workdir, entry_name, params, matched_entry)
+    viewer_entry = _viewer_entry(matched_entry, workdir, entry_name, params)
+    if isinstance(matched_entry, MolFileEntry) and not mol_file:
+        raise RuntimeError(
+            f"Ligante atual nao encontrado para {entry_name}; "
+            f"arquivo serializado={getattr(matched_entry, 'mol_file', '')}"
+        )
+    pdb_source = _resolve_pdb_source(workdir, matched_entry, "")
+    if not pdb_source or not Path(str(pdb_source)).is_dir():
+        raise RuntimeError(
+            f"Proteina atual nao encontrada para {entry_name}; "
+            f"pdb_id={getattr(matched_entry, 'pdb_id', '')}"
+        )
+
+    recovery_entry = viewer_entry
+    if isinstance(matched_entry, MolFileEntry):
+        recovery_meta = {
+            "kind": "MolFileEntry",
+            "pdb_id": getattr(viewer_entry, "pdb_id", ""),
+            "mol_id": getattr(viewer_entry, "mol_id", ""),
+            "mol_file": mol_file,
+            "mol_file_ext": getattr(viewer_entry, "mol_file_ext", None),
+            "mol_obj_type": getattr(viewer_entry, "mol_obj_type", None),
+            "is_multimol_file": bool(getattr(viewer_entry, "is_multimol_file", False)),
+            "overwrite_mol_name": bool(getattr(viewer_entry, "overwrite_mol_name", False)),
+            "sep": "_",
+        }
+        recovery_entry = _restore_entry(recovery_meta)
+
+    _stage(f"reconstruindo estado estrutural de {entry_name} em diretorio temporario")
+    with tempfile.TemporaryDirectory(prefix="hip2l_fp_recovery_") as temp_dir:
+        recovery = copy.copy(project)
+        recovery.entries = [recovery_entry]
+        recovery.working_path = str(Path(temp_dir).resolve())
+        recovery.pdb_path = str(Path(pdb_source).resolve())
+        recovery.overwrite_path = True
+        recovery.append_mode = False
+        recovery.nproc = None
+        recovery.logging_enabled = False
+        recovery.use_cache = False
+        recovery.out_pse = False
+        recovery.calc_ifp = False
+        recovery.calc_mfp = False
+        recovery.ifp_output = None
+        recovery.mfp_output = None
+        recovery.ifp_sim_matrix_output = None
+        try:
+            from luna.util.default_values import ATOM_PROP_FILE
+            if not _path_file(getattr(recovery, "atom_prop_file", "")):
+                recovery.atom_prop_file = ATOM_PROP_FILE
+        except Exception:
+            pass
+        recovery()
+        recovery_errors = list(getattr(recovery, "errors", []) or [])
+        if recovery_errors:
+            details = []
+            for item in recovery_errors[:3]:
+                try:
+                    details.append(f"{type(item[-1]).__name__}: {item[-1]}")
+                except Exception:
+                    details.append(str(item))
+            raise RuntimeError(
+                f"Reconstrucao LUNA falhou para {entry_name}: "
+                + "; ".join(details)
+            )
+        entry_results, issue = _load_entry_results(recovery, recovery_entry)
+        if entry_results is None:
+            raise RuntimeError(f"Reconstrucao LUNA falhou para {entry_name}: {issue}")
+    return entry_results, viewer_entry, pdb_source
+
+
 def _apply_ifp_settings(proj, params, ifp_type):
     from luna.interaction.fp.type import IFPType
 
@@ -539,13 +736,21 @@ def _regenerate_shells_from_project(workdir, ifp_type, entry_name, feature_id):
     if matched_entry is None:
         raise RuntimeError(f"Entry {entry_name} nao encontrada no projeto {project_path.name}.")
 
-    entry_results = project.get_entry_results(matched_entry)
-    if entry_results is None or getattr(entry_results, "atm_grps_mngr", None) is None:
-        chunk_name = f"{_entry_key(matched_entry)}.pkl.gz"
-        raise RuntimeError(
-            f"Dados estruturais ausentes para {entry_name}: "
-            f"{Path(project.working_path) / 'chunks' / chunk_name}"
+    entry_results, chunk_issue = _load_entry_results(project, matched_entry)
+    viewer_entry = _viewer_entry(matched_entry, workdir, entry_name, params)
+    pdb_dir = _resolve_pdb_source(workdir, viewer_entry, getattr(matched_entry, "pdb_file", ""))
+    if entry_results is None:
+        _stage(f"chunk estrutural nao utilizavel ({chunk_issue})")
+        entry_results, viewer_entry, pdb_dir = _rebuild_entry_results(
+            project,
+            matched_entry,
+            workdir,
+            entry_name,
+            params,
         )
+        source = "temporary_rebuild"
+    else:
+        source = f"live_project:{project_path.name}"
     atm_grps_mngr = entry_results.atm_grps_mngr
     shell_generator = ShellGenerator(
         project.ifp_num_levels,
@@ -561,114 +766,20 @@ def _regenerate_shells_from_project(workdir, ifp_type, entry_name, feature_id):
         project.ifp_count,
     )
     if not shells:
-        raise RuntimeError(f"Nenhum shell regenerado para o fingerprint {feature_id} em {entry_name}.")
-    pdb_dir = (
-        params.get("pdb_dir")
-        or getattr(matched_entry, "pdb_file", "")
-        or str(Path(workdir) / "pdbs")
-    )
-    viewer_entry = _viewer_entry(matched_entry, workdir, entry_name, params)
-    return viewer_entry, shells, pdb_dir, f"live_project:{project_path.name}"
-
-
-def _coords_from_value(value):
-    try:
-        if callable(value):
-            value = value()
-    except Exception:
-        return None
-    try:
-        coords = list(value)
-        if len(coords) >= 3:
-            return [float(coords[0]), float(coords[1]), float(coords[2])]
-    except Exception:
-        pass
-    for names in (("x", "y", "z"), ("X", "Y", "Z")):
-        try:
-            return [float(getattr(value, name)) for name in names]
-        except Exception:
-            pass
-    return None
-
-
-def _atom_coords(atom):
-    for attr in ("coord", "coords", "coordinate", "coordinates"):
-        coords = _coords_from_value(getattr(atom, attr, None))
-        if coords is not None:
-            return coords
-    try:
-        return _coords_from_value(atom.get_coord())
-    except Exception:
-        return None
-
-
-def _shell_center(shell):
-    group = getattr(shell, "central_atm_grp", None)
-    for attr in ("centroid", "center", "coord", "coords"):
-        coords = _coords_from_value(getattr(group, attr, None))
-        if coords is not None:
-            return coords
-    atom_coords = []
-    for atom in list(getattr(group, "atoms", []) or []):
-        coords = _atom_coords(atom)
-        if coords is not None:
-            atom_coords.append(coords)
-    if atom_coords:
-        total = len(atom_coords)
-        return [
-            sum(coords[index] for coords in atom_coords) / total
-            for index in range(3)
-        ]
-    return None
-
-
-def _add_shell_number_labels(shells, feature_id, output_path):
-    try:
-        from pymol import cmd
-    except Exception as exc:
-        _stage(f"rotulos de shells ignorados: pymol.cmd indisponivel ({type(exc).__name__}: {exc})")
-        return 0
-
-    try:
-        existing_objects = list(cmd.get_object_list("all") or [])
-    except Exception:
-        existing_objects = []
-    if not existing_objects and Path(output_path).exists():
-        try:
-            cmd.load(str(output_path))
-        except Exception as exc:
-            _stage(f"rotulos de shells ignorados: nao foi possivel recarregar PSE ({type(exc).__name__}: {exc})")
-            return 0
-
-    group_name = f"hip2l_fp_{int(feature_id)}_shell_numbers"
-    label_objects = []
-    for shell_index, shell in enumerate(list(shells or []), start=1):
-        center = _shell_center(shell)
-        if center is None:
-            continue
-        level = _shell_level_key(shell)
-        name = f"{group_name}_S{shell_index:03d}_L{_safe_name(level)}"
-        label = f"Shell {shell_index} | L{level}"
-        try:
-            cmd.pseudoatom(name, pos=center, label=label)
-            cmd.show("spheres", name)
-            cmd.show("labels", name)
-            cmd.set("sphere_scale", 0.28, name)
-            cmd.set("sphere_transparency", 0.25, name)
-            cmd.set("label_size", 16, name)
-            cmd.set("label_color", "black", name)
-            cmd.color("yellow", name)
-            label_objects.append(name)
-        except Exception as exc:
-            _stage(f"rotulo do shell {shell_index} ignorado ({type(exc).__name__}: {exc})")
-    if label_objects:
-        try:
-            cmd.group(group_name, " ".join(label_objects))
-            cmd.save(str(output_path))
-        except Exception as exc:
-            _stage(f"rotulos de shells criados, mas nao foi possivel salvar PSE atualizado ({type(exc).__name__}: {exc})")
-            return 0
-    return len(label_objects)
+        unique_shells = not bool(project.ifp_count)
+        fingerprint = shell_manager.to_fingerprint(
+            fold_to_length=int(project.ifp_length),
+            unique_shells=unique_shells,
+            count_fp=bool(project.ifp_count),
+        )
+        available = ", ".join(str(int(value)) for value in list(fingerprint.indices)[:12])
+        suffix = f" Features reconstruidas: {available}." if available else ""
+        raise RuntimeError(
+            f"Nenhum shell regenerado para o fingerprint {feature_id} em "
+            f"{entry_name}; a estrutura reconstruida nao reproduziu essa "
+            f"feature.{suffix}"
+        )
+    return viewer_entry, shells, pdb_dir, source
 
 
 def _load_runtime_args():
@@ -707,12 +818,14 @@ try:
     )
 except Exception as exc:
     live_error = f"{type(exc).__name__}: {exc}"
-    _stage(f"regeneracao live falhou; cache leve nao e seguro para ShellViewer: {live_error}")
+    _stage(f"regeneracao live e recuperacao estrutural falharam: {live_error}")
+    error_code = "feature_not_reproduced" if "nao reproduziu" in live_error.lower() else "project_rebuild_failed"
     print(json.dumps({
+        "ok": False,
+        "error_code": error_code,
         "error": (
-            "Nao foi possivel regenerar shells pelo projeto LUNA. "
-            "O cache leve de shells nao pode ser usado para criar uma sessao PSE "
-            "porque nao contem o estado estrutural completo do LUNA. "
+            "Nao foi possivel gerar shells pelo projeto LUNA nem reconstruir "
+            "temporariamente a entrada selecionada. "
             f"Detalhes: {live_error}"
         )
     }))
@@ -739,7 +852,13 @@ except Exception as exc:
 
 _stage("ShellViewer carregado; salvando sessao PSE")
 try:
-    viewer = ShellViewer()
+    viewer = ShellViewer(
+        show_cartoon=False,
+        bg_color="white",
+        add_directional_arrows=True,
+        show_res_labels=True,
+        pse_export_version="1.8",
+    )
     colored_interaction_objects = _save_viewer_session_with_palette(
         viewer,
         [(entry, shells, pdb_source)],
@@ -752,16 +871,561 @@ except Exception as exc:
 if not output_path.exists():
     print(json.dumps({"error": f"LUNA ShellViewer terminou sem criar a sessao PSE: {output_path}"}))
     sys.exit(0)
-shell_label_count = _add_shell_number_labels(shells, feature_id, output_path)
 print(json.dumps({
     "ok": True,
     "output": str(output_path),
     "shells": len(shells),
     "shell_levels": _sorted_level_keys(_shell_level_key(shell) for shell in shells),
-    "shell_labels": shell_label_count,
+    "shell_labels": len(shells),
     "colored_interaction_objects": colored_interaction_objects,
     "source": source,
 }))
+"""
+
+_LEGACY_FP_SESSION_SCRIPT = r"""
+import csv, faulthandler, gzip, json, os, pickle, re, sys, warnings
+from pathlib import Path
+
+try:
+    faulthandler.enable(file=sys.stderr, all_threads=True)
+except Exception:
+    pass
+warnings.filterwarnings("ignore", message=r'.*"import openbabel".*')
+
+# Legacy shell payloads may contain ExtendedAtom objects whose manager was not
+# serialized.  These patches are deliberately confined to this subprocess;
+# no such object is passed to ShellViewer or returned to the GUI process.
+from luna.mol.atom import ExtendedAtom
+
+
+def _safe_getattr(self, attr):
+    state = object.__getattribute__(self, "__dict__")
+    atom = state.get("_atom")
+    if atom is None:
+        raise AttributeError(attr)
+    try:
+        return getattr(atom, attr)
+    except AttributeError:
+        raise AttributeError(attr)
+
+
+ExtendedAtom.__getattr__ = _safe_getattr
+ExtendedAtom.__hash__ = lambda self: 0
+ExtendedAtom.__eq__ = lambda self, other: self is other
+
+
+def _safe_name(value):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "entry"
+
+
+def _atom_from_text(value):
+    text = str(value).strip().replace("<ExtendedAtom:", "").strip()
+    if text.endswith(">"):
+        text = text[:-1]
+    parts = text.split("/")
+    if len(parts) < 6:
+        return None
+    return {
+        "model": parts[-5],
+        "chain": parts[-4],
+        "resname": parts[-3],
+        "resseq": parts[-2],
+        "name": parts[-1],
+        "is_ligand": parts[-4].lower() == "z" or parts[-3].upper() == "LIG" or parts[-2] == "9999",
+    }
+
+
+def _coords_from_value(value):
+    try:
+        values = list(value)
+        if len(values) >= 3:
+            return [float(values[0]), float(values[1]), float(values[2])]
+    except Exception:
+        pass
+    return None
+
+
+def _atom_record(atom):
+    record = _atom_from_text(repr(atom))
+    if record is None:
+        return None
+    try:
+        coords = _coords_from_value(getattr(atom, "coord", None))
+        if coords is None:
+            coords = _coords_from_value(atom.get_coord())
+    except Exception:
+        coords = None
+    element = ""
+    try:
+        element = str(getattr(atom, "element", "") or "").strip().upper()
+    except Exception:
+        pass
+    role = "ligand" if record.get("is_ligand") else "protein"
+    if element in {"H", "D"} or str(record.get("name", "")).upper().startswith(("H", "D")):
+        record["is_hydrogen"] = True
+    else:
+        record["is_hydrogen"] = False
+    record["coord"] = coords
+    record["element"] = element
+    record["object_role"] = role
+    record["is_ligand"] = role == "ligand"
+    return record
+
+
+def _atoms_from_repr(value):
+    if value is None:
+        return []
+    matches = re.findall(r"<ExtendedAtom:\s*([^>]+)>", repr(value))
+    return [item for item in (_atom_from_text(match) for match in matches) if item]
+
+
+def _group_atoms(group):
+    try:
+        atoms = list(getattr(group, "atoms", []) or [])
+    except Exception:
+        atoms = []
+    records = []
+    for atom in atoms:
+        record = _atom_record(atom)
+        if record is not None:
+            records.append(record)
+    if records:
+        return records
+    return _atoms_from_repr(group)
+
+
+def _group_centroid(group, atoms):
+    try:
+        value = _coords_from_value(getattr(group, "centroid", None))
+        if value is not None:
+            return value
+    except Exception:
+        pass
+    coords = [item.get("coord") for item in atoms if item.get("coord")]
+    if coords:
+        return [sum(item[index] for item in coords) / len(coords) for index in range(3)]
+    return None
+
+
+def _unique_atoms(items):
+    result, seen = [], set()
+    for atom in items:
+        key = (atom.get("model"), atom.get("chain"), atom.get("resname"), atom.get("resseq"), atom.get("name"))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(atom)
+    return result
+
+
+def _normalise_atom_record(atom):
+    record = dict(atom or {})
+    role = str(record.get("object_role") or "").strip().lower()
+    if role not in {"protein", "ligand", "water", "metal", "heteroatom"}:
+        chain = str(record.get("chain") or "")
+        resname = str(record.get("resname") or "")
+        if bool(record.get("is_ligand")) or chain.lower() == "z" or resname.upper() == "LIG":
+            role = "ligand"
+        else:
+            role = "protein"
+    record["object_role"] = role
+    record["is_ligand"] = role == "ligand"
+    record["is_hydrogen"] = bool(record.get("is_hydrogen")) or str(record.get("element") or "").upper() in {"H", "D"}
+    return record
+
+
+def _shell_record(shell):
+    if isinstance(shell, dict):
+        # Portable caches already contain JSON-safe records.  Keep this path
+        # separate from legacy object extraction so no LUNA object is rebuilt
+        # or passed to the PyMOL renderer.
+        interactions = []
+        for interaction in list(shell.get("interactions") or []):
+            item = dict(interaction or {})
+            for key in (
+                "src_group_atoms", "trgt_group_atoms",
+                "src_interacting_atoms", "trgt_interacting_atoms",
+            ):
+                item[key] = [_normalise_atom_record(atom) for atom in list(item.get(key) or [])]
+            interactions.append(item)
+        return {
+            "identifier": shell.get("identifier"),
+            "level": shell.get("level"),
+            "radius": shell.get("radius"),
+            "valid": shell.get("valid", True),
+            "central_atoms": [_normalise_atom_record(item) for item in list(shell.get("central_atoms") or [])],
+            "central_centroid": shell.get("central_centroid"),
+            "neighborhood_atoms": [_normalise_atom_record(item) for item in list(shell.get("neighborhood_atoms") or [])],
+            "interactions": interactions,
+        }
+    central_group = getattr(shell, "central_atm_grp", None)
+    central = _group_atoms(central_group)
+    central_centroid = _group_centroid(central_group, central)
+    neighborhood = []
+    for group in list(getattr(shell, "neighborhood", []) or []):
+        neighborhood.extend(_group_atoms(group))
+    interactions = []
+    for interaction in list(getattr(shell, "interactions", []) or []):
+        src_group = getattr(interaction, "src_grp", None)
+        trgt_group = getattr(interaction, "trgt_grp", None)
+        src_atoms = _group_atoms(src_group)
+        trgt_atoms = _group_atoms(trgt_group)
+        try:
+            src_centroid = _coords_from_value(getattr(interaction, "src_centroid", None))
+        except Exception:
+            src_centroid = None
+        try:
+            trgt_centroid = _coords_from_value(getattr(interaction, "trgt_centroid", None))
+        except Exception:
+            trgt_centroid = None
+        if src_centroid is None:
+            src_centroid = _group_centroid(src_group, src_atoms)
+        if trgt_centroid is None:
+            trgt_centroid = _group_centroid(trgt_group, trgt_atoms)
+        try:
+            directional = bool(interaction.is_directional())
+        except Exception:
+            directional = False
+        inter_type = str(getattr(interaction, "type", type(interaction).__name__))
+        interactions.append({
+            "type": inter_type,
+            "src_group_atoms": src_atoms,
+            "trgt_group_atoms": trgt_atoms,
+            "src_interacting_atoms": _group_atoms(getattr(interaction, "src_interacting_atms", None)),
+            "trgt_interacting_atoms": _group_atoms(getattr(interaction, "trgt_interacting_atms", None)),
+            "src_centroid": src_centroid,
+            "trgt_centroid": trgt_centroid,
+            "directional": directional,
+            "intramolecular": bool(getattr(interaction, "is_intramol_interaction", lambda: False)()),
+            "unfavorable": "unfavorable" in inter_type.lower(),
+        })
+    return {
+        "identifier": getattr(shell, "identifier", None),
+        "level": getattr(shell, "level", None),
+        "radius": getattr(shell, "radius", None),
+        "valid": getattr(shell, "valid", None),
+        "central_atoms": _unique_atoms(central),
+        "central_centroid": central_centroid,
+        "neighborhood_atoms": _unique_atoms(neighborhood),
+        "interactions": interactions,
+    }
+
+
+def _load_payload(path):
+    if str(path).endswith(".shells.json.gz"):
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            raise RuntimeError("cache portavel nao contem um dicionario")
+        if payload.get("schema") != "hip2l.fp-shells" or int(payload.get("schema_version", 0) or 0) not in {1, 2}:
+            raise RuntimeError("versao de cache portavel nao suportada")
+        if not isinstance(payload.get("feature_shells"), dict):
+            raise RuntimeError("cache portavel nao contem feature_shells")
+        return payload
+    with gzip.open(path, "rb") as handle:
+        payload = pickle.load(handle)
+    if not isinstance(payload, dict):
+        raise RuntimeError("cache legado nao contem um dicionario")
+    if not isinstance(payload.get("feature_shells"), dict):
+        raise RuntimeError("cache legado nao contem feature_shells")
+    return payload
+
+
+def _find_file(workdir, raw, folders, basename):
+    candidates = []
+    if raw:
+        candidates.append(Path(str(raw).replace("\\", "/")))
+    roots = (Path(workdir), Path(workdir).parent)
+    for root in roots:
+        for folder in folders:
+            if basename:
+                candidates.append(root / folder / basename)
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return ""
+
+
+def _selection(atom, relaxed=False):
+    role = str(atom.get("object_role") or ("ligand" if atom.get("is_ligand") else "protein"))
+    object_name = "ligand" if role == "ligand" else "protein"
+    chain = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("chain") or ""))
+    resseq = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("resseq") or ""))
+    resname = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("resname") or ""))
+    name = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("name") or ""))
+    if not name:
+        return "none"
+    clauses = [object_name]
+    if resname and not (relaxed and role == "ligand"):
+        clauses.append(f"resn {resname}")
+    if chain and not (relaxed and role == "ligand"):
+        clauses.append(f"chain {chain}")
+    if resseq and not (relaxed and role == "ligand"):
+        clauses.append(f"resi {resseq}")
+    clauses.append(f"name {name}")
+    return "(" + " and ".join(clauses) + ")"
+
+
+def _selection_for_atoms(atoms, relaxed=False):
+    values = [_selection(atom, relaxed=relaxed) for atom in _unique_atoms(atoms)]
+    values = [value for value in values if value != "none"]
+    return " or ".join(values) if values else "none"
+
+
+def _residue_selection(atoms):
+    values = []
+    seen = set()
+    for atom in atoms:
+        if atom.get("is_ligand"):
+            continue
+        key = (atom.get("chain"), atom.get("resseq"))
+        if key in seen or not all(key):
+            continue
+        seen.add(key)
+        chain = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(key[0]))
+        resseq = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(key[1]))
+        values.append(f"(protein and chain {chain} and resi {resseq})")
+    return " or ".join(values) if values else "none"
+
+
+def _mean_coords(atoms):
+    coords = [atom.get("coord") for atom in atoms if atom.get("coord")]
+    if not coords:
+        return None
+    return [sum(item[index] for item in coords) / len(coords) for index in range(3)]
+
+
+def _shell_atoms(shell):
+    atoms = list(shell.get("central_atoms") or []) + list(shell.get("neighborhood_atoms") or [])
+    for interaction in list(shell.get("interactions") or []):
+        for key in (
+            "src_group_atoms", "trgt_group_atoms",
+            "src_interacting_atoms", "trgt_interacting_atoms",
+        ):
+            atoms.extend(list(interaction.get(key) or []))
+    return _unique_atoms(atoms)
+
+
+def _luna_interaction_color(interaction_name):
+    try:
+        from luna.util.default_values import PYMOL_INTERACTION_COLOR
+        colors = dict(PYMOL_INTERACTION_COLOR.color_map)
+    except Exception:
+        colors = {}
+    normalized = re.sub(r"[^a-z0-9]+", "", str(interaction_name).lower())
+    for name, color in colors.items():
+        if re.sub(r"[^a-z0-9]+", "", str(name).lower()) == normalized:
+            return color
+    return colors.get("Van der Waals", "gray50")
+
+
+def _add_arrow(name, start, end, color, block=False):
+    try:
+        from pymol import cmd
+        from pymol.cgo import CONE, CYLINDER
+        import math
+        vector = [end[index] - start[index] for index in range(3)]
+        length = math.sqrt(sum(value * value for value in vector))
+        if length <= 1e-8:
+            return ""
+        unit = [value / length for value in vector]
+        head_length = min(0.5, length * 0.35)
+        base = [end[index] - unit[index] * head_length for index in range(3)]
+        radius = 0.3 if block else 0.03
+        head_radius = 0.3 if block else 0.2
+        rgb = list(cmd.get_color_tuple(color))
+        cgo = [
+            CYLINDER, *start, *base, radius, *rgb, *rgb,
+            CONE, *base, *end, head_radius, 0.0, *rgb, *rgb,
+        ]
+        cmd.load_cgo(cgo, name)
+        return name
+    except Exception:
+        return ""
+
+
+def _load_pymol():
+    try:
+        from pymol import cmd
+        return cmd
+    except Exception:
+        from pymol import finish_launching
+        finish_launching(["pymol", "-cq"])
+        from pymol import cmd
+        return cmd
+
+
+def _apply_shell_atom_colors(cmd):
+    '''Apply the same atom colors used by the native LUNA shell viewer.'''
+    rules = (
+        ("atomic", "(protein or ligand) and not elem C+H+D"),
+        ("gray50", "protein and elem C"),
+        ("green", "ligand and elem C"),
+        ("white", "ligand and elem H+D"),
+    )
+    colored = 0
+    for color, selection in rules:
+        try:
+            cmd.color(color, selection)
+            colored += 1
+        except Exception:
+            # A missing selection is harmless for projects without that atom
+            # class; the remaining LUNA view is still saved.
+            continue
+    return colored
+
+
+def _render(payload, workdir, output_path, feature_id):
+    entry_meta = payload.get("entry_meta") or {}
+    pdb_id = str(entry_meta.get("pdb_id") or "")
+    mol_raw = entry_meta.get("mol_file") or ""
+    mol_basename = Path(str(mol_raw).replace("\\", "/")).name
+    protein_file = _find_file(workdir, "", ("pdbs", "proteinas_pdb", "proteins", "protein_file"), f"{pdb_id}.pdb")
+    ligand_file = _find_file(workdir, mol_raw, ("ligantes_mol2", "ligantes_sdf", "ligands", "ligand", "ligand_file"), mol_basename)
+    if not protein_file:
+        raise RuntimeError(f"proteina atual nao encontrada para {pdb_id}")
+    if not ligand_file:
+        raise RuntimeError(f"ligante atual nao encontrado para {entry_meta.get('entry_str', '')}")
+
+    raw_features = payload.get("feature_shells") or {}
+    shells = raw_features.get(str(int(feature_id)), raw_features.get(int(feature_id)))
+    if not shells:
+        available = sorted(str(key) for key in raw_features.keys())
+        raise RuntimeError(f"feature {feature_id} ausente no cache legado; disponiveis: {', '.join(available[:20])}")
+    records = [_shell_record(shell) for shell in shells]
+    cmd = _load_pymol()
+    cmd.reinitialize()
+    cmd.set("pse_export_version", "1.8")
+    cmd.set("transparency_mode", 3)
+    cmd.set("group_auto_mode", 2)
+    cmd.set("internal_gui_width", 370)
+    cmd.bg_color("white")
+    cmd.load(protein_file, "protein")
+    cmd.load(ligand_file, "ligand")
+    cmd.hide("everything", "all")
+    group_names = []
+    warnings_out = []
+    for index, shell in enumerate(records, 1):
+        level = shell.get("level", "unknown")
+        prefix = f"hip2l_fp_{int(feature_id)}.spheres.s{index - 1}_lvl{level}"
+        center = shell.get("central_centroid") or _mean_coords(shell.get("central_atoms") or [])
+        radius = shell.get("radius")
+        try:
+            radius = float(radius)
+        except (TypeError, ValueError):
+            radius = 0.0
+        # LUNA defines level 0 with radius 0.  Keep that exact semantics: the
+        # centroid object is still created, but no artificial radius is added.
+        if center is None or radius < 0:
+            raise RuntimeError(f"centroide/raio ausente para a shell {index}")
+        centroid_name = prefix + ".centroid"
+        central_names = "+".join(sorted({str(atom.get("name")) for atom in shell.get("central_atoms", []) if atom.get("name")}))
+        cmd.pseudoatom(centroid_name, pos=center, color="white", label=f'"{central_names}"')
+        cmd.hide("nonbonded", centroid_name)
+        cmd.show("spheres", centroid_name)
+        cmd.show("nb_spheres", centroid_name)
+        cmd.show("dots", centroid_name)
+        cmd.set("dot_color", "red")
+        cmd.set("sphere_scale", radius, centroid_name)
+        cmd.set("sphere_transparency", 0.85, centroid_name)
+        cmd.center(centroid_name)
+
+        atom_selection = _selection_for_atoms(_shell_atoms(shell))
+        if atom_selection == "none" or cmd.count_atoms(atom_selection) == 0:
+            raise RuntimeError(f"atomos da shell {index} nao encontrados nos arquivos atuais")
+        cmd.show("sticks", atom_selection)
+        cmd.hide("everything", "elem H+D")
+
+        residue_selection = _residue_selection(shell.get("neighborhood_atoms") or [])
+        if residue_selection != "none":
+            cmd.show("sticks", residue_selection)
+        residue_keys = set()
+        for atom in shell.get("neighborhood_atoms", []):
+            if atom.get("is_ligand"):
+                continue
+            chain = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("chain") or ""))
+            resseq = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("resseq") or ""))
+            resname = re.sub(r"[^A-Za-z0-9_.+\-]", "", str(atom.get("resname") or "UNK"))
+            key = (chain, resseq, resname)
+            if chain and resseq and key not in residue_keys:
+                residue_keys.add(key)
+                cmd.label(
+                    f"(protein and resn {resname} and chain {chain} and resi {resseq} and name CA)",
+                    f'"{resname}-{resseq}"',
+                )
+        interaction_names = []
+        for interaction_index, interaction in enumerate(shell["interactions"], 1):
+            src = interaction.get("src_interacting_atoms") or interaction.get("src_group_atoms") or []
+            trg = interaction.get("trgt_interacting_atoms") or interaction.get("trgt_group_atoms") or []
+            src_sel = _selection_for_atoms(src)
+            trg_sel = _selection_for_atoms(trg)
+            src_center = interaction.get("src_centroid") or _mean_coords(src)
+            trg_center = interaction.get("trgt_centroid") or _mean_coords(trg)
+            if src_sel != "none" and cmd.count_atoms(src_sel) == 0:
+                src_sel = _selection_for_atoms(src, relaxed=True)
+            if trg_sel != "none" and cmd.count_atoms(trg_sel) == 0:
+                trg_sel = _selection_for_atoms(trg, relaxed=True)
+            if src_sel == "none" or trg_sel == "none" or cmd.count_atoms(src_sel) == 0 or cmd.count_atoms(trg_sel) == 0 or src_center is None or trg_center is None:
+                warnings_out.append(f"interacao {interaction_index} da shell {index} nao encontrada")
+                continue
+            inter_type = str(interaction.get("type", "interaction"))
+            inter_prefix = f"{prefix}.all_inters.{'intra' if interaction.get('intramolecular') else 'inter'}.i{interaction_index:02d}_{_safe_name(inter_type)}"
+            src_name = inter_prefix + ".src_centroid"
+            trg_name = inter_prefix + ".trg_centroid"
+            cmd.pseudoatom(src_name, pos=src_center)
+            cmd.pseudoatom(trg_name, pos=trg_center)
+            inter_color = _luna_interaction_color(inter_type)
+            cmd.show("spheres", src_name)
+            cmd.show("spheres", trg_name)
+            cmd.set("sphere_scale", 0.2, src_name)
+            cmd.set("sphere_scale", 0.2, trg_name)
+            cmd.color(inter_color, src_name)
+            cmd.color(inter_color, trg_name)
+            distance_name = inter_prefix + ".line"
+            cmd.distance(distance_name, src_name, trg_name)
+            cmd.hide("labels", distance_name)
+            cmd.color(inter_color, distance_name)
+            interaction_names.extend((src_name, trg_name, distance_name))
+            if interaction.get("directional"):
+                arrow = _add_arrow(inter_prefix + ".arrow", src_center, trg_center, inter_color)
+                if arrow:
+                    interaction_names.append(arrow)
+            if interaction.get("unfavorable"):
+                reverse = _add_arrow(inter_prefix + ".reverse_arrow", trg_center, src_center, inter_color)
+                block = _add_arrow(inter_prefix + ".block", src_center, trg_center, inter_color, block=True)
+                interaction_names.extend(item for item in (reverse, block) if item)
+        members = " ".join([centroid_name] + interaction_names)
+        cmd.group(prefix, members)
+        group_names.append(prefix)
+    _apply_shell_atom_colors(cmd)
+    cmd.group(f"hip2l_fp_{int(feature_id)}", " ".join(group_names))
+    cmd.set("dash_radius", 0.08)
+    cmd.set("label_font_id", "13")
+    cmd.set("label_size", "20")
+    cmd.hide("everything", "elem H+D")
+    cmd.center("visible")
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    cmd.save(str(output_path))
+    if not Path(output_path).is_file() or Path(output_path).stat().st_size == 0:
+        raise RuntimeError("PyMOL nao criou o arquivo PSE")
+    source = "portable_shell_cache_v2" if str(args.get("cache_path", "")).endswith(".shells.json.gz") else "legacy_shell_cache_extracted"
+    return {"ok": True, "output": str(output_path), "shells": len(records), "source": source, "warnings": warnings_out}
+
+
+def _args():
+    raw = os.environ.get("HIP2L_LEGACY_FP_ARGS")
+    return json.loads(raw) if raw else {
+        "cache_path": sys.argv[1], "workdir": sys.argv[2], "feature_id": int(sys.argv[3]), "output_path": sys.argv[4]
+    }
+
+
+try:
+    args = _args()
+    payload = _load_payload(Path(args["cache_path"]))
+    result = _render(payload, args["workdir"], args["output_path"], int(args["feature_id"]))
+except Exception as exc:
+    result = {"ok": False, "error_code": "legacy_cache_failed", "error": f"{type(exc).__name__}: {exc}"}
+print(json.dumps(result, ensure_ascii=False))
 """
 
 _FP_DETAIL_SCRIPT = r"""
@@ -958,7 +1622,10 @@ if not shell_dir.exists():
     sys.exit(0)
 
 feature_details = {}
-files = sorted(shell_dir.glob("*.pkl.gz"))
+files = sorted(
+    path for path in shell_dir.glob("*.pkl.gz")
+    if not path.name.endswith(".shells.json.gz")
+)
 for payload_path in files:
     with gzip.open(payload_path, "rb") as fh:
         payload = pickle.load(fh)
@@ -1740,6 +2407,88 @@ def _find_env_pymol_executable(py_exe: str) -> Path | None:
     return None
 
 
+def _fp_shell_cache_path(workdir: str | Path, ifp_type: str, entry_name: str, portable: bool) -> Path | None:
+    suffix = {value: key for key, value in IFP_SUFFIX_TO_TYPE.items()}.get(str(ifp_type).upper())
+    if suffix is None:
+        return None
+    safe_entry = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(entry_name)).strip("_") or "entry"
+    extension = ".shells.json.gz" if portable else ".pkl.gz"
+    path = Path(workdir) / "results" / "fingerprints" / "_shells" / suffix / f"{safe_entry}{extension}"
+    return path if path.is_file() else None
+
+
+def _legacy_fp_shell_path(workdir: str | Path, ifp_type: str, entry_name: str) -> Path | None:
+    return _fp_shell_cache_path(workdir, ifp_type, entry_name, portable=False)
+
+
+def _legacy_fp_fallback_allowed(result: dict) -> bool:
+    code = str(result.get("error_code") or "")
+    if code in {
+        "chunk_missing",
+        "chunk_visible_but_unreadable",
+        "chunk_missing_structural_state",
+        "rebuild_inputs_missing",
+        "project_rebuild_failed",
+        "feature_not_reproduced",
+    }:
+        return True
+    text = str(result.get("error") or "").lower()
+    return "estrutura reconstruida nao reproduziu" in text or "nem reconstruir temporariamente" in text
+
+
+def _run_legacy_fp_session(
+    py_exe: str,
+    pymol_exe: Path | None,
+    cache_path: Path,
+    workdir: str,
+    feature_id: int,
+    output_path: str,
+    timeout: int,
+) -> dict:
+    payload = json.dumps(
+        {
+            "cache_path": str(cache_path),
+            "workdir": str(workdir),
+            "feature_id": int(feature_id),
+            "output_path": str(output_path),
+        },
+        ensure_ascii=False,
+    )
+    env = _fp_session_env(py_exe)
+    env["HIP2L_LEGACY_FP_ARGS"] = payload
+    try:
+        with tempfile.TemporaryDirectory(prefix="hip2l_legacy_fp_session_") as tmp_dir:
+            script_path = Path(tmp_dir) / "legacy_fp_session.py"
+            script_path.write_text(_LEGACY_FP_SESSION_SCRIPT, encoding="utf-8")
+            if pymol_exe is not None:
+                args = [str(pymol_exe), "-cq", "-r", str(script_path)]
+            else:
+                args = [py_exe, str(script_path)]
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+            )
+    except subprocess.TimeoutExpired:
+        return {"error": "A extração do cache legado excedeu o tempo limite."}
+    except Exception as exc:
+        return {"error": f"Falha ao iniciar a recuperação do cache legado: {exc}"}
+    if result.returncode != 0:
+        prefix = "Extrator legado PyMOL/LUNA falhou" if pymol_exe is not None else "Extrator legado LUNA/PyMOL falhou"
+        return _helper_failure(result, prefix=prefix)
+    try:
+        parsed = _helper_json_from_stdout(result.stdout)
+    except Exception:
+        return _helper_invalid_output(result)
+    if not parsed.get("ok"):
+        return parsed
+    if not Path(output_path).is_file():
+        return {"error": "O extrator legado terminou sem criar a sessão PSE."}
+    return parsed
+
+
 def generate_fp_session(
     py_exe: str,
     workdir: str,
@@ -1762,7 +2511,6 @@ def generate_fp_session(
             "entry_name": str(entry_name),
             "feature_id": int(feature_id),
             "output_path": str(output_path),
-            "pse_interaction_colors": dict(INTERACTION_COLORS),
         },
         ensure_ascii=False,
     )
@@ -1806,11 +2554,52 @@ def generate_fp_session(
 
     if result.returncode != 0:
         prefix = "Helper PyMOL/LUNA falhou" if pymol_exe is not None else "Helper LUNA/PyMOL falhou"
-        return _helper_failure(result, prefix=prefix)
-    try:
-        return _helper_json_from_stdout(result.stdout)
-    except Exception:
-        return _helper_invalid_output(result)
+        result_data = _helper_failure(result, prefix=prefix)
+    else:
+        try:
+            result_data = _helper_json_from_stdout(result.stdout)
+        except Exception:
+            result_data = _helper_invalid_output(result)
+
+    if result_data.get("ok") or not _legacy_fp_fallback_allowed(result_data):
+        return result_data
+
+    cache_paths = []
+    portable_cache = _fp_shell_cache_path(workdir, ifp_type, entry_name, portable=True)
+    legacy_cache = _legacy_fp_shell_path(workdir, ifp_type, entry_name)
+    if portable_cache is not None:
+        cache_paths.append(portable_cache)
+    if legacy_cache is not None and legacy_cache != portable_cache:
+        cache_paths.append(legacy_cache)
+    if not cache_paths:
+        result_data["error"] = (
+            str(result_data.get("error") or "Falha na geração da sessão.")
+            + "\nCache legado de shells não encontrado para esta entrada."
+        )
+        return result_data
+
+    cache_errors = []
+    for cache_path in cache_paths:
+        cache_result = _run_legacy_fp_session(
+            py_exe,
+            pymol_exe,
+            cache_path,
+            workdir,
+            int(feature_id),
+            output_path,
+            timeout,
+        )
+        if cache_result.get("ok"):
+            return cache_result
+        cache_errors.append(
+            f"{cache_path.name}: {cache_result.get('error') or 'falha desconhecida'}"
+        )
+    result_data["error"] = (
+        str(result_data.get("error") or "Falha na geração da sessão.")
+        + "\nTentativas com cache portável/histórico também falharam: "
+        + " | ".join(cache_errors)
+    )
+    return result_data
 
 
 def run_fp_detail_analysis(

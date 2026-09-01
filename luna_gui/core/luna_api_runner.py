@@ -871,6 +871,159 @@ def _detach_shell_for_storage(shell):
     return stored_shell
 
 
+def _portable_atom_record(atom):
+    """Convert an ExtendedAtom/BioPython atom to JSON-safe identity data."""
+    try:
+        full_id = tuple(atom.get_full_id())
+    except Exception:
+        full_id = tuple(getattr(atom, "full_id", ()) or ())
+    if len(full_id) < 5:
+        return None
+    residue_id = full_id[3]
+    if isinstance(residue_id, (list, tuple)):
+        residue_id = list(residue_id[:3])
+    else:
+        residue_id = [" ", residue_id, " "]
+    atom_id = full_id[4]
+    atom_name = atom_id[0] if isinstance(atom_id, (list, tuple)) else atom_id
+    altloc = atom_id[1] if isinstance(atom_id, (list, tuple)) and len(atom_id) > 1 else " "
+    residue = getattr(atom, "parent", None)
+    resname = str(getattr(residue, "resname", "") or "").strip()
+    chain = str(full_id[2])
+    hetflag = str(residue_id[0])
+    is_ligand = bool(getattr(atom, "is_ligand", False))
+    if not is_ligand:
+        is_ligand = chain.lower() == "z" or resname.upper() == "LIG" or residue_id[0] == "H_LIG"
+    if is_ligand:
+        object_role = "ligand"
+    elif resname.upper() in {"HOH", "WAT", "WTM", "TIP", "SOL", "T3P", "H2O", "OH2", "DOD"}:
+        object_role = "water"
+    elif str(getattr(atom, "element", "") or "").strip().upper() in {"ZN", "MG", "CA", "FE", "MN", "CU", "CO", "NI", "NA", "K", "CL"}:
+        object_role = "metal"
+    elif hetflag.strip() and not hetflag.startswith(" "):
+        object_role = "heteroatom"
+    else:
+        object_role = "protein"
+    try:
+        coord = [float(value) for value in atom.get_coord()]
+    except Exception:
+        coord = None
+    return {
+        "model": full_id[1],
+        "chain": chain,
+        "resname": resname,
+        "hetflag": hetflag,
+        "resseq": residue_id[1],
+        "icode": str(residue_id[2]),
+        "name": str(atom_name).strip(),
+        "altloc": str(altloc),
+        "element": str(getattr(atom, "element", "") or "").strip(),
+        "coord": coord,
+        "object_role": object_role,
+        "is_ligand": is_ligand,
+        "is_hydrogen": str(atom_name).strip().upper() in {"H", "D"}
+        or str(getattr(atom, "element", "") or "").strip().upper() in {"H", "D"},
+    }
+
+
+def _portable_group_atoms(group):
+    records = []
+    for atom in list(getattr(group, "atoms", []) or []):
+        record = _portable_atom_record(atom)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _portable_shell_record(shell):
+    def _bool_method(obj, name):
+        try:
+            value = getattr(obj, name, False)
+            return bool(value() if callable(value) else value)
+        except Exception:
+            return False
+
+    central_group = getattr(shell, "central_atm_grp", None)
+    central_centroid = None
+    try:
+        central_centroid = [float(value) for value in list(central_group.centroid)[:3]]
+    except Exception:
+        pass
+    interactions = []
+    for interaction in list(getattr(shell, "interactions", []) or []):
+        src_centroid = None
+        trgt_centroid = None
+        for attr, target in (("src_centroid", "src_centroid"), ("trgt_centroid", "trgt_centroid")):
+            try:
+                value = [float(item) for item in list(getattr(interaction, attr))[:3]]
+            except Exception:
+                value = None
+            if target == "src_centroid":
+                src_centroid = value
+            else:
+                trgt_centroid = value
+        interactions.append(
+            {
+                "type": str(getattr(interaction, "type", type(interaction).__name__)),
+                "src_group_atoms": _portable_group_atoms(getattr(interaction, "src_grp", None)),
+                "trgt_group_atoms": _portable_group_atoms(getattr(interaction, "trgt_grp", None)),
+                "src_interacting_atoms": _portable_group_atoms(getattr(interaction, "src_interacting_atms", None)),
+                "trgt_interacting_atoms": _portable_group_atoms(getattr(interaction, "trgt_interacting_atms", None)),
+                "src_centroid": src_centroid,
+                "trgt_centroid": trgt_centroid,
+                "directional": _bool_method(interaction, "is_directional"),
+                "intramolecular": _bool_method(interaction, "is_intramol_interaction"),
+                "unfavorable": "unfavorable" in str(getattr(interaction, "type", "")).lower(),
+            }
+        )
+    return {
+        "identifier": getattr(shell, "identifier", None),
+        "level": getattr(shell, "level", None),
+        "radius": getattr(shell, "radius", None),
+        "valid": bool(getattr(shell, "valid", True)),
+        "central_atoms": _portable_group_atoms(central_group),
+        "central_centroid": central_centroid,
+        "neighborhood_atoms": [
+            atom
+            for group in list(getattr(shell, "neighborhood", []) or [])
+            for atom in _portable_group_atoms(group)
+        ],
+        "interactions": interactions,
+    }
+
+
+def _save_portable_shell_payload(path, entry, feature_shells, pdb_dir, proj, type_name):
+    payload = {
+        "schema": "hip2l.fp-shells",
+        "schema_version": 2,
+        "entry_meta": _entry_meta(entry),
+        "feature_shells": {
+            str(feature_id): [_portable_shell_record(shell) for shell in shells]
+            for feature_id, shells in feature_shells.items()
+        },
+        "pdb_dir": pdb_dir,
+        "ifp": {
+            "type": str(type_name),
+            "num_levels": int(getattr(proj, "ifp_num_levels", 0) or 0),
+            "radius_step": float(getattr(proj, "ifp_radius_step", 0) or 0),
+            "length": int(getattr(proj, "ifp_length", 0) or 0),
+            "count": bool(getattr(proj, "ifp_count", False)),
+            "diff_comp_classes": bool(getattr(proj, "ifp_diff_comp_classes", True)),
+        },
+    }
+    temporary = path.with_name(f".{path.name}.part")
+    try:
+        with gzip.open(temporary, "wt", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def _save_feature_shell_payload(path, entry, feature_shells, pdb_dir):
     payload = {
         "entry_meta": _entry_meta(entry),
@@ -1108,6 +1261,14 @@ def _export_fp_artifacts(proj, params, type_name):
                 entry,
                 feature_shells,
                 params["pdb_dir"],
+            )
+            _save_portable_shell_payload(
+                shell_dir / f"{_safe_name(entry_name)}.shells.json.gz",
+                entry,
+                feature_shells,
+                params["pdb_dir"],
+                proj,
+                type_name,
             )
         except Exception as ex:
             print(

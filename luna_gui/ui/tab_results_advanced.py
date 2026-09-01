@@ -3748,11 +3748,13 @@ class ResultsTab(EnhancedResultsTab):
         self._generated_fp_session = str(out_path)
         source = str(result.get("source") or "")
         shell_labels = int(result.get("shell_labels", 0) or 0)
-        label_note = f"; {shell_labels} shells numerados" if shell_labels else ""
+        label_note = f"; {shell_labels} centroides" if shell_labels else ""
         if source.startswith("live_project"):
             self.fp_session_status.setText(f"Sessão salva em {out_path.name} (shells regenerados{label_note})")
-        elif source.startswith("cached_payload"):
-            self.fp_session_status.setText(f"Sessão salva em {out_path.name} (cache legado{label_note})")
+        elif source.startswith("portable_shell_cache"):
+            self.fp_session_status.setText(f"Sessão salva em {out_path.name} (cache portável{label_note})")
+        elif source.startswith("legacy_shell_cache") or source.startswith("cached_payload"):
+            self.fp_session_status.setText(f"Sessão salva em {out_path.name} (cache histórico convertido{label_note})")
         else:
             self.fp_session_status.setText(f"Sessão salva em {out_path.name}{label_note}")
         self._load_existing_fp_sessions(wd)

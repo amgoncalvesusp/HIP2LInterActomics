@@ -8,9 +8,11 @@ import unittest
 import json
 from pathlib import Path
 
+from luna_gui.core import analysis_runtime
 from luna_gui.core.analysis_runtime import (
     _FP_DETAIL_SCRIPT,
     _FP_SESSION_SCRIPT,
+    _LEGACY_FP_SESSION_SCRIPT,
     _PSE_FILTER_SCRIPT,
     _clean_helper_text,
 )
@@ -660,6 +662,12 @@ class LunaApiRunnerTests(unittest.TestCase):
         self.assertIn("entry_meta", API_RUNNER_SCRIPT)
         self.assertIn("feature_shells", API_RUNNER_SCRIPT)
         self.assertIn("_save_feature_shell_payload", API_RUNNER_SCRIPT)
+        self.assertIn('"schema": "hip2l.fp-shells"', API_RUNNER_SCRIPT)
+        self.assertIn('"schema_version": 2', API_RUNNER_SCRIPT)
+        self.assertIn("_save_portable_shell_payload", API_RUNNER_SCRIPT)
+        self.assertIn('"object_role": object_role', API_RUNNER_SCRIPT)
+        self.assertIn('"central_centroid": central_centroid', API_RUNNER_SCRIPT)
+        self.assertIn('"directional": _bool_method', API_RUNNER_SCRIPT)
         self.assertNotIn('"shell_manager": sm', API_RUNNER_SCRIPT)
 
     def test_api_runner_exposes_canonical_fp_class_labels(self) -> None:
@@ -717,17 +725,40 @@ class LunaApiRunnerTests(unittest.TestCase):
     def test_fp_session_helper_prefers_live_shell_regeneration(self) -> None:
         self.assertIn("_regenerate_shells_from_project", _FP_SESSION_SCRIPT)
         self.assertIn("LocalProject.load", _FP_SESSION_SCRIPT)
-        self.assertIn("cache leve nao e seguro para ShellViewer", _FP_SESSION_SCRIPT)
-        self.assertIn("Dados estruturais ausentes", _FP_SESSION_SCRIPT)
+        self.assertIn("_load_entry_results", _FP_SESSION_SCRIPT)
+        self.assertIn("visivel_mas_inacessivel", _FP_SESSION_SCRIPT)
+        self.assertIn("_rebuild_entry_results", _FP_SESSION_SCRIPT)
+        self.assertIn("reconstruindo estado estrutural", _FP_SESSION_SCRIPT)
+        self.assertIn("estrutura reconstruida nao reproduziu", _FP_SESSION_SCRIPT)
         self.assertIn("def _local_entry_mol_file", _FP_SESSION_SCRIPT)
         self.assertIn("def _resolve_pdb_source", _FP_SESSION_SCRIPT)
         self.assertIn("def _viewer_entry", _FP_SESSION_SCRIPT)
+        self.assertIn("_LEGACY_FP_SESSION_SCRIPT", inspect.getsource(analysis_runtime))
+        self.assertIn("legacy_shell_cache_extracted", inspect.getsource(analysis_runtime))
+        self.assertIn("portable_shell_cache_v2", inspect.getsource(analysis_runtime))
+        runtime_source = inspect.getsource(analysis_runtime.generate_fp_session)
+        self.assertIn("portable_cache", runtime_source)
+        self.assertIn("legacy_cache", runtime_source)
+        self.assertIn("cache_paths", runtime_source)
 
-    def test_fp_session_helper_adds_shell_number_labels(self) -> None:
-        self.assertIn("def _add_shell_number_labels", _FP_SESSION_SCRIPT)
-        self.assertIn("Shell {shell_index} | L{level}", _FP_SESSION_SCRIPT)
+    def test_fp_session_helper_uses_luna_shell_visual_defaults(self) -> None:
+        self.assertIn("def _show_all_shell_atoms_as_sticks", _FP_SESSION_SCRIPT)
+        self.assertIn("show_cartoon=False", _FP_SESSION_SCRIPT)
+        self.assertIn('sphere_transparency", 0.85', inspect.getsource(analysis_runtime))
         self.assertIn('"shell_labels"', _FP_SESSION_SCRIPT)
-        self.assertIn("cmd.pseudoatom", _FP_SESSION_SCRIPT)
+        self.assertIn("show_res_labels=True", _FP_SESSION_SCRIPT)
+        self.assertIn("def _shell_atoms", _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('"sphere_transparency", 0.85', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('cmd.show("sticks", atom_selection)', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('cmd.show("dots", centroid_name)', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('("atomic", "(protein or ligand) and not elem C+H+D")', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('("gray50", "protein and elem C")', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('("green", "ligand and elem C")', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('("white", "ligand and elem H+D")', _LEGACY_FP_SESSION_SCRIPT)
+        self.assertIn('("atomic", f"({main_group}) and not elem C+H+D")', _FP_SESSION_SCRIPT)
+        self.assertIn('("gray50", f"({main_group}) and polymer and elem C")', _FP_SESSION_SCRIPT)
+        self.assertIn('("green", f"({main_group}) and hetatm and not solvent and elem C")', _FP_SESSION_SCRIPT)
+        self.assertIn('("white", f"({main_group}) and hetatm and not solvent and elem H+D")', _FP_SESSION_SCRIPT)
 
     def test_generated_pse_sessions_use_the_canonical_interaction_palette(self) -> None:
         self.assertIn(
