@@ -186,7 +186,7 @@ def _build_shell_level_only_fp_detail(wd: Path, ifp_type: str, output_path: Path
     return payload
 
 _FP_SESSION_SCRIPT = r"""
-import faulthandler, gzip, json, os, pickle, re, sys, warnings
+import faulthandler, json, os, re, sys, warnings
 from pathlib import Path
 
 try:
@@ -401,13 +401,36 @@ def _local_entry_mol_file(workdir, entry_name, params):
             if not isinstance(spec, dict):
                 continue
             name = str(spec.get("ligand_name") or "").strip()
-            if name == str(entry_name).strip() and spec.get("mol_file"):
+            requested = str(entry_name).strip()
+            aliases = {requested, requested.split(":", 1)[-1], requested.replace("/", "_")}
+            if name in aliases and spec.get("mol_file"):
                 candidate = Path(str(spec["mol_file"]))
                 if candidate.exists():
                     return str(candidate)
     raw_candidate = str(params.get("lig_file") or "").strip() if isinstance(params, dict) else ""
     candidate = Path(raw_candidate) if raw_candidate else None
     return str(candidate) if candidate is not None and candidate.is_file() else ""
+
+
+def _viewer_entry(entry, workdir, entry_name, params):
+    # Rebuild only the viewer entry when its molecule file moved.
+    local_mol_file = _local_entry_mol_file(workdir, entry_name, params)
+    if not local_mol_file or not isinstance(entry, MolFileEntry):
+        return entry
+    if str(getattr(entry, "mol_file", "")) == local_mol_file:
+        return entry
+    meta = {
+        "kind": "MolFileEntry",
+        "pdb_id": getattr(entry, "pdb_id", ""),
+        "mol_id": getattr(entry, "mol_id", ""),
+        "mol_file": local_mol_file,
+        "mol_file_ext": getattr(entry, "mol_file_ext", None),
+        "mol_obj_type": getattr(entry, "mol_obj_type", None),
+        "is_multimol_file": bool(getattr(entry, "is_multimol_file", False)),
+        "overwrite_mol_name": bool(getattr(entry, "overwrite_mol_name", False)),
+        "sep": getattr(entry, "sep", ":"),
+    }
+    return _restore_entry(meta)
 
 
 def _resolve_pdb_source(workdir, entry, source):
@@ -450,14 +473,21 @@ def _load_json(path):
 
 
 def _load_project(workdir):
+    from luna.projects import LocalProject
+
     candidates = sorted(Path(workdir).glob("project_v*.pkl.gz"), reverse=True)
     if not candidates:
         raise RuntimeError(f"Nenhum project_v*.pkl.gz encontrado em {workdir}.")
     errors = []
     for candidate in candidates:
         try:
-            with gzip.open(candidate, "rb") as fh:
-                return pickle.load(fh), candidate
+            project = LocalProject.load(str(candidate), logging_enabled=False)
+            # LocalProject.load repairs this value for moved projects. Keep the
+            # active workdir authoritative for LUNA versions that do not.
+            project.working_path = str(Path(workdir).resolve())
+            if hasattr(project, "logging_file"):
+                project.logging_file = str(Path(workdir).resolve() / "logs" / "project.log")
+            return project, candidate
         except Exception as exc:
             errors.append(f"{candidate.name}: {type(exc).__name__}: {exc}")
     raise RuntimeError("Falha ao reabrir projeto LUNA: " + "; ".join(errors[:3]))
@@ -510,6 +540,12 @@ def _regenerate_shells_from_project(workdir, ifp_type, entry_name, feature_id):
         raise RuntimeError(f"Entry {entry_name} nao encontrada no projeto {project_path.name}.")
 
     entry_results = project.get_entry_results(matched_entry)
+    if entry_results is None or getattr(entry_results, "atm_grps_mngr", None) is None:
+        chunk_name = f"{_entry_key(matched_entry)}.pkl.gz"
+        raise RuntimeError(
+            f"Dados estruturais ausentes para {entry_name}: "
+            f"{Path(project.working_path) / 'chunks' / chunk_name}"
+        )
     atm_grps_mngr = entry_results.atm_grps_mngr
     shell_generator = ShellGenerator(
         project.ifp_num_levels,
@@ -531,41 +567,8 @@ def _regenerate_shells_from_project(workdir, ifp_type, entry_name, feature_id):
         or getattr(matched_entry, "pdb_file", "")
         or str(Path(workdir) / "pdbs")
     )
-    return matched_entry, shells, pdb_dir, f"live_project:{project_path.name}"
-
-
-def _load_cached_shell_payload(workdir, ifp_type, entry_name, feature_id):
-    suffix = {"EIFP": "E", "HIFP": "H", "FIFP": "F"}.get(ifp_type)
-    if suffix is None:
-        raise RuntimeError(f"Tipo IFP invalido: {ifp_type}")
-    payload_path = Path(workdir) / "results" / "fingerprints" / "_shells" / suffix / f"{_safe_name(entry_name)}.pkl.gz"
-    if not payload_path.exists():
-        raise RuntimeError(f"Shell artifact nao encontrado: {payload_path}")
-    with gzip.open(payload_path, "rb") as fh:
-        payload = pickle.load(fh)
-
-    if "entry_meta" in payload and "feature_shells" in payload:
-        entry_meta = dict(payload["entry_meta"])
-        local_mol_file = _local_entry_mol_file(
-            workdir,
-            entry_name,
-            _load_json(Path(workdir) / "_luna_api_params.json"),
-        )
-        if local_mol_file and entry_meta.get("kind") == "MolFileEntry":
-            entry_meta["mol_file"] = local_mol_file
-        entry = _restore_entry(entry_meta)
-        shells = payload.get("feature_shells", {}).get(str(feature_id)) or []
-    else:
-        entry = payload["entry"]
-        shells = _trace_feature_shells(
-            payload["shell_manager"],
-            feature_id,
-            payload["ifp_length"],
-            payload["ifp_count"],
-        )
-    if not shells:
-        raise RuntimeError(f"Nenhum shell foi encontrado no cache para o fingerprint {feature_id} em {entry_name}.")
-    return entry, shells, payload["pdb_dir"], f"cached_payload:{payload_path.name}"
+    viewer_entry = _viewer_entry(matched_entry, workdir, entry_name, params)
+    return viewer_entry, shells, pdb_dir, f"live_project:{project_path.name}"
 
 
 def _coords_from_value(value):
@@ -704,22 +707,16 @@ try:
     )
 except Exception as exc:
     live_error = f"{type(exc).__name__}: {exc}"
-    _stage(f"regeneracao live falhou; tentando cache legado: {live_error}")
-    try:
-        entry, shells, pdb_source, source = _load_cached_shell_payload(
-            workdir,
-            ifp_type,
-            entry_name,
-            feature_id,
+    _stage(f"regeneracao live falhou; cache leve nao e seguro para ShellViewer: {live_error}")
+    print(json.dumps({
+        "error": (
+            "Nao foi possivel regenerar shells pelo projeto LUNA. "
+            "O cache leve de shells nao pode ser usado para criar uma sessao PSE "
+            "porque nao contem o estado estrutural completo do LUNA. "
+            f"Detalhes: {live_error}"
         )
-    except Exception as cache_exc:
-        print(json.dumps({
-            "error": (
-                "Nao foi possivel regenerar shells pelo projeto LUNA nem recuperar shells do cache. "
-                f"Regeneracao live: {live_error}. Cache: {type(cache_exc).__name__}: {cache_exc}"
-            )
-        }))
-        sys.exit(0)
+    }))
+    sys.exit(0)
 
 if not shells:
     print(json.dumps({"error": f"Nenhum shell foi encontrado para o fingerprint {feature_id} em {entry_name}."}))

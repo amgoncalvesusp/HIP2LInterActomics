@@ -712,19 +712,16 @@ class LunaApiRunnerTests(unittest.TestCase):
 
     def test_fp_session_helper_restores_entries_from_metadata(self) -> None:
         self.assertIn("_restore_entry", _FP_SESSION_SCRIPT)
-        self.assertIn("entry_meta", _FP_SESSION_SCRIPT)
-        self.assertIn("feature_shells", _FP_SESSION_SCRIPT)
+        self.assertNotIn("_load_cached_shell_payload", _FP_SESSION_SCRIPT)
 
     def test_fp_session_helper_prefers_live_shell_regeneration(self) -> None:
         self.assertIn("_regenerate_shells_from_project", _FP_SESSION_SCRIPT)
-        self.assertIn("_load_cached_shell_payload", _FP_SESSION_SCRIPT)
+        self.assertIn("LocalProject.load", _FP_SESSION_SCRIPT)
+        self.assertIn("cache leve nao e seguro para ShellViewer", _FP_SESSION_SCRIPT)
+        self.assertIn("Dados estruturais ausentes", _FP_SESSION_SCRIPT)
         self.assertIn("def _local_entry_mol_file", _FP_SESSION_SCRIPT)
         self.assertIn("def _resolve_pdb_source", _FP_SESSION_SCRIPT)
-        self.assertIn('entry_meta = dict(payload["entry_meta"])', _FP_SESSION_SCRIPT)
-        self.assertLess(
-            _FP_SESSION_SCRIPT.index("_regenerate_shells_from_project"),
-            _FP_SESSION_SCRIPT.index("_load_cached_shell_payload"),
-        )
+        self.assertIn("def _viewer_entry", _FP_SESSION_SCRIPT)
 
     def test_fp_session_helper_adds_shell_number_labels(self) -> None:
         self.assertIn("def _add_shell_number_labels", _FP_SESSION_SCRIPT)
