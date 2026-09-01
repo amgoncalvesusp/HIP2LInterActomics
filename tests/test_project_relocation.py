@@ -55,9 +55,9 @@ class ProjectRelocationTests(unittest.TestCase):
 
             report = relocate_config_paths(loaded, str(old_workdir), new_workdir)
             self.assertEqual(Path(loaded.workdir), new_workdir.resolve())
-            self.assertEqual(Path(loaded.protein_file), new_bundle / "protein_file" / "receptor.pdb")
-            self.assertEqual(Path(loaded.ligand_file), new_bundle / "ligand_file" / "library.mol2")
-            self.assertEqual(Path(loaded.ifp_output), new_output)
+            self.assertEqual(Path(loaded.protein_file), (new_bundle / "protein_file" / "receptor.pdb").resolve())
+            self.assertEqual(Path(loaded.ligand_file), (new_bundle / "ligand_file" / "library.mol2").resolve())
+            self.assertEqual(Path(loaded.ifp_output), new_output.resolve())
             self.assertEqual(loaded.fp_labels_csv, str(root / "external" / "labels.csv"))
             self.assertIn("workdir", report["changed_paths"])
 
@@ -84,12 +84,12 @@ class ProjectRelocationTests(unittest.TestCase):
             report = relocate_params_file(params_path, str(old_workdir), new_workdir)
             updated = json.loads(params_path.read_text(encoding="utf-8"))
             self.assertEqual(Path(updated["workdir"]), new_workdir.resolve())
-            self.assertEqual(Path(updated["pdb_dir"]), new_workdir.parent / "protein_file")
+            self.assertEqual(Path(updated["pdb_dir"]), (new_workdir.parent / "protein_file").resolve())
             self.assertEqual(
                 Path(updated["entry_specs"][0]["mol_file"]),
-                new_workdir.parent / "ligand_file" / "library.mol2",
+                (new_workdir.parent / "ligand_file" / "library.mol2").resolve(),
             )
-            self.assertEqual(Path(updated["ifp_outputs"]["EIFP"]), new_workdir / "results" / "ifp.csv")
+            self.assertEqual(Path(updated["ifp_outputs"]["EIFP"]), (new_workdir / "results" / "ifp.csv").resolve())
             self.assertFalse(report["unresolved_paths"])
 
     def test_relocation_candidate_requires_project_markers(self) -> None:
