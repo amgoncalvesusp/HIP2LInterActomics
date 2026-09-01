@@ -19,7 +19,15 @@ from PyQt6.QtWidgets import (
     QMessageBox, QTabWidget, QSpinBox, QComboBox, QHeaderView,
 )
 
-from ..core.project import IFP_ALL, PROJECT_FILENAME, ProjectConfig, save_to_workdir
+from ..core.project import (
+    IFP_ALL,
+    PROJECT_FILENAME,
+    ProjectConfig,
+    relocate_config_paths,
+    relocate_params_file,
+    relocation_candidate,
+    save_to_workdir,
+)
 from ..core.analysis_runtime import run_analysis, run_residue_matrix
 from ..core.pymol_launcher import launch_pse_session
 from ..core.plot_manifest import load_manifest
@@ -516,6 +524,58 @@ class ResultsTab(QWidget):
         if d:
             self.wd_edit.setText(d)
 
+    def _maybe_relocate_workdir(self, workdir: Path) -> bool:
+        """Offer to repair a moved project's local configuration before loading it."""
+        config_path = workdir / PROJECT_FILENAME
+        if not config_path.is_file():
+            return True
+        try:
+            cfg = ProjectConfig.load(config_path)
+        except Exception:
+            return True
+        relocation = relocation_candidate(config_path, cfg)
+        if not relocation:
+            return True
+
+        saved_workdir, new_workdir = relocation
+        answer = QMessageBox.question(
+            self,
+            t("Projeto movido"),
+            t(
+                "Este projeto parece ter sido movido.\n\n"
+                "Localização salva:\n{old}\n\n"
+                "Localização selecionada:\n{new}\n\n"
+                "Deseja atualizar os caminhos internos do projeto?"
+            ).format(old=saved_workdir or "(não definido)", new=new_workdir),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return True
+
+        try:
+            report = relocate_config_paths(cfg, saved_workdir, new_workdir)
+            cfg.save(config_path)
+            params_report = relocate_params_file(
+                new_workdir / "_luna_api_params.json",
+                saved_workdir,
+                new_workdir,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, t("Erro ao atualizar projeto"), str(exc))
+            return False
+
+        cache = getattr(self, "_workdir_project_cache", None)
+        if isinstance(cache, dict):
+            cache.pop(str(config_path), None)
+        changed = len(report["changed_paths"]) + len(params_report["changed_paths"])
+        unresolved = len(report["unresolved_paths"]) + len(params_report["unresolved_paths"])
+        detail = t("Projeto realocado: {changed} caminhos atualizados.").format(changed=changed)
+        if unresolved:
+            detail += " " + t("{unresolved} caminhos não foram encontrados.").format(unresolved=unresolved)
+        self.statusBar().showMessage(detail, 9000)
+        return True
+
     def _import_results_archive(self) -> None:
         archive, _ = QFileDialog.getOpenFileName(
             self,
@@ -659,6 +719,8 @@ class ResultsTab(QWidget):
     def load_all(self) -> None:
         wd = self._current_wd()
         if not wd:
+            return
+        if not self._maybe_relocate_workdir(wd):
             return
         self._populate_fp_preview_sources(wd)
         self._populate_similarity_sources(wd)

@@ -12,7 +12,7 @@
 ;   ISCC.exe /DBundleDir="C:\path\to\HIP2LInterActomics" /DOutputDir="C:\out" installer\HIP2LInterActomics.iss
 
 #define MyAppName "HIP2LInterActomics"
-#define MyAppVersion "1.6.5"
+#define MyAppVersion "1.6.6"
 #define MyAppPublisher "Daniel Andres Grajales Ruiz e Adriano Marques Goncalves"
 #define MyAppExe "HIP2LInterActomics.exe"
 

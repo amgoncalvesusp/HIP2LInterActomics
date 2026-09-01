@@ -393,6 +393,36 @@ def _restore_entry(meta):
     )
 
 
+def _local_entry_mol_file(workdir, entry_name, params):
+    # Resolve a relocated ligand path from the current runner parameters.
+    specs = params.get("entry_specs") if isinstance(params, dict) else None
+    if isinstance(specs, list):
+        for spec in specs:
+            if not isinstance(spec, dict):
+                continue
+            name = str(spec.get("ligand_name") or "").strip()
+            if name == str(entry_name).strip() and spec.get("mol_file"):
+                candidate = Path(str(spec["mol_file"]))
+                if candidate.exists():
+                    return str(candidate)
+    raw_candidate = str(params.get("lig_file") or "").strip() if isinstance(params, dict) else ""
+    candidate = Path(raw_candidate) if raw_candidate else None
+    return str(candidate) if candidate is not None and candidate.is_file() else ""
+
+
+def _resolve_pdb_source(workdir, entry, source):
+    # Prefer PDB data in the active workdir over stale serialized paths.
+    local_dir = Path(workdir) / "pdbs"
+    pdb_id = str(getattr(entry, "pdb_id", "") or "").strip()
+    if local_dir.is_dir() and pdb_id and (local_dir / f"{pdb_id}.pdb").is_file():
+        return str(local_dir)
+    for value in (source, getattr(entry, "pdb_file", "")):
+        candidate = Path(str(value or ""))
+        if candidate.exists():
+            return str(candidate)
+    return source
+
+
 def _entry_key(entry):
     try:
         return entry.to_string()
@@ -515,7 +545,15 @@ def _load_cached_shell_payload(workdir, ifp_type, entry_name, feature_id):
         payload = pickle.load(fh)
 
     if "entry_meta" in payload and "feature_shells" in payload:
-        entry = _restore_entry(payload["entry_meta"])
+        entry_meta = dict(payload["entry_meta"])
+        local_mol_file = _local_entry_mol_file(
+            workdir,
+            entry_name,
+            _load_json(Path(workdir) / "_luna_api_params.json"),
+        )
+        if local_mol_file and entry_meta.get("kind") == "MolFileEntry":
+            entry_meta["mol_file"] = local_mol_file
+        entry = _restore_entry(entry_meta)
         shells = payload.get("feature_shells", {}).get(str(feature_id)) or []
     else:
         entry = payload["entry"]
@@ -686,6 +724,8 @@ except Exception as exc:
 if not shells:
     print(json.dumps({"error": f"Nenhum shell foi encontrado para o fingerprint {feature_id} em {entry_name}."}))
     sys.exit(0)
+
+pdb_source = _resolve_pdb_source(workdir, entry, pdb_source)
 
 output_path.parent.mkdir(parents=True, exist_ok=True)
 _stage(f"shells recuperados: {len(shells)} ({source}); preparando ShellViewer do LUNA")

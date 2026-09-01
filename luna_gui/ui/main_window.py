@@ -22,7 +22,13 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence
 
-from ..core.project import ProjectConfig, save_to_workdir
+from ..core.project import (
+    ProjectConfig,
+    relocate_config_paths,
+    relocate_params_file,
+    relocation_candidate,
+    save_to_workdir,
+)
 from ..i18n import (
     LANGUAGES,
     install_translation_hooks,
@@ -319,6 +325,40 @@ class MainWindow(QMainWindow):
             cfg = ProjectConfig.load(f)
         except Exception as e:
             QMessageBox.critical(self, "Erro", str(e)); return
+        relocation = relocation_candidate(f, cfg)
+        if relocation:
+            saved_workdir, new_workdir = relocation
+            old_label = saved_workdir or "(não definido)"
+            answer = QMessageBox.question(
+                self,
+                t("Projeto movido"),
+                t(
+                    "Este projeto parece ter sido movido.\n\n"
+                    "Localização salva:\n{old}\n\n"
+                    "Localização selecionada:\n{new}\n\n"
+                    "Deseja atualizar os caminhos internos do projeto?"
+                ).format(old=old_label, new=new_workdir),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                try:
+                    report = relocate_config_paths(cfg, saved_workdir, new_workdir)
+                    cfg.save(f)
+                    params_report = relocate_params_file(
+                        new_workdir / "_luna_api_params.json",
+                        saved_workdir,
+                        new_workdir,
+                    )
+                    changed = len(report["changed_paths"]) + len(params_report["changed_paths"])
+                    unresolved = len(report["unresolved_paths"]) + len(params_report["unresolved_paths"])
+                    detail = t("Projeto realocado: {changed} caminhos atualizados.").format(changed=changed)
+                    if unresolved:
+                        detail += " " + t("{unresolved} caminhos não foram encontrados.").format(unresolved=unresolved)
+                    self.statusBar().showMessage(detail, 9000)
+                except Exception as exc:
+                    QMessageBox.critical(self, t("Erro ao atualizar projeto"), str(exc))
+                    return
         self._apply_loaded_cfg(cfg)
 
     def _save_project(self) -> None:
