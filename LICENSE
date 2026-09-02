@@ -1,21 +1,219 @@
-MIT License
+HIP²LInterActomics
+==================
 
-Copyright (c) 2026 amgoncalvesusp
+Copyright (c) 2026 HIP²LInterActomics contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+SPDX-License-Identifier: GPL-3.0-only
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1. HIP²LInterActomics License
+-----------------------------
+
+HIP²LInterActomics is free and open-source software licensed under the
+GNU General Public License, version 3 only (GPL-3.0-only).
+
+You may redistribute and/or modify HIP²LInterActomics under the terms of
+the GNU General Public License as published by the Free Software Foundation,
+version 3 of the License.
+
+HIP²LInterActomics is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+See the complete GNU General Public License version 3 reproduced below.
+
+
+2. Third-Party Software
+-----------------------
+
+HIP²LInterActomics uses, interfaces with, depends on, or may distribute
+components developed by third parties.
+
+Unless explicitly stated otherwise, third-party software is NOT covered
+by the HIP²LInterActomics copyright notice above and remains subject to
+the copyright and license terms established by its respective authors
+and copyright holders.
+
+The inclusion, use, invocation, or distribution of a third-party component
+does not modify its original license.
+
+
+3. Graphical Interface and Packaged Desktop Application
+-------------------------------------------------------
+
+The HIP²LInterActomics graphical interface uses PyQt6.
+
+PyQt6 is distributed by Riverbank Computing Limited under the GNU General
+Public License version 3 (GPL-3.0-only), or under a separate commercial
+license for appropriately licensed users.
+
+The publicly distributed open-source builds of HIP²LInterActomics use the
+GPL-licensed version of PyQt6. Accordingly, the HIP²LInterActomics desktop
+application is distributed under GPL-3.0-only.
+
+Qt libraries distributed as dependencies of PyQt6 retain their respective
+Qt licensing terms, including applicable GNU Lesser General Public License
+(LGPL) and/or other licenses.
+
+Nothing in this file relicenses PyQt6, Qt, or any other third-party
+component.
+
+
+4. Scientific Computation Environment
+-------------------------------------
+
+HIP²LInterActomics separates its graphical/interface environment from the
+scientific computation environment used for molecular analysis.
+
+The scientific environment ("luna-env") may contain or invoke independent
+third-party software including, but not limited to:
+
+    LUNA
+    RDKit
+    Open Babel
+    PyMOL Open Source
+    Biopython
+    NumPy
+    SciPy
+    pandas
+    scikit-learn
+    Matplotlib
+    NetworkX
+    and their dependencies.
+
+These components retain their respective licenses.
+
+In particular:
+
+    LUNA
+        Distributed under its upstream open-source license.
+
+    RDKit
+        Distributed under its upstream BSD-style license.
+
+    Open Babel
+        Distributed under the GNU General Public License version 2
+        according to its upstream licensing terms.
+
+    PyMOL Open Source
+        Distributed under its upstream open-source license.
+
+    NumPy, SciPy, scikit-learn, pandas, NetworkX, Biopython,
+    Matplotlib, and related scientific libraries
+        Distributed under their respective upstream open-source licenses.
+
+Users redistributing these components are responsible for complying with
+the corresponding upstream license terms.
+
+
+5. Separation of HIP²LInterActomics and External Scientific Programs
+--------------------------------------------------------------------
+
+Some scientific programs are executed by HIP²LInterActomics as independent
+processes through command-line interfaces, subprocess execution, files,
+configuration files, or serialized project data.
+
+In particular, components installed inside the separate "luna-env"
+environment are not automatically relicensed as part of HIP²LInterActomics.
+
+For example, HIP²LInterActomics may invoke the Open Babel command-line
+program ("obabel") as an external process. Open Babel remains governed by
+its own license.
+
+Likewise, LUNA, RDKit, PyMOL, and other components installed in the
+scientific environment retain their respective copyright and licensing
+terms.
+
+
+6. PyInstaller and Packaging Tools
+----------------------------------
+
+Desktop distributions of HIP²LInterActomics may be created using
+PyInstaller and additional packaging tools such as Inno Setup and
+AppImage tooling.
+
+These build and packaging tools retain their respective licenses.
+
+The use of these tools to create HIP²LInterActomics distributions does not
+transfer ownership of those tools to the HIP²LInterActomics authors and
+does not supersede their upstream licensing conditions.
+
+
+7. Third-Party Components Included in Binary Distributions
+----------------------------------------------------------
+
+Binary distributions, including Windows installers and Linux AppImages,
+may contain runtime libraries required by the application.
+
+Such libraries remain subject to their original licenses and copyright
+notices.
+
+A binary distribution of HIP²LInterActomics must not be interpreted as
+granting broader rights over third-party components than those granted by
+their respective licenses.
+
+Where required by an applicable third-party license, the corresponding
+license terms, copyright notices, source-code availability information,
+or other notices must be preserved with the distributed software.
+
+
+8. Source Code
+--------------
+
+The source code of HIP²LInterActomics is available from the official
+project repository:
+
+https://github.com/amgoncalvesusp/HIP2LInterActomics
+
+For reproducibility and license compliance, users should refer whenever
+possible to the source-code tag corresponding to the distributed binary
+release.
+
+Source code for third-party components is available from their respective
+upstream projects and remains governed by their respective licenses.
+
+
+9. Scientific Use and Disclaimer
+--------------------------------
+
+HIP²LInterActomics is scientific software intended to assist with molecular
+interaction analysis, interaction fingerprints, structural interpretation,
+visualization, and related computational workflows.
+
+The software and its generated results are provided without any guarantee
+of scientific, experimental, clinical, diagnostic, therapeutic, regulatory,
+commercial, or other fitness for a particular purpose.
+
+Computational results depend on the quality of input molecular structures,
+protonation states, molecular conformations, interaction definitions,
+software versions, numerical parameters, and analysis settings.
+
+Automated statistical analyses, clustering, feature importance,
+fingerprint interpretation, or generated report text should not be
+interpreted as experimental validation, causal evidence, medical advice,
+or a substitute for expert scientific assessment.
+
+The authors and contributors are not liable for conclusions, decisions,
+losses, damages, or other consequences arising from use of the software or
+its outputs, subject to the limitations and exclusions permitted under the
+GNU General Public License and applicable law.
+
+
+10. No Endorsement
+------------------
+
+The names of third-party projects, developers, institutions, trademarks,
+or software packages referenced by HIP²LInterActomics are used solely for
+identification and interoperability purposes.
+
+Their inclusion does not imply sponsorship, endorsement, certification,
+or affiliation with HIP²LInterActomics or its authors unless explicitly
+stated by the respective rights holders.
+
+
+11. GNU General Public License Version 3
+----------------------------------------
+
+The following license governs HIP²LInterActomics itself.
+
+The text below must be preserved without modification.
